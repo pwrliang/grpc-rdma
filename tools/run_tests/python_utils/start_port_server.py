@@ -30,7 +30,7 @@
 from __future__ import print_function
 
 from six.moves import urllib
-import jobset
+from python_utils import jobset
 import logging
 import os
 import socket
