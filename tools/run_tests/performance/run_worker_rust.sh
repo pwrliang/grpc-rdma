@@ -32,4 +32,4 @@ set -ex
 
 cd $(dirname $0)/../../..
 
-../grpc-rs/target/release/benchmark $@
+../grpc-rs/target/release/qps_worker $@
