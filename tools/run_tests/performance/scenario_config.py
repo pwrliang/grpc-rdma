@@ -803,6 +803,35 @@ class GoLanguage:
           secure=secure,
           categories=[SCALABLE])
 
+      yield _ping_pong_scenario(
+          'go_to_cpp_protobuf_sync_streaming_ping_pong_%s' % secstr, rpc_type='STREAMING',
+          client_type='SYNC_CLIENT', server_type='ASYNC_SERVER',
+          async_server_threads=1, server_language='c++',
+          secure=secure)
+
+      yield _ping_pong_scenario(
+          'go_to_cpp_protobuf_sync_unary_ping_pong_%s' % secstr, rpc_type='UNARY',
+          client_type='SYNC_CLIENT', server_type='ASYNC_SERVER',
+          async_server_threads=1, server_language='c++',
+          secure=secure,
+          categories=smoketest_categories)
+
+      # unconstrained_client='async' is intended (client uses goroutines)
+      yield _ping_pong_scenario(
+          'go_to_cpp_protobuf_sync_unary_qps_unconstrained_%s' % secstr, rpc_type='UNARY',
+          client_type='SYNC_CLIENT', server_type='ASYNC_SERVER', server_language='c++',
+          unconstrained_client='async',
+          secure=secure,
+          categories=smoketest_categories+[SCALABLE])
+
+      # unconstrained_client='async' is intended (client uses goroutines)
+      yield _ping_pong_scenario(
+          'go_to_cpp_protobuf_sync_streaming_qps_unconstrained_%s' % secstr, rpc_type='STREAMING',
+          client_type='SYNC_CLIENT', server_type='ASYNC_SERVER',
+          unconstrained_client='async', server_language='c++',
+          secure=secure,
+          categories=[SCALABLE])
+
       # unconstrained_client='async' is intended (client uses goroutines)
       # ASYNC_GENERIC_SERVER for Go actually uses a sync streaming server,
       # but that's mostly because of lack of better name of the enum value.
