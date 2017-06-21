@@ -37,4 +37,4 @@ PERF_SCRIPT_OUTPUT=${PERF_BASE_NAME}-out.perf
 echo "running perf script on $PERF_DATA_FILE"
 perf script -i $PERF_DATA_FILE > $PERF_SCRIPT_OUTPUT
 
-~/FlameGraph/stackcollapse-perf.pl $PERF_SCRIPT_OUTPUT | ~/FlameGraph/flamegraph.pl > ${OUTPUT_DIR}/${OUTPUT_FILENAME}.svg
+./FlameGraph/stackcollapse-perf.pl $PERF_SCRIPT_OUTPUT | ./FlameGraph/flamegraph.pl > ${OUTPUT_DIR}/${OUTPUT_FILENAME}.svg

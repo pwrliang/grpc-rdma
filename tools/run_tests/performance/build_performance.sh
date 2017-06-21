@@ -61,6 +61,9 @@ do
   "csharp")
     python tools/run_tests/run_tests.py -l $language -c $CONFIG --build_only -j 8 --compiler coreclr
     ;;
+  "rust")
+    (cd ../grpc-rs/ && cargo build -p benchmark --release)
+    ;;
   *)
     python tools/run_tests/run_tests.py -l $language -c $CONFIG --build_only -j 8
     ;;
