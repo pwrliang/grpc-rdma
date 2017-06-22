@@ -76,7 +76,8 @@ static void run_test(const test_fixture *fixture) {
 
   grpc_server *server = grpc_server_create(NULL, NULL);
   fixture->add_server_port(server, addr);
-  grpc_completion_queue *server_cq = grpc_completion_queue_create(NULL);
+  grpc_completion_queue *server_cq =
+      grpc_completion_queue_create_for_next(NULL);
   grpc_server_register_completion_queue(server, server_cq, NULL);
   grpc_server_start(server);
 
@@ -86,7 +87,7 @@ static void run_test(const test_fixture *fixture) {
   gpr_thd_options_set_joinable(&thdopt);
   gpr_thd_new(&server_thread, server_thread_func, &sta, &thdopt);
 
-  grpc_completion_queue *cq = grpc_completion_queue_create(NULL);
+  grpc_completion_queue *cq = grpc_completion_queue_create_for_next(NULL);
   grpc_channel *channels[NUM_CONNECTIONS];
   for (size_t i = 0; i < NUM_CONNECTIONS; i++) {
     channels[i] = fixture->create_channel(addr);
@@ -99,6 +100,9 @@ static void run_test(const test_fixture *fixture) {
                                             connect_deadline, cq, NULL);
       grpc_event ev = grpc_completion_queue_next(
           cq, gpr_inf_future(GPR_CLOCK_REALTIME), NULL);
+      /* check that the watcher from "watch state" was free'd */
+      GPR_ASSERT(grpc_channel_num_external_connectivity_watchers(channels[i]) ==
+                 0);
       GPR_ASSERT(ev.type == GRPC_OP_COMPLETE);
       GPR_ASSERT(ev.tag == NULL);
       GPR_ASSERT(ev.success == true);

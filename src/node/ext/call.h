@@ -37,13 +37,12 @@
 #include <memory>
 #include <vector>
 
-#include <node.h>
 #include <nan.h>
+#include <node.h>
 #include "grpc/grpc.h"
 #include "grpc/support/log.h"
 
 #include "channel.h"
-
 
 namespace grpc {
 namespace node {
@@ -97,6 +96,7 @@ class Call : public Nan::ObjectWrap {
      call, this is GRPC_OP_RECV_STATUS_ON_CLIENT and for a server call, this
      is GRPC_OP_SEND_STATUS_FROM_SERVER */
   bool has_final_op_completed;
+  char *peer;
 };
 
 class Op {

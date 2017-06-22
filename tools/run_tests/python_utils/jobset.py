@@ -41,6 +41,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import errno
 
 
 # cpu cost measurement
@@ -132,29 +133,44 @@ _TAG_COLOR = {
 _FORMAT = '%(asctime)-15s %(message)s'
 logging.basicConfig(level=logging.INFO, format=_FORMAT)
 
+
+def eintr_be_gone(fn):
+  """Run fn until it doesn't stop because of EINTR"""
+  while True:
+    try:
+      return fn()
+    except IOError, e:
+      if e.errno != errno.EINTR:
+        raise
+
+
+
 def message(tag, msg, explanatory_text=None, do_newline=False):
   if message.old_tag == tag and message.old_msg == msg and not explanatory_text:
     return
   message.old_tag = tag
   message.old_msg = msg
-  try:
-    if platform_string() == 'windows' or not sys.stdout.isatty():
-      if explanatory_text:
-        logging.info(explanatory_text)
-      logging.info('%s: %s', tag, msg)
-    else:
-      sys.stdout.write('%s%s%s\x1b[%d;%dm%s\x1b[0m: %s%s' % (
-          _BEGINNING_OF_LINE,
-          _CLEAR_LINE,
-          '\n%s' % explanatory_text if explanatory_text is not None else '',
-          _COLORS[_TAG_COLOR[tag]][1],
-          _COLORS[_TAG_COLOR[tag]][0],
-          tag,
-          msg,
-          '\n' if do_newline or explanatory_text is not None else ''))
-    sys.stdout.flush()
-  except:
-    pass
+  while True:
+    try:
+      if platform_string() == 'windows' or not sys.stdout.isatty():
+        if explanatory_text:
+          logging.info(explanatory_text)
+        logging.info('%s: %s', tag, msg)
+      else:
+        sys.stdout.write('%s%s%s\x1b[%d;%dm%s\x1b[0m: %s%s' % (
+            _BEGINNING_OF_LINE,
+            _CLEAR_LINE,
+            '\n%s' % explanatory_text if explanatory_text is not None else '',
+            _COLORS[_TAG_COLOR[tag]][1],
+            _COLORS[_TAG_COLOR[tag]][0],
+            tag,
+            msg,
+            '\n' if do_newline or explanatory_text is not None else ''))
+      sys.stdout.flush()
+      return
+    except IOError, e:
+      if e.errno != errno.EINTR:
+        raise
 
 message.old_tag = ''
 message.old_msg = ''
@@ -208,6 +224,11 @@ class JobSpec(object):
   def __repr__(self):
     return 'JobSpec(shortname=%s, cmdline=%s)' % (self.shortname, self.cmdline)
 
+  def __str__(self):
+    return '%s: %s %s' % (self.shortname,
+                          ' '.join('%s=%s' % kv for kv in self.environ.items()),
+                          ' '.join(self.cmdline))
+
 
 class JobResult(object):
   def __init__(self):
@@ -217,6 +238,13 @@ class JobResult(object):
     self.num_failures = 0
     self.retries = 0
     self.message = ''
+    self.cpu_estimated = 1
+    self.cpu_measured = 0
+
+
+def read_from_start(f):
+  f.seek(0)
+  return f.read()
 
 
 class Job(object):
@@ -249,7 +277,7 @@ class Job(object):
     self._start = time.time()
     cmdline = self._spec.cmdline
     if measure_cpu_costs:
-      cmdline = ['time', '--portability'] + cmdline
+      cmdline = ['time', '-p'] + cmdline
     try_start = lambda: subprocess.Popen(args=cmdline,
                                          stderr=subprocess.STDOUT,
                                          stdout=self._tempfile,
@@ -272,8 +300,7 @@ class Job(object):
   def state(self):
     """Poll current state of the job. Prints messages at completion."""
     def stdout(self=self):
-      self._tempfile.seek(0)
-      stdout = self._tempfile.read()
+      stdout = read_from_start(self._tempfile)
       self.result.message = stdout[-_MAX_RESULT_SIZE:]
       return stdout
     if self._state == _RUNNING and self._process.poll() is not None:
@@ -301,13 +328,15 @@ class Job(object):
         self._state = _SUCCESS
         measurement = ''
         if measure_cpu_costs:
-          m = re.search(r'real ([0-9.]+)\nuser ([0-9.]+)\nsys ([0-9.]+)', stdout())
+          m = re.search(r'real\s+([0-9.]+)\nuser\s+([0-9.]+)\nsys\s+([0-9.]+)', stdout())
           real = float(m.group(1))
           user = float(m.group(2))
           sys = float(m.group(3))
           if real > 0.5:
             cores = (user + sys) / real
-            measurement = '; cpu_cost=%.01f; estimated=%.01f' % (cores, self._spec.cpu_cost)
+            self.result.cpu_measured = float('%.01f' % cores)
+            self.result.cpu_estimated = float('%.01f' % self._spec.cpu_cost)
+            measurement = '; cpu_cost=%.01f; estimated=%.01f' % (self.result.cpu_measured, self.result.cpu_estimated)
         if not self._quiet_success:
           message('PASSED', '%s [time=%.1fsec; retries=%d:%d%s]' % (
               self._spec.shortname, elapsed, self._retries, self._timeout_retries, measurement),
@@ -407,7 +436,7 @@ class Jobset(object):
     while self._running:
       dead = set()
       for job in self._running:
-        st = job.state()
+        st = eintr_be_gone(lambda: job.state())
         if st == _RUNNING: continue
         if st == _FAILURE or st == _KILLED:
           self._failures += 1

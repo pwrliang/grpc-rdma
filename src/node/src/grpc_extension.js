@@ -1,5 +1,5 @@
-/*
- *
+/**
+ * @license
  * Copyright 2016, Google Inc.
  * All rights reserved.
  *
@@ -30,6 +30,13 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
  */
+
+/**
+ * @module
+ * @private
+ */
+
+'use strict';
 
 var binary = require('node-pre-gyp/lib/pre-binding');
 var path = require('path');

@@ -117,7 +117,7 @@ namespace Grpc.Core.Internal
             {
                 var ctx = BatchContextSafeHandle.Create();
                 completionQueue.CompletionRegistry.RegisterBatchCompletion(ctx, (success, context) => callback(success));
-                Native.grpcsharp_call_send_message(this, ctx, payload, new UIntPtr((ulong)payload.Length), writeFlags, sendEmptyInitialMetadata).CheckOk();
+                Native.grpcsharp_call_send_message(this, ctx, payload, new UIntPtr((ulong)payload.Length), writeFlags, sendEmptyInitialMetadata ? 1 : 0).CheckOk();
             }
         }
 
@@ -140,7 +140,7 @@ namespace Grpc.Core.Internal
                 var optionalPayloadLength = optionalPayload != null ? new UIntPtr((ulong)optionalPayload.Length) : UIntPtr.Zero;
                 completionQueue.CompletionRegistry.RegisterBatchCompletion(ctx, (success, context) => callback(success));
                 var statusDetailBytes = MarshalUtils.GetBytesUTF8(status.Detail);
-                Native.grpcsharp_call_send_status_from_server(this, ctx, status.StatusCode, statusDetailBytes, new UIntPtr((ulong)statusDetailBytes.Length), metadataArray, sendEmptyInitialMetadata,
+                Native.grpcsharp_call_send_status_from_server(this, ctx, status.StatusCode, statusDetailBytes, new UIntPtr((ulong)statusDetailBytes.Length), metadataArray, sendEmptyInitialMetadata ? 1 : 0,
                     optionalPayload, optionalPayloadLength, writeFlags).CheckOk();
             }
         }
@@ -217,6 +217,17 @@ namespace Grpc.Core.Internal
         private static uint GetFlags(bool buffered)
         {
             return buffered ? 0 : GRPC_WRITE_BUFFER_HINT;
+        }
+
+        /// <summary>
+        /// Only for testing.
+        /// </summary>
+        public static CallSafeHandle CreateFake(IntPtr ptr, CompletionQueueSafeHandle cq)
+        {
+            var call = new CallSafeHandle();
+            call.SetHandle(ptr);
+            call.Initialize(cq);
+            return call;
         }
     }
 }
