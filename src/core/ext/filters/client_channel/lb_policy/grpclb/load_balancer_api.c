@@ -1,33 +1,18 @@
 /*
  *
- * Copyright 2016, Google Inc.
- * All rights reserved.
+ * Copyright 2016 gRPC authors.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are
- * met:
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- *     * Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- *     * Redistributions in binary form must reproduce the above
- * copyright notice, this list of conditions and the following disclaimer
- * in the documentation and/or other materials provided with the
- * distribution.
- *     * Neither the name of Google Inc. nor the names of its
- * contributors may be used to endorse or promote products derived from
- * this software without specific prior written permission.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
- * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
- * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
- * OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
- * LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
- * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
- * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  *
  */
 
@@ -91,7 +76,33 @@ static void populate_timestamp(gpr_timespec timestamp,
   timestamp_pb->nanos = timestamp.tv_nsec;
 }
 
-grpc_grpclb_request *grpc_grpclb_load_report_request_create(
+static bool encode_string(pb_ostream_t *stream, const pb_field_t *field,
+                          void *const *arg) {
+  char *str = *arg;
+  if (!pb_encode_tag_for_field(stream, field)) return false;
+  return pb_encode_string(stream, (uint8_t *)str, strlen(str));
+}
+
+static bool encode_drops(pb_ostream_t *stream, const pb_field_t *field,
+                         void *const *arg) {
+  grpc_grpclb_dropped_call_counts *drop_entries = *arg;
+  if (drop_entries == NULL) return true;
+  for (size_t i = 0; i < drop_entries->num_entries; ++i) {
+    if (!pb_encode_tag_for_field(stream, field)) return false;
+    grpc_lb_v1_ClientStatsPerToken drop_message;
+    drop_message.load_balance_token.funcs.encode = encode_string;
+    drop_message.load_balance_token.arg = drop_entries->token_counts[i].token;
+    drop_message.has_num_calls = true;
+    drop_message.num_calls = drop_entries->token_counts[i].count;
+    if (!pb_encode_submessage(stream, grpc_lb_v1_ClientStatsPerToken_fields,
+                              &drop_message)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+grpc_grpclb_request *grpc_grpclb_load_report_request_create_locked(
     grpc_grpclb_client_stats *client_stats) {
   grpc_grpclb_request *req = gpr_zalloc(sizeof(grpc_grpclb_request));
   req->has_client_stats = true;
@@ -99,18 +110,17 @@ grpc_grpclb_request *grpc_grpclb_load_report_request_create(
   populate_timestamp(gpr_now(GPR_CLOCK_REALTIME), &req->client_stats.timestamp);
   req->client_stats.has_num_calls_started = true;
   req->client_stats.has_num_calls_finished = true;
-  req->client_stats.has_num_calls_finished_with_drop_for_rate_limiting = true;
-  req->client_stats.has_num_calls_finished_with_drop_for_load_balancing = true;
   req->client_stats.has_num_calls_finished_with_client_failed_to_send = true;
   req->client_stats.has_num_calls_finished_with_client_failed_to_send = true;
   req->client_stats.has_num_calls_finished_known_received = true;
-  grpc_grpclb_client_stats_get(
+  req->client_stats.calls_finished_with_drop.funcs.encode = encode_drops;
+  grpc_grpclb_client_stats_get_locked(
       client_stats, &req->client_stats.num_calls_started,
       &req->client_stats.num_calls_finished,
-      &req->client_stats.num_calls_finished_with_drop_for_rate_limiting,
-      &req->client_stats.num_calls_finished_with_drop_for_load_balancing,
       &req->client_stats.num_calls_finished_with_client_failed_to_send,
-      &req->client_stats.num_calls_finished_known_received);
+      &req->client_stats.num_calls_finished_known_received,
+      (grpc_grpclb_dropped_call_counts **)&req->client_stats
+          .calls_finished_with_drop.arg);
   return req;
 }
 
@@ -132,6 +142,11 @@ grpc_slice grpc_grpclb_request_encode(const grpc_grpclb_request *request) {
 }
 
 void grpc_grpclb_request_destroy(grpc_grpclb_request *request) {
+  if (request->has_client_stats) {
+    grpc_grpclb_dropped_call_counts *drop_entries =
+        request->client_stats.calls_finished_with_drop.arg;
+    grpc_grpclb_dropped_call_counts_destroy(drop_entries);
+  }
   gpr_free(request);
 }
 

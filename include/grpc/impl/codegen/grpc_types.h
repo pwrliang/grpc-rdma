@@ -1,33 +1,18 @@
 /*
  *
- * Copyright 2015, Google Inc.
- * All rights reserved.
+ * Copyright 2015 gRPC authors.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are
- * met:
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- *     * Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- *     * Redistributions in binary form must reproduce the above
- * copyright notice, this list of conditions and the following disclaimer
- * in the documentation and/or other materials provided with the
- * distribution.
- *     * Neither the name of Google Inc. nor the names of its
- * contributors may be used to endorse or promote products derived from
- * this software without specific prior written permission.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
- * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
- * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
- * OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
- * LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
- * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
- * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  *
  */
 
@@ -56,11 +41,11 @@ typedef enum {
 typedef struct grpc_byte_buffer {
   void *reserved;
   grpc_byte_buffer_type type;
-  union {
-    struct {
+  union grpc_byte_buffer_data {
+    struct /* internal */ {
       void *reserved[8];
     } reserved;
-    struct {
+    struct grpc_compressed_buffer {
       grpc_compression_algorithm compression;
       grpc_slice_buffer slice_buffer;
     } raw;
@@ -119,10 +104,10 @@ typedef struct grpc_arg_pointer_vtable {
 typedef struct {
   grpc_arg_type type;
   char *key;
-  union {
+  union grpc_arg_value {
     char *string;
     int integer;
-    struct {
+    struct grpc_arg_pointer {
       void *p;
       const grpc_arg_pointer_vtable *vtable;
     } pointer;
@@ -273,8 +258,12 @@ typedef struct {
 #define GRPC_ARG_RESOURCE_QUOTA "grpc.resource_quota"
 /** If non-zero, expand wildcard addresses to a list of local addresses. */
 #define GRPC_ARG_EXPAND_WILDCARD_ADDRS "grpc.expand_wildcard_addrs"
-/** Service config data in JSON form. Not intended for use outside of tests. */
+/** Service config data in JSON form.
+    This value will be ignored if the name resolver returns a service config. */
 #define GRPC_ARG_SERVICE_CONFIG "grpc.service_config"
+/** Disable looking up the service config via the name resolver. */
+#define GRPC_ARG_SERVICE_CONFIG_DISABLE_RESOLUTION \
+  "grpc.service_config_disable_resolution"
 /** LB policy name. */
 #define GRPC_ARG_LB_POLICY_NAME "grpc.lb_policy_name"
 /** The grpc_socket_mutator instance that set the socket options. A pointer. */
@@ -302,6 +291,14 @@ typedef struct {
 /** If non-zero, grpc server's cronet compression workaround will be enabled */
 #define GRPC_ARG_WORKAROUND_CRONET_COMPRESSION \
   "grpc.workaround.cronet_compression"
+/** String defining the optimization target for a channel.
+    Can be: "latency"    - attempt to minimize latency at the cost of throughput
+            "blend"      - try to balance latency and throughput
+            "throughput" - attempt to maximize throughput at the expense of
+                           latency
+    Defaults to "blend". In the current implementation "blend" is equivalent to
+    "latency". */
+#define GRPC_ARG_OPTIMIZATION_TARGET "grpc.optimization_target"
 /** \} */
 
 /** Result of a grpc call. If the caller satisfies the prerequisites of a
@@ -340,7 +337,9 @@ typedef enum grpc_call_error {
   /** this batch of operations leads to more operations than allowed */
   GRPC_CALL_ERROR_BATCH_TOO_BIG,
   /** payload type requested is not the type registered */
-  GRPC_CALL_ERROR_PAYLOAD_TYPE_MISMATCH
+  GRPC_CALL_ERROR_PAYLOAD_TYPE_MISMATCH,
+  /** completion queue has been shutdown */
+  GRPC_CALL_ERROR_COMPLETION_QUEUE_SHUTDOWN
 } grpc_call_error;
 
 /** Default send/receive message size limits in bytes. -1 for unlimited. */
@@ -392,7 +391,7 @@ typedef struct grpc_metadata {
   /** The following fields are reserved for grpc internal use.
       There is no need to initialize them, and they will be set to garbage
       during calls to grpc. */
-  struct {
+  struct /* internal */ {
     void *obfuscated[4];
   } internal_data;
 } grpc_metadata;
@@ -492,25 +491,25 @@ typedef struct grpc_op {
   uint32_t flags;
   /** Reserved for future usage */
   void *reserved;
-  union {
+  union grpc_op_data {
     /** Reserved for future usage */
-    struct {
+    struct /* internal */ {
       void *reserved[8];
     } reserved;
-    struct {
+    struct grpc_op_send_initial_metadata {
       size_t count;
       grpc_metadata *metadata;
       /** If \a is_set, \a compression_level will be used for the call.
        * Otherwise, \a compression_level won't be considered */
-      struct {
+      struct grpc_op_send_initial_metadata_maybe_compression_level {
         uint8_t is_set;
         grpc_compression_level level;
       } maybe_compression_level;
     } send_initial_metadata;
-    struct {
+    struct grpc_op_send_message {
       struct grpc_byte_buffer *send_message;
     } send_message;
-    struct {
+    struct grpc_op_send_status_from_server {
       size_t trailing_metadata_count;
       grpc_metadata *trailing_metadata;
       grpc_status_code status;
@@ -524,16 +523,16 @@ typedef struct grpc_op {
         object, recv_initial_metadata->array is owned by the caller).
         After the operation completes, call grpc_metadata_array_destroy on this
         value, or reuse it in a future op. */
-    struct {
+    struct grpc_op_recv_initial_metadata {
       grpc_metadata_array *recv_initial_metadata;
     } recv_initial_metadata;
     /** ownership of the byte buffer is moved to the caller; the caller must
         call grpc_byte_buffer_destroy on this value, or reuse it in a future op.
        */
-    struct {
+    struct grpc_op_recv_message {
       struct grpc_byte_buffer **recv_message;
     } recv_message;
-    struct {
+    struct grpc_op_recv_status_on_client {
       /** ownership of the array is with the caller, but ownership of the
           elements stays with the call object (ie key, value members are owned
           by the call object, trailing_metadata->array is owned by the caller).
@@ -543,7 +542,7 @@ typedef struct grpc_op {
       grpc_status_code *status;
       grpc_slice *status_details;
     } recv_status_on_client;
-    struct {
+    struct grpc_op_recv_close_on_server {
       /** out argument, set to 1 if the call failed in any way (seen as a
           cancellation on the server), or 0 if the call succeeded */
       int *cancelled;

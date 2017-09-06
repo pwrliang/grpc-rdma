@@ -1,33 +1,18 @@
 /*
  *
- * Copyright 2015, Google Inc.
- * All rights reserved.
+ * Copyright 2015 gRPC authors.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are
- * met:
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- *     * Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- *     * Redistributions in binary form must reproduce the above
- * copyright notice, this list of conditions and the following disclaimer
- * in the documentation and/or other materials provided with the
- * distribution.
- *     * Neither the name of Google Inc. nor the names of its
- * contributors may be used to endorse or promote products derived from
- * this software without specific prior written permission.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
- * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
- * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
- * OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
- * LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
- * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
- * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  *
  */
 
@@ -364,6 +349,28 @@ class CallOpRecvMessage {
   bool allow_not_getting_message_;
 };
 
+namespace CallOpGenericRecvMessageHelper {
+class DeserializeFunc {
+ public:
+  virtual Status Deserialize(grpc_byte_buffer* buf) = 0;
+  virtual ~DeserializeFunc() {}
+};
+
+template <class R>
+class DeserializeFuncType final : public DeserializeFunc {
+ public:
+  DeserializeFuncType(R* message) : message_(message) {}
+  Status Deserialize(grpc_byte_buffer* buf) override {
+    return SerializationTraits<R>::Deserialize(buf, message_);
+  }
+
+  ~DeserializeFuncType() override {}
+
+ private:
+  R* message_;  // Not a managed pointer because management is external to this
+};
+}  // namespace CallOpGenericRecvMessageHelper
+
 class CallOpGenericRecvMessage {
  public:
   CallOpGenericRecvMessage()
@@ -371,9 +378,11 @@ class CallOpGenericRecvMessage {
 
   template <class R>
   void RecvMessage(R* message) {
-    deserialize_ = [message](grpc_byte_buffer* buf) -> Status {
-      return SerializationTraits<R>::Deserialize(buf, message);
-    };
+    // Use an explicit base class pointer to avoid resolution error in the
+    // following unique_ptr::reset for some old implementations.
+    CallOpGenericRecvMessageHelper::DeserializeFunc* func =
+        new CallOpGenericRecvMessageHelper::DeserializeFuncType<R>(message);
+    deserialize_.reset(func);
   }
 
   // Do not change status if no message is received.
@@ -396,7 +405,7 @@ class CallOpGenericRecvMessage {
     if (recv_buf_) {
       if (*status) {
         got_message = true;
-        *status = deserialize_(recv_buf_).ok();
+        *status = deserialize_->Deserialize(recv_buf_).ok();
       } else {
         got_message = false;
         g_core_codegen_interface->grpc_byte_buffer_destroy(recv_buf_);
@@ -407,12 +416,11 @@ class CallOpGenericRecvMessage {
         *status = false;
       }
     }
-    deserialize_ = DeserializeFunc();
+    deserialize_.reset();
   }
 
  private:
-  typedef std::function<Status(grpc_byte_buffer*)> DeserializeFunc;
-  DeserializeFunc deserialize_;
+  std::unique_ptr<CallOpGenericRecvMessageHelper::DeserializeFunc> deserialize_;
   grpc_byte_buffer* recv_buf_;
   bool allow_not_getting_message_;
 };
@@ -608,6 +616,7 @@ class CallOpSet : public CallOpSetInterface,
     this->Op5::FinishOp(status);
     this->Op6::FinishOp(status);
     *tag = return_tag_;
+
     g_core_codegen_interface->grpc_call_unref(call_);
     return true;
   }

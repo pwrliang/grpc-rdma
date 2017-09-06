@@ -1,32 +1,17 @@
 #!/usr/bin/env python
-# Copyright 2015, Google Inc.
-# All rights reserved.
+# Copyright 2015 gRPC authors.
 #
-# Redistribution and use in source and binary forms, with or without
-# modification, are permitted provided that the following conditions are
-# met:
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
 #
-#     * Redistributions of source code must retain the above copyright
-# notice, this list of conditions and the following disclaimer.
-#     * Redistributions in binary form must reproduce the above
-# copyright notice, this list of conditions and the following disclaimer
-# in the documentation and/or other materials provided with the
-# distribution.
-#     * Neither the name of Google Inc. nor the names of its
-# contributors may be used to endorse or promote products derived from
-# this software without specific prior written permission.
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
-# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-# "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-# LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-# A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-# OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-# SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-# LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-# DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-# THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-# (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """Run tests in parallel."""
 
@@ -65,6 +50,10 @@ try:
 except (ImportError):
   pass # It's ok to not import because this is only necessary to upload results to BQ.
 
+gcp_utils_dir = os.path.abspath(os.path.join(
+        os.path.dirname(__file__), '../gcp/utils'))
+sys.path.append(gcp_utils_dir)
+
 _ROOT = os.path.abspath(os.path.join(os.path.dirname(sys.argv[0]), '../..'))
 os.chdir(_ROOT)
 
@@ -73,12 +62,42 @@ _FORCE_ENVIRON_FOR_WRAPPERS = {
   'GRPC_VERBOSITY': 'DEBUG',
 }
 
-
 _POLLING_STRATEGIES = {
   'linux': ['epollsig', 'poll', 'poll-cv'],
 # TODO(ctiller, sreecha): enable epoll1, epollex, epoll-thread-pool
   'mac': ['poll'],
 }
+
+
+def get_flaky_tests(limit=None):
+  import big_query_utils
+
+  bq = big_query_utils.create_big_query()
+  query = """
+SELECT
+  filtered_test_name,
+  FROM (
+  SELECT
+    REGEXP_REPLACE(test_name, r'/\d+', '') AS filtered_test_name,
+    result
+  FROM
+    [grpc-testing:jenkins_test_results.aggregate_results]
+  WHERE
+    timestamp >= DATE_ADD(CURRENT_DATE(), -1, "WEEK")
+    AND platform = '"""+platform_string()+"""'
+    AND NOT REGEXP_MATCH(job_name, '.*portability.*') )
+GROUP BY
+  filtered_test_name
+HAVING
+  SUM(result != 'PASSED' AND result != 'SKIPPED') > 0"""
+  if limit:
+    query += " limit {}".format(limit)
+  query_job = big_query_utils.sync_query_job(bq, 'grpc-testing', query)
+  page = bq.jobs().getQueryResults(
+      pageToken=None,
+      **query_job['jobReference']).execute(num_retries=3)
+  flake_names = [row['f'][0]['v'] for row in page['rows']]
+  return flake_names
 
 
 def platform_string():
@@ -119,13 +138,16 @@ class Config(object):
     actual_environ = self.environ.copy()
     for k, v in environ.items():
       actual_environ[k] = v
+    if not flaky and shortname and shortname in flaky_tests:
+      print('Setting %s to flaky' % shortname)
+      flaky = True
     return jobset.JobSpec(cmdline=self.tool_prefix + cmdline,
                           shortname=shortname,
                           environ=actual_environ,
                           cpu_cost=cpu_cost,
                           timeout_seconds=(self.timeout_multiplier * timeout_seconds if timeout_seconds else None),
                           flake_retries=5 if flaky or args.allow_flakes else 0,
-                          timeout_retries=3 if args.allow_flakes else 0)
+                          timeout_retries=3 if flaky or args.allow_flakes else 0)
 
 
 def get_c_tests(travis, test_lang) :
@@ -226,7 +248,7 @@ class CLanguage(object):
       self._docker_distro, self._make_options = self._compiler_options(self.args.use_docker,
                                                                        self.args.compiler)
     if args.iomgr_platform == "uv":
-      cflags = '-DGRPC_UV '
+      cflags = '-DGRPC_UV -DGRPC_UV_THREAD_CHECK'
       try:
         cflags += subprocess.check_output(['pkg-config', '--cflags', 'libuv']).strip() + ' '
       except (subprocess.CalledProcessError, OSError):
@@ -673,7 +695,7 @@ class PythonLanguage(object):
 
     if args.compiler == 'default':
       if os.name == 'nt':
-        return (python27_config,)
+        return (python35_config,)
       else:
         return (python27_config, python34_config,)
     elif args.compiler == 'python2.7':
@@ -867,11 +889,50 @@ class ObjCLanguage(object):
         self.config.job_spec(['src/objective-c/tests/run_tests.sh'],
                               timeout_seconds=60*60,
                               shortname='objc-tests',
+                              cpu_cost=1e6,
                               environ=_FORCE_ENVIRON_FOR_WRAPPERS),
-        self.config.job_spec(['src/objective-c/tests/build_example_test.sh'],
-                              timeout_seconds=30*60,
-                              shortname='objc-examples-build',
+        self.config.job_spec(['src/objective-c/tests/run_plugin_tests.sh'],
+                              timeout_seconds=60*60,
+                              shortname='objc-plugin-tests',
+                              cpu_cost=1e6,
                               environ=_FORCE_ENVIRON_FOR_WRAPPERS),
+        self.config.job_spec(['src/objective-c/tests/build_one_example.sh'],
+                              timeout_seconds=10*60,
+                              shortname='objc-build-example-helloworld',
+                              cpu_cost=1e6,
+                              environ={'SCHEME': 'HelloWorld',
+                                       'EXAMPLE_PATH': 'examples/objective-c/helloworld'}),
+        self.config.job_spec(['src/objective-c/tests/build_one_example.sh'],
+                              timeout_seconds=10*60,
+                              shortname='objc-build-example-routeguide',
+                              cpu_cost=1e6,
+                              environ={'SCHEME': 'RouteGuideClient',
+                                       'EXAMPLE_PATH': 'examples/objective-c/route_guide'}),
+        self.config.job_spec(['src/objective-c/tests/build_one_example.sh'],
+                              timeout_seconds=10*60,
+                              shortname='objc-build-example-authsample',
+                              cpu_cost=1e6,
+                              environ={'SCHEME': 'AuthSample',
+                                       'EXAMPLE_PATH': 'examples/objective-c/auth_sample'}),
+        self.config.job_spec(['src/objective-c/tests/build_one_example.sh'],
+                              timeout_seconds=10*60,
+                              shortname='objc-build-example-sample',
+                              cpu_cost=1e6,
+                              environ={'SCHEME': 'Sample',
+                                       'EXAMPLE_PATH': 'src/objective-c/examples/Sample'}),
+        self.config.job_spec(['src/objective-c/tests/build_one_example.sh'],
+                              timeout_seconds=10*60,
+                              shortname='objc-build-example-sample-frameworks',
+                              cpu_cost=1e6,
+                              environ={'SCHEME': 'Sample',
+                                       'EXAMPLE_PATH': 'src/objective-c/examples/Sample',
+                                       'FRAMEWORKS': 'YES'}),
+        self.config.job_spec(['src/objective-c/tests/build_one_example.sh'],
+                              timeout_seconds=10*60,
+                              shortname='objc-build-example-switftsample',
+                              cpu_cost=1e6,
+                              environ={'SCHEME': 'SwiftSample',
+                                       'EXAMPLE_PATH': 'src/objective-c/examples/SwiftSample'}),
     ]
 
   def pre_build_steps(self):
@@ -1213,7 +1274,16 @@ argp.add_argument('--bq_result_table',
                   type=str,
                   nargs='?',
                   help='Upload test results to a specified BQ table.')
+argp.add_argument('--auto_set_flakes', default=True, type=bool,
+                  help='Set flakiness data from historic data')
 args = argp.parse_args()
+
+flaky_tests = set()
+if args.auto_set_flakes:
+  try:
+    flaky_tests = set(get_flaky_tests())
+  except:
+    print("Unexpected error getting flaky tests:", sys.exc_info()[0])
 
 if args.force_default_poller:
   _POLLING_STRATEGIES = {}
