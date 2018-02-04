@@ -43,7 +43,7 @@ g_stands_for = "generous"
 
 core_version = "5.0.0"
 
-version = "1.8.2"
+version = "1.8.6"
 
 GPR_PUBLIC_HDRS = [
     "include/grpc/support/alloc.h",
@@ -79,10 +79,11 @@ GRPC_PUBLIC_HDRS = [
     "include/grpc/byte_buffer.h",
     "include/grpc/byte_buffer_reader.h",
     "include/grpc/compression.h",
-    "include/grpc/load_reporting.h",
+    "include/grpc/fork.h",
     "include/grpc/grpc.h",
     "include/grpc/grpc_posix.h",
     "include/grpc/grpc_security_constants.h",
+    "include/grpc/load_reporting.h",
     "include/grpc/slice.h",
     "include/grpc/slice_buffer.h",
     "include/grpc/status.h",
