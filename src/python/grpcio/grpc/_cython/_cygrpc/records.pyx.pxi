@@ -51,6 +51,7 @@ class ChannelArgKey:
   default_authority = GRPC_ARG_DEFAULT_AUTHORITY
   primary_user_agent_string = GRPC_ARG_PRIMARY_USER_AGENT_STRING
   secondary_user_agent_string = GRPC_ARG_SECONDARY_USER_AGENT_STRING
+  ssl_session_cache = GRPC_SSL_SESSION_CACHE_ARG
   ssl_target_name_override = GRPC_SSL_TARGET_NAME_OVERRIDE_ARG
 
 
@@ -123,74 +124,6 @@ class CompressionLevel:
   high = GRPC_COMPRESS_LEVEL_HIGH
 
 
-cdef class Timespec:
-
-  def __cinit__(self, time):
-    if time is None:
-      with nogil:
-        self.c_time = gpr_now(GPR_CLOCK_REALTIME)
-      return
-    if isinstance(time, int):
-      time = float(time)
-    if isinstance(time, float):
-      if time == float("+inf"):
-        with nogil:
-          self.c_time = gpr_inf_future(GPR_CLOCK_REALTIME)
-      elif time == float("-inf"):
-        with nogil:
-          self.c_time = gpr_inf_past(GPR_CLOCK_REALTIME)
-      else:
-        self.c_time.seconds = time
-        self.c_time.nanoseconds = (time - float(self.c_time.seconds)) * 1e9
-        self.c_time.clock_type = GPR_CLOCK_REALTIME
-    elif isinstance(time, Timespec):
-      self.c_time = (<Timespec>time).c_time
-    else:
-      raise TypeError("expected time to be float, int, or Timespec, not {}"
-                          .format(type(time)))
-
-  @property
-  def seconds(self):
-    # TODO(atash) ensure that everywhere a Timespec is created that it's
-    # converted to GPR_CLOCK_REALTIME then and not every time someone wants to
-    # read values off in Python.
-    cdef gpr_timespec real_time
-    with nogil:
-      real_time = (
-          gpr_convert_clock_type(self.c_time, GPR_CLOCK_REALTIME))
-    return real_time.seconds
-
-  @property
-  def nanoseconds(self):
-    cdef gpr_timespec real_time = (
-        gpr_convert_clock_type(self.c_time, GPR_CLOCK_REALTIME))
-    return real_time.nanoseconds
-
-  def __float__(self):
-    cdef gpr_timespec real_time = (
-        gpr_convert_clock_type(self.c_time, GPR_CLOCK_REALTIME))
-    return <double>real_time.seconds + <double>real_time.nanoseconds / 1e9
-
-  def __richcmp__(Timespec self not None, Timespec other not None, int op):
-    cdef gpr_timespec self_c_time = self.c_time
-    cdef gpr_timespec other_c_time = other.c_time
-    cdef int result = gpr_time_cmp(self_c_time, other_c_time)
-    if op == 0:  # <
-      return result < 0
-    elif op == 2:  # ==
-      return result == 0
-    elif op == 4:  # >
-      return result > 0
-    elif op == 1:  # <=
-      return result <= 0
-    elif op == 3:  # !=
-      return result != 0
-    elif op == 5:  # >=
-      return result >= 0
-    else:
-      raise ValueError('__richcmp__ `op` contract violated')
-
-
 cdef class CallDetails:
 
   def __cinit__(self):
@@ -213,53 +146,7 @@ cdef class CallDetails:
 
   @property
   def deadline(self):
-    timespec = Timespec(float("-inf"))
-    timespec.c_time = self.c_details.deadline
-    return timespec
-
-
-cdef class OperationTag:
-
-  def __cinit__(self, user_tag, operations):
-    self.user_tag = user_tag
-    self.references = []
-    self._operations = operations
-
-  cdef void store_ops(self):
-    self.c_nops = 0 if self._operations is None else len(self._operations)
-    if 0 < self.c_nops:
-      self.c_ops = <grpc_op *>gpr_malloc(sizeof(grpc_op) * self.c_nops)
-      for index, operation in enumerate(self._operations):
-        (<Operation>operation).c()
-        self.c_ops[index] = (<Operation>operation).c_op
-
-  cdef object release_ops(self):
-    if 0 < self.c_nops:
-      for index, operation in enumerate(self._operations):
-        (<Operation>operation).c_op = self.c_ops[index]
-        (<Operation>operation).un_c()
-      gpr_free(self.c_ops)
-      return self._operations
-    else:
-      return ()
-
-
-cdef class Event:
-
-  def __cinit__(self, grpc_completion_type type, bint success,
-                object tag, Call operation_call,
-                CallDetails request_call_details,
-                object request_metadata,
-                bint is_new_request,
-                object batch_operations):
-    self.type = type
-    self.success = success
-    self.tag = tag
-    self.operation_call = operation_call
-    self.request_call_details = request_call_details
-    self.request_metadata = request_metadata
-    self.batch_operations = batch_operations
-    self.is_new_request = is_new_request
+    return _time_from_timespec(self.c_details.deadline)
 
 
 cdef class SslPemKeyCertPair:
@@ -269,81 +156,6 @@ cdef class SslPemKeyCertPair:
     self.certificate_chain = certificate_chain
     self.c_pair.private_key = self.private_key
     self.c_pair.certificate_chain = self.certificate_chain
-
-
-
-cdef void* copy_ptr(void* ptr):
-  return ptr
-
-
-cdef void destroy_ptr(grpc_exec_ctx* ctx, void* ptr):
-  pass
-
-
-cdef int compare_ptr(void* ptr1, void* ptr2):
-  if ptr1 < ptr2:
-    return -1
-  elif ptr1 > ptr2:
-    return 1
-  else:
-    return 0
-
-
-cdef class ChannelArg:
-
-  def __cinit__(self, bytes key, value):
-    self.key = key
-    self.value = value
-    self.c_arg.key = self.key
-    if isinstance(value, int):
-      self.c_arg.type = GRPC_ARG_INTEGER
-      self.c_arg.value.integer = self.value
-    elif isinstance(value, bytes):
-      self.c_arg.type = GRPC_ARG_STRING
-      self.c_arg.value.string = self.value
-    elif hasattr(value, '__int__'):
-      # Pointer objects must override __int__() to return
-      # the underlying C address (Python ints are word size).  The
-      # lifecycle of the pointer is fixed to the lifecycle of the
-      # python object wrapping it.
-      self.ptr_vtable.copy = &copy_ptr
-      self.ptr_vtable.destroy = &destroy_ptr
-      self.ptr_vtable.cmp = &compare_ptr
-      self.c_arg.type = GRPC_ARG_POINTER
-      self.c_arg.value.pointer.vtable = &self.ptr_vtable
-      self.c_arg.value.pointer.address = <void*>(<intptr_t>int(self.value))
-    else:
-      # TODO Add supported pointer types to this message
-      raise TypeError('Expected int or bytes, got {}'.format(type(value)))
-
-
-cdef class ChannelArgs:
-
-  def __cinit__(self, args):
-    grpc_init()
-    self.args = list(args)
-    for arg in self.args:
-      if not isinstance(arg, ChannelArg):
-        raise TypeError("expected list of ChannelArg")
-    self.c_args.arguments_length = len(self.args)
-    with nogil:
-      self.c_args.arguments = <grpc_arg *>gpr_malloc(
-          self.c_args.arguments_length*sizeof(grpc_arg))
-    for i in range(self.c_args.arguments_length):
-      self.c_args.arguments[i] = (<ChannelArg>self.args[i]).c_arg
-
-  def __dealloc__(self):
-    with nogil:
-      gpr_free(self.c_args.arguments)
-    grpc_shutdown()
-
-  def __len__(self):
-    # self.args is never stale; it's only updated from this file
-    return len(self.args)
-
-  def __getitem__(self, size_t i):
-    # self.args is never stale; it's only updated from this file
-    return self.args[i]
 
 
 cdef class CompressionOptions:
@@ -368,8 +180,10 @@ cdef class CompressionOptions:
     return result
 
   def to_channel_arg(self):
-    return ChannelArg(GRPC_COMPRESSION_CHANNEL_ENABLED_ALGORITHMS_BITSET,
-                      self.c_options.enabled_algorithms_bitset)
+    return (
+        GRPC_COMPRESSION_CHANNEL_ENABLED_ALGORITHMS_BITSET,
+        self.c_options.enabled_algorithms_bitset,
+    )
 
 
 def compression_algorithm_name(grpc_compression_algorithm algorithm):

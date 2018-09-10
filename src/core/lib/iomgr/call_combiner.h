@@ -19,17 +19,15 @@
 #ifndef GRPC_CORE_LIB_IOMGR_CALL_COMBINER_H
 #define GRPC_CORE_LIB_IOMGR_CALL_COMBINER_H
 
+#include <grpc/support/port_platform.h>
+
 #include <stddef.h>
 
 #include <grpc/support/atm.h>
 
+#include "src/core/lib/gpr/mpscq.h"
+#include "src/core/lib/gprpp/inlined_vector.h"
 #include "src/core/lib/iomgr/closure.h"
-#include "src/core/lib/iomgr/exec_ctx.h"
-#include "src/core/lib/support/mpscq.h"
-
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 // A simple, lock-free mechanism for serializing activity related to a
 // single call.  This is similar to a combiner but is more lightweight.
@@ -57,37 +55,29 @@ void grpc_call_combiner_init(grpc_call_combiner* call_combiner);
 void grpc_call_combiner_destroy(grpc_call_combiner* call_combiner);
 
 #ifndef NDEBUG
-#define GRPC_CALL_COMBINER_START(exec_ctx, call_combiner, closure, error,   \
-                                 reason)                                    \
-  grpc_call_combiner_start((exec_ctx), (call_combiner), (closure), (error), \
-                           __FILE__, __LINE__, (reason))
-#define GRPC_CALL_COMBINER_STOP(exec_ctx, call_combiner, reason)           \
-  grpc_call_combiner_stop((exec_ctx), (call_combiner), __FILE__, __LINE__, \
-                          (reason))
+#define GRPC_CALL_COMBINER_START(call_combiner, closure, error, reason)   \
+  grpc_call_combiner_start((call_combiner), (closure), (error), __FILE__, \
+                           __LINE__, (reason))
+#define GRPC_CALL_COMBINER_STOP(call_combiner, reason) \
+  grpc_call_combiner_stop((call_combiner), __FILE__, __LINE__, (reason))
 /// Starts processing \a closure on \a call_combiner.
-void grpc_call_combiner_start(grpc_exec_ctx* exec_ctx,
-                              grpc_call_combiner* call_combiner,
+void grpc_call_combiner_start(grpc_call_combiner* call_combiner,
                               grpc_closure* closure, grpc_error* error,
                               const char* file, int line, const char* reason);
 /// Yields the call combiner to the next closure in the queue, if any.
-void grpc_call_combiner_stop(grpc_exec_ctx* exec_ctx,
-                             grpc_call_combiner* call_combiner,
+void grpc_call_combiner_stop(grpc_call_combiner* call_combiner,
                              const char* file, int line, const char* reason);
 #else
-#define GRPC_CALL_COMBINER_START(exec_ctx, call_combiner, closure, error,   \
-                                 reason)                                    \
-  grpc_call_combiner_start((exec_ctx), (call_combiner), (closure), (error), \
-                           (reason))
-#define GRPC_CALL_COMBINER_STOP(exec_ctx, call_combiner, reason) \
-  grpc_call_combiner_stop((exec_ctx), (call_combiner), (reason))
+#define GRPC_CALL_COMBINER_START(call_combiner, closure, error, reason) \
+  grpc_call_combiner_start((call_combiner), (closure), (error), (reason))
+#define GRPC_CALL_COMBINER_STOP(call_combiner, reason) \
+  grpc_call_combiner_stop((call_combiner), (reason))
 /// Starts processing \a closure on \a call_combiner.
-void grpc_call_combiner_start(grpc_exec_ctx* exec_ctx,
-                              grpc_call_combiner* call_combiner,
+void grpc_call_combiner_start(grpc_call_combiner* call_combiner,
                               grpc_closure* closure, grpc_error* error,
                               const char* reason);
 /// Yields the call combiner to the next closure in the queue, if any.
-void grpc_call_combiner_stop(grpc_exec_ctx* exec_ctx,
-                             grpc_call_combiner* call_combiner,
+void grpc_call_combiner_stop(grpc_call_combiner* call_combiner,
                              const char* reason);
 #endif
 
@@ -113,17 +103,90 @@ void grpc_call_combiner_stop(grpc_exec_ctx* exec_ctx,
 /// cancellation; this effectively unregisters the previously set closure.
 /// However, most filters will not need to explicitly unregister their
 /// callbacks, as this is done automatically when the call is destroyed.
-void grpc_call_combiner_set_notify_on_cancel(grpc_exec_ctx* exec_ctx,
-                                             grpc_call_combiner* call_combiner,
+void grpc_call_combiner_set_notify_on_cancel(grpc_call_combiner* call_combiner,
                                              grpc_closure* closure);
 
 /// Indicates that the call has been cancelled.
-void grpc_call_combiner_cancel(grpc_exec_ctx* exec_ctx,
-                               grpc_call_combiner* call_combiner,
+void grpc_call_combiner_cancel(grpc_call_combiner* call_combiner,
                                grpc_error* error);
 
-#ifdef __cplusplus
-}
-#endif
+namespace grpc_core {
+
+// Helper for running a list of closures in a call combiner.
+//
+// Each callback running in the call combiner will eventually be
+// returned to the surface, at which point the surface will yield the
+// call combiner.  So when we are running in the call combiner and have
+// more than one callback to return to the surface, we need to re-enter
+// the call combiner for all but one of those callbacks.
+class CallCombinerClosureList {
+ public:
+  CallCombinerClosureList() {}
+
+  // Adds a closure to the list.  The closure must eventually result in
+  // the call combiner being yielded.
+  void Add(grpc_closure* closure, grpc_error* error, const char* reason) {
+    closures_.emplace_back(closure, error, reason);
+  }
+
+  // Runs all closures in the call combiner and yields the call combiner.
+  //
+  // All but one of the closures in the list will be scheduled via
+  // GRPC_CALL_COMBINER_START(), and the remaining closure will be
+  // scheduled via GRPC_CLOSURE_SCHED(), which will eventually result in
+  // yielding the call combiner.  If the list is empty, then the call
+  // combiner will be yielded immediately.
+  void RunClosures(grpc_call_combiner* call_combiner) {
+    if (closures_.empty()) {
+      GRPC_CALL_COMBINER_STOP(call_combiner, "no closures to schedule");
+      return;
+    }
+    for (size_t i = 1; i < closures_.size(); ++i) {
+      auto& closure = closures_[i];
+      GRPC_CALL_COMBINER_START(call_combiner, closure.closure, closure.error,
+                               closure.reason);
+    }
+    if (grpc_call_combiner_trace.enabled()) {
+      gpr_log(GPR_INFO,
+              "CallCombinerClosureList executing closure while already "
+              "holding call_combiner %p: closure=%p error=%s reason=%s",
+              call_combiner, closures_[0].closure,
+              grpc_error_string(closures_[0].error), closures_[0].reason);
+    }
+    // This will release the call combiner.
+    GRPC_CLOSURE_SCHED(closures_[0].closure, closures_[0].error);
+    closures_.clear();
+  }
+
+  // Runs all closures in the call combiner, but does NOT yield the call
+  // combiner.  All closures will be scheduled via GRPC_CALL_COMBINER_START().
+  void RunClosuresWithoutYielding(grpc_call_combiner* call_combiner) {
+    for (size_t i = 0; i < closures_.size(); ++i) {
+      auto& closure = closures_[i];
+      GRPC_CALL_COMBINER_START(call_combiner, closure.closure, closure.error,
+                               closure.reason);
+    }
+    closures_.clear();
+  }
+
+  size_t size() const { return closures_.size(); }
+
+ private:
+  struct CallCombinerClosure {
+    grpc_closure* closure;
+    grpc_error* error;
+    const char* reason;
+
+    CallCombinerClosure(grpc_closure* closure, grpc_error* error,
+                        const char* reason)
+        : closure(closure), error(error), reason(reason) {}
+  };
+
+  // There are generally a maximum of 6 closures to run in the call
+  // combiner, one for each pending op.
+  InlinedVector<CallCombinerClosure, 6> closures_;
+};
+
+}  // namespace grpc_core
 
 #endif /* GRPC_CORE_LIB_IOMGR_CALL_COMBINER_H */

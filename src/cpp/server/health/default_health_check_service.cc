@@ -19,15 +19,15 @@
 #include <memory>
 #include <mutex>
 
-#include <grpc++/impl/codegen/method_handler_impl.h>
 #include <grpc/slice.h>
 #include <grpc/support/alloc.h>
 #include <grpc/support/log.h>
+#include <grpcpp/impl/codegen/method_handler_impl.h>
 
+#include "pb_decode.h"
+#include "pb_encode.h"
 #include "src/cpp/server/health/default_health_check_service.h"
 #include "src/cpp/server/health/health.pb.h"
-#include "third_party/nanopb/pb_decode.h"
-#include "third_party/nanopb/pb_encode.h"
 
 namespace grpc {
 namespace {

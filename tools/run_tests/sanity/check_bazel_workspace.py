@@ -27,8 +27,19 @@ os.chdir(os.path.join(os.path.dirname(sys.argv[0]), '../../..'))
 git_hash_pattern = re.compile('[0-9a-f]{40}')
 
 # Parse git hashes from submodules
-git_submodules = subprocess.check_output('git submodule', shell=True).strip().split('\n')
-git_submodule_hashes = {re.search(git_hash_pattern, s).group() for s in git_submodules}
+git_submodules = subprocess.check_output(
+    'git submodule', shell=True).strip().split('\n')
+git_submodule_hashes = {
+    re.search(git_hash_pattern, s).group()
+    for s in git_submodules
+}
+
+_BAZEL_TOOLCHAINS_DEP_NAME = 'com_github_bazelbuild_bazeltoolchains'
+_TWISTED_TWISTED_DEP_NAME = 'com_github_twisted_twisted'
+_YAML_PYYAML_DEP_NAME = 'com_github_yaml_pyyaml'
+_TWISTED_INCREMENTAL_DEP_NAME = 'com_github_twisted_incremental'
+_ZOPEFOUNDATION_ZOPE_INTERFACE_DEP_NAME = 'com_github_zopefoundation_zope_interface'
+_TWISTED_CONSTANTLY_DEP_NAME = 'com_github_twisted_constantly'
 
 _GRPC_DEP_NAMES = [
     'boringssl',
@@ -36,9 +47,26 @@ _GRPC_DEP_NAMES = [
     'com_google_protobuf',
     'com_github_google_googletest',
     'com_github_gflags_gflags',
+    'com_github_nanopb_nanopb',
     'com_github_google_benchmark',
     'com_github_cares_cares',
     'com_google_absl',
+    'io_opencensus_cpp',
+    _BAZEL_TOOLCHAINS_DEP_NAME,
+    _TWISTED_TWISTED_DEP_NAME,
+    _YAML_PYYAML_DEP_NAME,
+    _TWISTED_INCREMENTAL_DEP_NAME,
+    _ZOPEFOUNDATION_ZOPE_INTERFACE_DEP_NAME,
+    _TWISTED_CONSTANTLY_DEP_NAME,
+]
+
+_GRPC_BAZEL_ONLY_DEPS = [
+    _BAZEL_TOOLCHAINS_DEP_NAME,
+    _TWISTED_TWISTED_DEP_NAME,
+    _YAML_PYYAML_DEP_NAME,
+    _TWISTED_INCREMENTAL_DEP_NAME,
+    _ZOPEFOUNDATION_ZOPE_INTERFACE_DEP_NAME,
+    _TWISTED_CONSTANTLY_DEP_NAME,
 ]
 
 
@@ -63,6 +91,10 @@ class BazelEvalState(object):
         return []
 
     def archive(self, **args):
+        assert self.names_and_urls.get(args['name']) is None
+        if args['name'] in _GRPC_BAZEL_ONLY_DEPS:
+            self.names_and_urls[args['name']] = 'dont care'
+            return
         self.names_and_urls[args['name']] = args['url']
 
 
@@ -72,8 +104,10 @@ with open(os.path.join('bazel', 'grpc_deps.bzl'), 'r') as f:
     eval_state = BazelEvalState(names_and_urls)
     bazel_file = f.read()
 
-# grpc_deps.bzl only defines 'grpc_deps', add this to call it
+# grpc_deps.bzl only defines 'grpc_deps' and 'grpc_test_only_deps', add these
+# lines to call them.
 bazel_file += '\ngrpc_deps()\n'
+bazel_file += '\ngrpc_test_only_deps()\n'
 build_rules = {
     'native': eval_state,
 }
@@ -82,10 +116,18 @@ for name in _GRPC_DEP_NAMES:
     assert name in names_and_urls.keys()
 assert len(_GRPC_DEP_NAMES) == len(names_and_urls.keys())
 
-archive_urls = [names_and_urls[name] for name in names_and_urls.keys()]
+# There are some "bazel-only" deps that are exceptions to this sanity check,
+# we don't require that there is a corresponding git module for these.
+names_without_bazel_only_deps = names_and_urls.keys()
+for dep_name in _GRPC_BAZEL_ONLY_DEPS:
+    names_without_bazel_only_deps.remove(dep_name)
+archive_urls = [names_and_urls[name] for name in names_without_bazel_only_deps]
+# Exclude nanopb from the check: it's not a submodule for distribution reasons,
+# but it's a workspace dependency to enable users to use their own version.
 workspace_git_hashes = {
     re.search(git_hash_pattern, url).group()
     for url in archive_urls
+    if 'nanopb' not in url
 }
 if len(workspace_git_hashes) == 0:
     print("(Likely) parse error, did not find any bazel git dependencies.")
@@ -96,8 +138,9 @@ if len(workspace_git_hashes) == 0:
 # the workspace, but not necessarily conversely. E.g. Bloaty is a dependency
 # not used by any of the targets built by Bazel.
 if len(workspace_git_hashes - git_submodule_hashes) > 0:
-    print("Found discrepancies between git submodules and Bazel WORKSPACE dependencies")
-    sys.exit(1)
+    print(
+        "Found discrepancies between git submodules and Bazel WORKSPACE dependencies"
+    )
 
 # Also check that we can override each dependency
 for name in _GRPC_DEP_NAMES:

@@ -40,7 +40,6 @@ cdef class SendInitialMetadataOperation(Operation):
     self.c_op.data.send_initial_metadata.metadata = self._c_initial_metadata
     self.c_op.data.send_initial_metadata.count = self._c_initial_metadata_count
     self.c_op.data.send_initial_metadata.maybe_compression_level.is_set = 0
-    self.c_op.data.send_initial_metadata.maybe_stream_compression_level.is_set = 0
 
   cdef void un_c(self):
     _release_c_metadata(
@@ -200,6 +199,8 @@ cdef class ReceiveStatusOnClientOperation(Operation):
         &self._c_code)
     self.c_op.data.receive_status_on_client.status_details = (
         &self._c_details)
+    self.c_op.data.receive_status_on_client.error_string = (
+        &self._c_error_string)
 
   cdef void un_c(self):
     self._trailing_metadata = _metadata(&self._c_trailing_metadata)
@@ -207,6 +208,11 @@ cdef class ReceiveStatusOnClientOperation(Operation):
     self._code = self._c_code
     self._details = _decode(_slice_bytes(self._c_details))
     grpc_slice_unref(self._c_details)
+    if self._c_error_string != NULL:
+      self._error_string = _decode(self._c_error_string)
+      gpr_free(<void*>self._c_error_string)
+    else:
+      self._error_string = ""
 
   def trailing_metadata(self):
     return self._trailing_metadata
@@ -216,6 +222,9 @@ cdef class ReceiveStatusOnClientOperation(Operation):
 
   def details(self):
     return self._details
+
+  def error_string(self):
+    return self._error_string
 
 
 cdef class ReceiveCloseOnServerOperation(Operation):

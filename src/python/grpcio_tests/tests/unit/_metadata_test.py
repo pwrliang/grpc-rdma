@@ -18,7 +18,6 @@ import weakref
 
 import grpc
 from grpc import _channel
-from grpc.framework.foundation import logging_pool
 
 from tests.unit import test_common
 from tests.unit.framework.common import test_constants
@@ -34,22 +33,54 @@ _UNARY_STREAM = '/test/UnaryStream'
 _STREAM_UNARY = '/test/StreamUnary'
 _STREAM_STREAM = '/test/StreamStream'
 
-_INVOCATION_METADATA = ((b'invocation-md-key', u'invocation-md-value',),
-                        (u'invocation-md-key-bin', b'\x00\x01',),)
-_EXPECTED_INVOCATION_METADATA = (('invocation-md-key', 'invocation-md-value',),
-                                 ('invocation-md-key-bin', b'\x00\x01',),)
+_INVOCATION_METADATA = (
+    (
+        b'invocation-md-key',
+        u'invocation-md-value',
+    ),
+    (
+        u'invocation-md-key-bin',
+        b'\x00\x01',
+    ),
+)
+_EXPECTED_INVOCATION_METADATA = (
+    (
+        'invocation-md-key',
+        'invocation-md-value',
+    ),
+    (
+        'invocation-md-key-bin',
+        b'\x00\x01',
+    ),
+)
 
 _INITIAL_METADATA = ((b'initial-md-key', u'initial-md-value'),
                      (u'initial-md-key-bin', b'\x00\x02'))
-_EXPECTED_INITIAL_METADATA = (('initial-md-key', 'initial-md-value',),
-                              ('initial-md-key-bin', b'\x00\x02',),)
+_EXPECTED_INITIAL_METADATA = (
+    (
+        'initial-md-key',
+        'initial-md-value',
+    ),
+    (
+        'initial-md-key-bin',
+        b'\x00\x02',
+    ),
+)
 
-_TRAILING_METADATA = (('server-trailing-md-key', 'server-trailing-md-value',),
-                      ('server-trailing-md-key-bin', b'\x00\x03',),)
+_TRAILING_METADATA = (
+    (
+        'server-trailing-md-key',
+        'server-trailing-md-value',
+    ),
+    (
+        'server-trailing-md-key-bin',
+        b'\x00\x03',
+    ),
+)
 _EXPECTED_TRAILING_METADATA = _TRAILING_METADATA
 
 
-def user_agent(metadata):
+def _user_agent(metadata):
     for key, val in metadata:
         if key == 'user-agent':
             return val
@@ -57,16 +88,14 @@ def user_agent(metadata):
 
 
 def validate_client_metadata(test, servicer_context):
+    invocation_metadata = servicer_context.invocation_metadata()
     test.assertTrue(
-        test_common.metadata_transmitted(
-            _EXPECTED_INVOCATION_METADATA,
-            servicer_context.invocation_metadata()))
+        test_common.metadata_transmitted(_EXPECTED_INVOCATION_METADATA,
+                                         invocation_metadata))
+    user_agent = _user_agent(invocation_metadata)
     test.assertTrue(
-        user_agent(servicer_context.invocation_metadata())
-        .startswith('primary-agent ' + _channel._USER_AGENT))
-    test.assertTrue(
-        user_agent(servicer_context.invocation_metadata())
-        .endswith('secondary-agent'))
+        user_agent.startswith('primary-agent ' + _channel._USER_AGENT))
+    test.assertTrue(user_agent.endswith('secondary-agent'))
 
 
 def handle_unary_unary(test, request, servicer_context):
@@ -146,9 +175,9 @@ class _GenericHandler(grpc.GenericRpcHandler):
 class MetadataTest(unittest.TestCase):
 
     def setUp(self):
-        self._server_pool = logging_pool.pool(test_constants.THREAD_CONCURRENCY)
-        self._server = grpc.server(
-            self._server_pool, handlers=(_GenericHandler(weakref.proxy(self)),))
+        self._server = test_common.test_server()
+        self._server.add_generic_rpc_handlers((_GenericHandler(
+            weakref.proxy(self)),))
         port = self._server.add_insecure_port('[::]:0')
         self._server.start()
         self._channel = grpc.insecure_channel(

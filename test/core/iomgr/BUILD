@@ -18,7 +18,10 @@ licenses(["notice"])  # Apache v2
 
 load("//test/core/util:grpc_fuzzer.bzl", "grpc_fuzzer")
 
-grpc_package(name = "test/core/iomgr", visibility = "public") # Useful for third party devs to test their io manager implementation.
+grpc_package(
+    name = "test/core/iomgr",
+    visibility = "public",
+)  # Useful for third party devs to test their io manager implementation.
 
 grpc_cc_library(
     name = "endpoint_tests",
@@ -44,6 +47,7 @@ grpc_cc_test(
         "//test/core/util:gpr_test_util",
         "//test/core/util:grpc_test_util",
     ],
+    data = ["//third_party/toolchains:RBE_USE_MACHINE_TYPE_LARGE"],
 )
 
 grpc_cc_test(
@@ -60,15 +64,40 @@ grpc_cc_test(
 )
 
 grpc_cc_test(
-    name = "ev_epollsig_linux_test",
-    srcs = ["ev_epollsig_linux_test.cc"],
+    name = "error_test",
+    srcs = ["error_test.cc"],
+    language = "C++",
+    deps = [
+        ":endpoint_tests",
+        "//:gpr",
+        "//:grpc",
+        "//test/core/util:gpr_test_util",
+        "//test/core/util:grpc_test_util",
+    ],
+)
+
+grpc_cc_test(
+    name = "ev_epollex_linux_test",
+    srcs = ["ev_epollex_linux_test.cc"],
+    language = "C++",
     deps = [
         "//:gpr",
         "//:grpc",
         "//test/core/util:gpr_test_util",
         "//test/core/util:grpc_test_util",
     ],
+)
+
+grpc_cc_test(
+    name = "ev_epollsig_linux_test",
+    srcs = ["ev_epollsig_linux_test.cc"],
     language = "C++",
+    deps = [
+        "//:gpr",
+        "//:grpc",
+        "//test/core/util:gpr_test_util",
+        "//test/core/util:grpc_test_util",
+    ],
 )
 
 grpc_cc_test(
@@ -208,6 +237,7 @@ grpc_cc_test(
     name = "tcp_server_posix_test",
     srcs = ["tcp_server_posix_test.cc"],
     language = "C++",
+    tags = ["manual"],  # TODO(adelez): Remove once this works on Foundry.
     deps = [
         "//:gpr",
         "//:grpc",

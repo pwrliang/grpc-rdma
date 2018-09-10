@@ -19,14 +19,14 @@
 #ifndef GRPC_CORE_LIB_SECURITY_CONTEXT_SECURITY_CONTEXT_H
 #define GRPC_CORE_LIB_SECURITY_CONTEXT_SECURITY_CONTEXT_H
 
+#include <grpc/support/port_platform.h>
+
 #include "src/core/lib/iomgr/pollset.h"
 #include "src/core/lib/security/credentials/credentials.h"
 
 extern grpc_core::DebugOnlyTraceFlag grpc_trace_auth_context_refcount;
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+struct gpr_arena;
 
 /* --- grpc_auth_context ---
 
@@ -91,7 +91,8 @@ typedef struct {
   grpc_security_context_extension extension;
 } grpc_client_security_context;
 
-grpc_client_security_context* grpc_client_security_context_create(void);
+grpc_client_security_context* grpc_client_security_context_create(
+    gpr_arena* arena);
 void grpc_client_security_context_destroy(void* ctx);
 
 /* --- grpc_server_security_context ---
@@ -103,7 +104,8 @@ typedef struct {
   grpc_security_context_extension extension;
 } grpc_server_security_context;
 
-grpc_server_security_context* grpc_server_security_context_create(void);
+grpc_server_security_context* grpc_server_security_context_create(
+    gpr_arena* arena);
 void grpc_server_security_context_destroy(void* ctx);
 
 /* --- Channel args for auth context --- */
@@ -113,9 +115,5 @@ grpc_arg grpc_auth_context_to_arg(grpc_auth_context* c);
 grpc_auth_context* grpc_auth_context_from_arg(const grpc_arg* arg);
 grpc_auth_context* grpc_find_auth_context_in_args(
     const grpc_channel_args* args);
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif /* GRPC_CORE_LIB_SECURITY_CONTEXT_SECURITY_CONTEXT_H */

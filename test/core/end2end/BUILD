@@ -71,4 +71,112 @@ grpc_cc_library(
     ],
 )
 
+grpc_cc_test(
+    name = "bad_server_response_test",
+    srcs = ["bad_server_response_test.cc"],
+    language = "C++",
+    deps = [
+        ":cq_verifier",
+        "//:gpr",
+        "//:grpc",
+        "//test/core/util:gpr_test_util",
+        "//test/core/util:grpc_test_util",
+    ],
+)
+
+grpc_cc_test(
+    name = "connection_refused_test",
+    srcs = ["connection_refused_test.cc"],
+    language = "C++",
+    deps = [
+        ":cq_verifier",
+        "//:gpr",
+        "//:grpc",
+        "//test/core/util:gpr_test_util",
+        "//test/core/util:grpc_test_util",
+    ],
+)
+
+grpc_cc_test(
+    name = "dualstack_socket_test",
+    srcs = ["dualstack_socket_test.cc"],
+    language = "C++",
+    deps = [
+        ":cq_verifier",
+        "//:gpr",
+        "//:grpc",
+        "//test/core/util:gpr_test_util",
+        "//test/core/util:grpc_test_util",
+    ],
+)
+
+grpc_cc_test(
+    name = "goaway_server_test",
+    srcs = ["goaway_server_test.cc"],
+    language = "C++",
+    deps = [
+        ":cq_verifier",
+        "//:gpr",
+        "//:grpc",
+        "//test/core/util:gpr_test_util",
+        "//test/core/util:grpc_test_util",
+    ],
+)
+
+grpc_cc_test(
+    name = "invalid_call_argument_test",
+    srcs = ["invalid_call_argument_test.cc"],
+    language = "C++",
+    deps = [
+        ":cq_verifier",
+        "//:gpr",
+        "//:grpc",
+        "//test/core/util:gpr_test_util",
+        "//test/core/util:grpc_test_util",
+    ],
+)
+
+grpc_cc_test(
+    name = "multiple_server_queues_test",
+    srcs = ["multiple_server_queues_test.cc"],
+    language = "C++",
+    deps = [
+        ":cq_verifier",
+        "//:gpr",
+        "//:grpc",
+        "//test/core/util:gpr_test_util",
+        "//test/core/util:grpc_test_util",
+    ],
+)
+
+grpc_cc_test(
+    name = "no_server_test",
+    srcs = ["no_server_test.cc"],
+    language = "C++",
+    deps = [
+        ":cq_verifier",
+        "//:gpr",
+        "//:grpc",
+        "//test/core/util:gpr_test_util",
+        "//test/core/util:grpc_test_util",
+    ],
+)
+
 grpc_end2end_tests()
+
+grpc_cc_test(
+    name = "h2_ssl_session_reuse_test",
+    srcs = ["h2_ssl_session_reuse_test.cc"],
+    external_deps = [
+        "gtest",
+    ],
+    language = "C++",
+    deps = [
+        ':end2end_tests',
+        '//:gpr',
+        '//:grpc',
+        '//:tsi',
+        '//test/core/util:gpr_test_util',
+        '//test/core/util:grpc_test_util',
+    ],
+)

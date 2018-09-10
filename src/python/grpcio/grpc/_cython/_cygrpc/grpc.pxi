@@ -38,13 +38,6 @@ cdef extern from "grpc/byte_buffer_reader.h":
     pass
 
 
-cdef extern from "grpc/impl/codegen/exec_ctx_fwd.h":
-
-  struct grpc_exec_ctx:
-    # We don't care about the internals
-    pass
-
-
 cdef extern from "grpc/grpc.h":
 
   ctypedef struct grpc_slice:
@@ -138,6 +131,7 @@ cdef extern from "grpc/grpc.h":
   const char *GRPC_ARG_PRIMARY_USER_AGENT_STRING
   const char *GRPC_ARG_SECONDARY_USER_AGENT_STRING
   const char *GRPC_SSL_TARGET_NAME_OVERRIDE_ARG
+  const char *GRPC_SSL_SESSION_CACHE_ARG
   const char *GRPC_COMPRESSION_CHANNEL_DEFAULT_ALGORITHM
   const char *GRPC_COMPRESSION_CHANNEL_DEFAULT_LEVEL
   const char *GRPC_COMPRESSION_CHANNEL_ENABLED_ALGORITHMS_BITSET
@@ -171,7 +165,7 @@ cdef extern from "grpc/grpc.h":
 
   ctypedef struct grpc_arg_pointer_vtable:
     void *(*copy)(void *)
-    void (*destroy)(grpc_exec_ctx *, void *)
+    void (*destroy)(void *)
     int (*cmp)(void *, void *)
 
   ctypedef struct grpc_arg_value_pointer:
@@ -283,15 +277,10 @@ cdef extern from "grpc/grpc.h":
     uint8_t is_set
     grpc_compression_level level
 
-  ctypedef struct grpc_op_send_initial_metadata_maybe_stream_compression_level:
-    uint8_t is_set
-    grpc_stream_compression_level level
-
   ctypedef struct grpc_op_data_send_initial_metadata:
     size_t count
     grpc_metadata *metadata
     grpc_op_send_initial_metadata_maybe_compression_level maybe_compression_level
-    grpc_op_send_initial_metadata_maybe_stream_compression_level maybe_stream_compression_level
 
   ctypedef struct grpc_op_data_send_status_from_server:
     size_t trailing_metadata_count
@@ -303,6 +292,7 @@ cdef extern from "grpc/grpc.h":
     grpc_metadata_array *trailing_metadata
     grpc_status_code *status
     grpc_slice *status_details
+    char** error_string
 
   ctypedef struct grpc_op_data_recv_close_on_server:
     int *cancelled
@@ -463,7 +453,18 @@ cdef extern from "grpc/grpc_security.h":
     # We don't care about the internals (and in fact don't know them)
     pass
 
+  ctypedef struct grpc_ssl_session_cache:
+    # We don't care about the internals (and in fact don't know them)
+    pass
+
+  ctypedef struct verify_peer_options:
+    # We don't care about the internals (and in fact don't know them)
+    pass
+
   ctypedef void (*grpc_ssl_roots_override_callback)(char **pem_root_certs)
+
+  grpc_ssl_session_cache *grpc_ssl_session_cache_create_lru(size_t capacity)
+  void grpc_ssl_session_cache_destroy(grpc_ssl_session_cache* cache)
 
   void grpc_set_ssl_roots_override_callback(
       grpc_ssl_roots_override_callback cb) nogil
@@ -471,7 +472,7 @@ cdef extern from "grpc/grpc_security.h":
   grpc_channel_credentials *grpc_google_default_credentials_create() nogil
   grpc_channel_credentials *grpc_ssl_credentials_create(
       const char *pem_root_certs, grpc_ssl_pem_key_cert_pair *pem_key_cert_pair,
-      void *reserved) nogil
+      verify_peer_options *verify_options, void *reserved) nogil
   grpc_channel_credentials *grpc_composite_channel_credentials_create(
       grpc_channel_credentials *creds1, grpc_call_credentials *creds2,
       void *reserved) nogil
@@ -571,6 +572,7 @@ cdef extern from "grpc/compression.h":
     GRPC_COMPRESS_NONE
     GRPC_COMPRESS_DEFLATE
     GRPC_COMPRESS_GZIP
+    GRPC_COMPRESS_STREAM_GZIP
     GRPC_COMPRESS_ALGORITHMS_COUNT
 
   ctypedef enum grpc_compression_level:

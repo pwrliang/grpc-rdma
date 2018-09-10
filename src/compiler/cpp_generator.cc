@@ -64,16 +64,15 @@ T* array_end(T (&array)[N]) {
 
 void PrintIncludes(grpc_generator::Printer* printer,
                    const std::vector<grpc::string>& headers,
-                   const Parameters& params) {
+                   bool use_system_headers, const grpc::string& search_path) {
   std::map<grpc::string, grpc::string> vars;
 
-  vars["l"] = params.use_system_headers ? '<' : '"';
-  vars["r"] = params.use_system_headers ? '>' : '"';
+  vars["l"] = use_system_headers ? '<' : '"';
+  vars["r"] = use_system_headers ? '>' : '"';
 
-  auto& s = params.grpc_search_path;
-  if (!s.empty()) {
-    vars["l"] += s;
-    if (s[s.size() - 1] != '/') {
+  if (!search_path.empty()) {
+    vars["l"] += search_path;
+    if (search_path[search_path.size() - 1] != '/') {
       vars["l"] += '/';
     }
   }
@@ -124,18 +123,24 @@ grpc::string GetHeaderIncludes(grpc_generator::File* file,
     auto printer = file->CreatePrinter(&output);
     std::map<grpc::string, grpc::string> vars;
 
+    if (!params.additional_header_includes.empty()) {
+      PrintIncludes(printer.get(), params.additional_header_includes, false,
+                    "");
+    }
     static const char* headers_strs[] = {
-        "grpc++/impl/codegen/async_stream.h",
-        "grpc++/impl/codegen/async_unary_call.h",
-        "grpc++/impl/codegen/method_handler_impl.h",
-        "grpc++/impl/codegen/proto_utils.h",
-        "grpc++/impl/codegen/rpc_method.h",
-        "grpc++/impl/codegen/service_type.h",
-        "grpc++/impl/codegen/status.h",
-        "grpc++/impl/codegen/stub_options.h",
-        "grpc++/impl/codegen/sync_stream.h"};
+        "grpcpp/impl/codegen/async_generic_service.h",
+        "grpcpp/impl/codegen/async_stream.h",
+        "grpcpp/impl/codegen/async_unary_call.h",
+        "grpcpp/impl/codegen/method_handler_impl.h",
+        "grpcpp/impl/codegen/proto_utils.h",
+        "grpcpp/impl/codegen/rpc_method.h",
+        "grpcpp/impl/codegen/service_type.h",
+        "grpcpp/impl/codegen/status.h",
+        "grpcpp/impl/codegen/stub_options.h",
+        "grpcpp/impl/codegen/sync_stream.h"};
     std::vector<grpc::string> headers(headers_strs, array_end(headers_strs));
-    PrintIncludes(printer.get(), headers, params);
+    PrintIncludes(printer.get(), headers, params.use_system_headers,
+                  params.grpc_search_path);
     printer->Print(vars, "\n");
     printer->Print(vars, "namespace grpc {\n");
     printer->Print(vars, "class CompletionQueue;\n");
@@ -584,12 +589,114 @@ void PrintHeaderServerMethodSync(grpc_generator::Printer* printer,
   printer->Print(method->GetTrailingComments("//").c_str());
 }
 
+// Helper generator. Disabled the sync API for Request and Response, then adds
+// in an async API for RealRequest and RealResponse types. This is to be used
+// to generate async and raw APIs.
+void PrintHeaderServerAsyncMethodsHelper(
+    grpc_generator::Printer* printer, const grpc_generator::Method* method,
+    std::map<grpc::string, grpc::string>* vars) {
+  if (method->NoStreaming()) {
+    printer->Print(
+        *vars,
+        "// disable synchronous version of this method\n"
+        "::grpc::Status $Method$("
+        "::grpc::ServerContext* context, const $Request$* request, "
+        "$Response$* response) override {\n"
+        "  abort();\n"
+        "  return ::grpc::Status(::grpc::StatusCode::UNIMPLEMENTED, \"\");\n"
+        "}\n");
+    printer->Print(
+        *vars,
+        "void Request$Method$("
+        "::grpc::ServerContext* context, $RealRequest$* request, "
+        "::grpc::ServerAsyncResponseWriter< $RealResponse$>* response, "
+        "::grpc::CompletionQueue* new_call_cq, "
+        "::grpc::ServerCompletionQueue* notification_cq, void *tag) {\n");
+    printer->Print(*vars,
+                   "  ::grpc::Service::RequestAsyncUnary($Idx$, context, "
+                   "request, response, new_call_cq, notification_cq, tag);\n");
+    printer->Print("}\n");
+  } else if (ClientOnlyStreaming(method)) {
+    printer->Print(
+        *vars,
+        "// disable synchronous version of this method\n"
+        "::grpc::Status $Method$("
+        "::grpc::ServerContext* context, "
+        "::grpc::ServerReader< $Request$>* reader, "
+        "$Response$* response) override {\n"
+        "  abort();\n"
+        "  return ::grpc::Status(::grpc::StatusCode::UNIMPLEMENTED, \"\");\n"
+        "}\n");
+    printer->Print(
+        *vars,
+        "void Request$Method$("
+        "::grpc::ServerContext* context, "
+        "::grpc::ServerAsyncReader< $RealResponse$, $RealRequest$>* reader, "
+        "::grpc::CompletionQueue* new_call_cq, "
+        "::grpc::ServerCompletionQueue* notification_cq, void *tag) {\n");
+    printer->Print(*vars,
+                   "  ::grpc::Service::RequestAsyncClientStreaming($Idx$, "
+                   "context, reader, new_call_cq, notification_cq, tag);\n");
+    printer->Print("}\n");
+  } else if (ServerOnlyStreaming(method)) {
+    printer->Print(
+        *vars,
+        "// disable synchronous version of this method\n"
+        "::grpc::Status $Method$("
+        "::grpc::ServerContext* context, const $Request$* request, "
+        "::grpc::ServerWriter< $Response$>* writer) override "
+        "{\n"
+        "  abort();\n"
+        "  return ::grpc::Status(::grpc::StatusCode::UNIMPLEMENTED, \"\");\n"
+        "}\n");
+    printer->Print(
+        *vars,
+        "void Request$Method$("
+        "::grpc::ServerContext* context, $RealRequest$* request, "
+        "::grpc::ServerAsyncWriter< $RealResponse$>* writer, "
+        "::grpc::CompletionQueue* new_call_cq, "
+        "::grpc::ServerCompletionQueue* notification_cq, void *tag) {\n");
+    printer->Print(
+        *vars,
+        "  ::grpc::Service::RequestAsyncServerStreaming($Idx$, "
+        "context, request, writer, new_call_cq, notification_cq, tag);\n");
+    printer->Print("}\n");
+  } else if (method->BidiStreaming()) {
+    printer->Print(
+        *vars,
+        "// disable synchronous version of this method\n"
+        "::grpc::Status $Method$("
+        "::grpc::ServerContext* context, "
+        "::grpc::ServerReaderWriter< $Response$, $Request$>* stream) "
+        " override {\n"
+        "  abort();\n"
+        "  return ::grpc::Status(::grpc::StatusCode::UNIMPLEMENTED, \"\");\n"
+        "}\n");
+    printer->Print(
+        *vars,
+        "void Request$Method$("
+        "::grpc::ServerContext* context, "
+        "::grpc::ServerAsyncReaderWriter< $RealResponse$, $RealRequest$>* "
+        "stream, "
+        "::grpc::CompletionQueue* new_call_cq, "
+        "::grpc::ServerCompletionQueue* notification_cq, void *tag) {\n");
+    printer->Print(*vars,
+                   "  ::grpc::Service::RequestAsyncBidiStreaming($Idx$, "
+                   "context, stream, new_call_cq, notification_cq, tag);\n");
+    printer->Print("}\n");
+  }
+}
+
 void PrintHeaderServerMethodAsync(grpc_generator::Printer* printer,
                                   const grpc_generator::Method* method,
                                   std::map<grpc::string, grpc::string>* vars) {
   (*vars)["Method"] = method->name();
+  // These will be disabled
   (*vars)["Request"] = method->input_type_name();
   (*vars)["Response"] = method->output_type_name();
+  // These will be used for the async API
+  (*vars)["RealRequest"] = method->input_type_name();
+  (*vars)["RealResponse"] = method->output_type_name();
   printer->Print(*vars, "template <class BaseClass>\n");
   printer->Print(*vars,
                  "class WithAsyncMethod_$Method$ : public BaseClass {\n");
@@ -606,95 +713,7 @@ void PrintHeaderServerMethodAsync(grpc_generator::Printer* printer,
                  "~WithAsyncMethod_$Method$() override {\n"
                  "  BaseClassMustBeDerivedFromService(this);\n"
                  "}\n");
-  if (method->NoStreaming()) {
-    printer->Print(
-        *vars,
-        "// disable synchronous version of this method\n"
-        "::grpc::Status $Method$("
-        "::grpc::ServerContext* context, const $Request$* request, "
-        "$Response$* response) final override {\n"
-        "  abort();\n"
-        "  return ::grpc::Status(::grpc::StatusCode::UNIMPLEMENTED, \"\");\n"
-        "}\n");
-    printer->Print(
-        *vars,
-        "void Request$Method$("
-        "::grpc::ServerContext* context, $Request$* request, "
-        "::grpc::ServerAsyncResponseWriter< $Response$>* response, "
-        "::grpc::CompletionQueue* new_call_cq, "
-        "::grpc::ServerCompletionQueue* notification_cq, void *tag) {\n");
-    printer->Print(*vars,
-                   "  ::grpc::Service::RequestAsyncUnary($Idx$, context, "
-                   "request, response, new_call_cq, notification_cq, tag);\n");
-    printer->Print("}\n");
-  } else if (ClientOnlyStreaming(method)) {
-    printer->Print(
-        *vars,
-        "// disable synchronous version of this method\n"
-        "::grpc::Status $Method$("
-        "::grpc::ServerContext* context, "
-        "::grpc::ServerReader< $Request$>* reader, "
-        "$Response$* response) final override {\n"
-        "  abort();\n"
-        "  return ::grpc::Status(::grpc::StatusCode::UNIMPLEMENTED, \"\");\n"
-        "}\n");
-    printer->Print(
-        *vars,
-        "void Request$Method$("
-        "::grpc::ServerContext* context, "
-        "::grpc::ServerAsyncReader< $Response$, $Request$>* reader, "
-        "::grpc::CompletionQueue* new_call_cq, "
-        "::grpc::ServerCompletionQueue* notification_cq, void *tag) {\n");
-    printer->Print(*vars,
-                   "  ::grpc::Service::RequestAsyncClientStreaming($Idx$, "
-                   "context, reader, new_call_cq, notification_cq, tag);\n");
-    printer->Print("}\n");
-  } else if (ServerOnlyStreaming(method)) {
-    printer->Print(
-        *vars,
-        "// disable synchronous version of this method\n"
-        "::grpc::Status $Method$("
-        "::grpc::ServerContext* context, const $Request$* request, "
-        "::grpc::ServerWriter< $Response$>* writer) final override "
-        "{\n"
-        "  abort();\n"
-        "  return ::grpc::Status(::grpc::StatusCode::UNIMPLEMENTED, \"\");\n"
-        "}\n");
-    printer->Print(
-        *vars,
-        "void Request$Method$("
-        "::grpc::ServerContext* context, $Request$* request, "
-        "::grpc::ServerAsyncWriter< $Response$>* writer, "
-        "::grpc::CompletionQueue* new_call_cq, "
-        "::grpc::ServerCompletionQueue* notification_cq, void *tag) {\n");
-    printer->Print(
-        *vars,
-        "  ::grpc::Service::RequestAsyncServerStreaming($Idx$, "
-        "context, request, writer, new_call_cq, notification_cq, tag);\n");
-    printer->Print("}\n");
-  } else if (method->BidiStreaming()) {
-    printer->Print(
-        *vars,
-        "// disable synchronous version of this method\n"
-        "::grpc::Status $Method$("
-        "::grpc::ServerContext* context, "
-        "::grpc::ServerReaderWriter< $Response$, $Request$>* stream) "
-        "final override {\n"
-        "  abort();\n"
-        "  return ::grpc::Status(::grpc::StatusCode::UNIMPLEMENTED, \"\");\n"
-        "}\n");
-    printer->Print(
-        *vars,
-        "void Request$Method$("
-        "::grpc::ServerContext* context, "
-        "::grpc::ServerAsyncReaderWriter< $Response$, $Request$>* stream, "
-        "::grpc::CompletionQueue* new_call_cq, "
-        "::grpc::ServerCompletionQueue* notification_cq, void *tag) {\n");
-    printer->Print(*vars,
-                   "  ::grpc::Service::RequestAsyncBidiStreaming($Idx$, "
-                   "context, stream, new_call_cq, notification_cq, tag);\n");
-    printer->Print("}\n");
-  }
+  PrintHeaderServerAsyncMethodsHelper(printer, method, vars);
   printer->Outdent();
   printer->Print(*vars, "};\n");
 }
@@ -734,7 +753,7 @@ void PrintHeaderServerMethodStreamedUnary(
         "// disable regular version of this method\n"
         "::grpc::Status $Method$("
         "::grpc::ServerContext* context, const $Request$* request, "
-        "$Response$* response) final override {\n"
+        "$Response$* response) override {\n"
         "  abort();\n"
         "  return ::grpc::Status(::grpc::StatusCode::UNIMPLEMENTED, \"\");\n"
         "}\n");
@@ -786,7 +805,7 @@ void PrintHeaderServerMethodSplitStreaming(
         "// disable regular version of this method\n"
         "::grpc::Status $Method$("
         "::grpc::ServerContext* context, const $Request$* request, "
-        "::grpc::ServerWriter< $Response$>* writer) final override "
+        "::grpc::ServerWriter< $Response$>* writer) override "
         "{\n"
         "  abort();\n"
         "  return ::grpc::Status(::grpc::StatusCode::UNIMPLEMENTED, \"\");\n"
@@ -831,7 +850,7 @@ void PrintHeaderServerMethodGeneric(
         "// disable synchronous version of this method\n"
         "::grpc::Status $Method$("
         "::grpc::ServerContext* context, const $Request$* request, "
-        "$Response$* response) final override {\n"
+        "$Response$* response) override {\n"
         "  abort();\n"
         "  return ::grpc::Status(::grpc::StatusCode::UNIMPLEMENTED, \"\");\n"
         "}\n");
@@ -842,7 +861,7 @@ void PrintHeaderServerMethodGeneric(
         "::grpc::Status $Method$("
         "::grpc::ServerContext* context, "
         "::grpc::ServerReader< $Request$>* reader, "
-        "$Response$* response) final override {\n"
+        "$Response$* response) override {\n"
         "  abort();\n"
         "  return ::grpc::Status(::grpc::StatusCode::UNIMPLEMENTED, \"\");\n"
         "}\n");
@@ -852,7 +871,7 @@ void PrintHeaderServerMethodGeneric(
         "// disable synchronous version of this method\n"
         "::grpc::Status $Method$("
         "::grpc::ServerContext* context, const $Request$* request, "
-        "::grpc::ServerWriter< $Response$>* writer) final override "
+        "::grpc::ServerWriter< $Response$>* writer) override "
         "{\n"
         "  abort();\n"
         "  return ::grpc::Status(::grpc::StatusCode::UNIMPLEMENTED, \"\");\n"
@@ -864,11 +883,41 @@ void PrintHeaderServerMethodGeneric(
         "::grpc::Status $Method$("
         "::grpc::ServerContext* context, "
         "::grpc::ServerReaderWriter< $Response$, $Request$>* stream) "
-        "final override {\n"
+        " override {\n"
         "  abort();\n"
         "  return ::grpc::Status(::grpc::StatusCode::UNIMPLEMENTED, \"\");\n"
         "}\n");
   }
+  printer->Outdent();
+  printer->Print(*vars, "};\n");
+}
+
+void PrintHeaderServerMethodRaw(grpc_generator::Printer* printer,
+                                const grpc_generator::Method* method,
+                                std::map<grpc::string, grpc::string>* vars) {
+  (*vars)["Method"] = method->name();
+  // These will be disabled
+  (*vars)["Request"] = method->input_type_name();
+  (*vars)["Response"] = method->output_type_name();
+  // These will be used for raw API
+  (*vars)["RealRequest"] = "::grpc::ByteBuffer";
+  (*vars)["RealResponse"] = "::grpc::ByteBuffer";
+  printer->Print(*vars, "template <class BaseClass>\n");
+  printer->Print(*vars, "class WithRawMethod_$Method$ : public BaseClass {\n");
+  printer->Print(
+      " private:\n"
+      "  void BaseClassMustBeDerivedFromService(const Service *service) {}\n");
+  printer->Print(" public:\n");
+  printer->Indent();
+  printer->Print(*vars,
+                 "WithRawMethod_$Method$() {\n"
+                 "  ::grpc::Service::MarkMethodRaw($Idx$);\n"
+                 "}\n");
+  printer->Print(*vars,
+                 "~WithRawMethod_$Method$() override {\n"
+                 "  BaseClassMustBeDerivedFromService(this);\n"
+                 "}\n");
+  PrintHeaderServerAsyncMethodsHelper(printer, method, vars);
   printer->Outdent();
   printer->Print(*vars, "};\n");
 }
@@ -975,6 +1024,12 @@ void PrintHeaderService(grpc_generator::Printer* printer,
   for (int i = 0; i < service->method_count(); ++i) {
     (*vars)["Idx"] = as_string(i);
     PrintHeaderServerMethodGeneric(printer, service->method(i).get(), vars);
+  }
+
+  // Server side - Raw
+  for (int i = 0; i < service->method_count(); ++i) {
+    (*vars)["Idx"] = as_string(i);
+    PrintHeaderServerMethodRaw(printer, service->method(i).get(), vars);
   }
 
   // Server side - Streamed Unary
@@ -1144,16 +1199,17 @@ grpc::string GetSourceIncludes(grpc_generator::File* file,
     std::map<grpc::string, grpc::string> vars;
 
     static const char* headers_strs[] = {
-        "grpc++/impl/codegen/async_stream.h",
-        "grpc++/impl/codegen/async_unary_call.h",
-        "grpc++/impl/codegen/channel_interface.h",
-        "grpc++/impl/codegen/client_unary_call.h",
-        "grpc++/impl/codegen/method_handler_impl.h",
-        "grpc++/impl/codegen/rpc_service_method.h",
-        "grpc++/impl/codegen/service_type.h",
-        "grpc++/impl/codegen/sync_stream.h"};
+        "grpcpp/impl/codegen/async_stream.h",
+        "grpcpp/impl/codegen/async_unary_call.h",
+        "grpcpp/impl/codegen/channel_interface.h",
+        "grpcpp/impl/codegen/client_unary_call.h",
+        "grpcpp/impl/codegen/method_handler_impl.h",
+        "grpcpp/impl/codegen/rpc_service_method.h",
+        "grpcpp/impl/codegen/service_type.h",
+        "grpcpp/impl/codegen/sync_stream.h"};
     std::vector<grpc::string> headers(headers_strs, array_end(headers_strs));
-    PrintIncludes(printer.get(), headers, params);
+    PrintIncludes(printer.get(), headers, params.use_system_headers,
+                  params.grpc_search_path);
 
     if (!file->package().empty()) {
       std::vector<grpc::string> parts = file->package_parts();
@@ -1383,6 +1439,7 @@ void PrintSourceService(grpc_generator::Printer* printer,
                  "std::unique_ptr< $ns$$Service$::Stub> $ns$$Service$::NewStub("
                  "const std::shared_ptr< ::grpc::ChannelInterface>& channel, "
                  "const ::grpc::StubOptions& options) {\n"
+                 "  (void)options;\n"
                  "  std::unique_ptr< $ns$$Service$::Stub> stub(new "
                  "$ns$$Service$::Stub(channel));\n"
                  "  return stub;\n"
@@ -1565,12 +1622,24 @@ grpc::string GetMockIncludes(grpc_generator::File* file,
     std::map<grpc::string, grpc::string> vars;
 
     static const char* headers_strs[] = {
-        "grpc++/impl/codegen/async_stream.h",
-        "grpc++/impl/codegen/sync_stream.h",
-        "gmock/gmock.h",
+        "grpcpp/impl/codegen/async_stream.h",
+        "grpcpp/impl/codegen/sync_stream.h",
     };
     std::vector<grpc::string> headers(headers_strs, array_end(headers_strs));
-    PrintIncludes(printer.get(), headers, params);
+    PrintIncludes(printer.get(), headers, params.use_system_headers,
+                  params.grpc_search_path);
+
+    std::vector<grpc::string> gmock_header;
+    if (params.gmock_search_path.empty()) {
+      gmock_header.push_back("gmock/gmock.h");
+      PrintIncludes(printer.get(), gmock_header, params.use_system_headers,
+                    params.grpc_search_path);
+    } else {
+      gmock_header.push_back("gmock.h");
+      // We use local includes when a gmock_search_path is given
+      PrintIncludes(printer.get(), gmock_header, false,
+                    params.gmock_search_path);
+    }
 
     if (!file->package().empty()) {
       std::vector<grpc::string> parts = file->package_parts();

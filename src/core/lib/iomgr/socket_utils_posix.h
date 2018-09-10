@@ -19,6 +19,8 @@
 #ifndef GRPC_CORE_LIB_IOMGR_SOCKET_UTILS_POSIX_H
 #define GRPC_CORE_LIB_IOMGR_SOCKET_UTILS_POSIX_H
 
+#include <grpc/support/port_platform.h>
+
 #include "src/core/lib/iomgr/resolve_address.h"
 
 #include <sys/socket.h>
@@ -28,10 +30,6 @@
 #include "src/core/lib/iomgr/error.h"
 #include "src/core/lib/iomgr/socket_factory_posix.h"
 #include "src/core/lib/iomgr/socket_mutator.h"
-
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 /* a wrapper for accept or accept4 */
 int grpc_accept4(int sockfd, grpc_resolved_address* resolved_addr, int nonblock,
@@ -45,6 +43,9 @@ grpc_error* grpc_set_socket_cloexec(int fd, int close_on_exec);
 
 /* set a socket to reuse old addresses */
 grpc_error* grpc_set_socket_reuse_addr(int fd, int reuse);
+
+/* return true if SO_REUSEPORT is supported */
+bool grpc_is_socket_reuse_port_supported();
 
 /* disable nagle */
 grpc_error* grpc_set_socket_low_latency(int fd, int low_latency);
@@ -132,9 +133,5 @@ grpc_error* grpc_create_dualstack_socket(const grpc_resolved_address* addr,
 grpc_error* grpc_create_dualstack_socket_using_factory(
     grpc_socket_factory* factory, const grpc_resolved_address* addr, int type,
     int protocol, grpc_dualstack_mode* dsmode, int* newfd);
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif /* GRPC_CORE_LIB_IOMGR_SOCKET_UTILS_POSIX_H */
