@@ -16,7 +16,7 @@ load("//bazel:grpc_build_system.bzl", "grpc_cc_library", "grpc_cc_test", "grpc_c
 
 licenses(["notice"])  # Apache v2
 
-grpc_package(name = "test/core/tsi")
+grpc_package(name = "test/core/tsi", visibility = "public")
 
 grpc_cc_library(
     name = "transport_security_test_lib",
@@ -41,6 +41,20 @@ grpc_cc_test(
     ],
 )
 
+grpc_cc_test(
+    name = "ssl_session_cache_test",
+    srcs = ["ssl_session_cache_test.cc"],
+    language = "C++",
+    external_deps = [
+        "gtest",
+    ],
+    deps = [
+        "//:grpc",
+        "//:gpr",
+        "//:tsi",
+        "//test/core/util:gpr_test_util",
+    ],
+)
 
 grpc_cc_test(
     name = "ssl_transport_security_test",

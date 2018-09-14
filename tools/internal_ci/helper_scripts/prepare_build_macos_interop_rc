@@ -32,9 +32,4 @@ brew install md5sha1sum
 git clone --recursive https://github.com/grpc/grpc-go ./../grpc-go
 git clone --recursive https://github.com/grpc/grpc-java ./../grpc-java
 git clone --recursive https://github.com/grpc/grpc-node ./../grpc-node
-
-# Set up Docker for Mac
-docker-machine create -d virtualbox --virtualbox-share-folder "/Users/kbuilder/workspace:" default
-docker-machine env default
-eval $(docker-machine env default)
-
+git clone --recursive https://github.com/grpc/grpc-dart ./../grpc-dart

@@ -1,5 +1,7 @@
 {
   "Grpc.Core.Tests": [
+    "Grpc.Core.Interceptors.Tests.ClientInterceptorTest",
+    "Grpc.Core.Interceptors.Tests.ServerInterceptorTest",
     "Grpc.Core.Internal.Tests.AsyncCallServerTest",
     "Grpc.Core.Internal.Tests.AsyncCallTest",
     "Grpc.Core.Internal.Tests.ChannelArgsSafeHandleTest",
@@ -14,6 +16,7 @@
     "Grpc.Core.Tests.CallCancellationTest",
     "Grpc.Core.Tests.CallCredentialsTest",
     "Grpc.Core.Tests.CallOptionsTest",
+    "Grpc.Core.Tests.ChannelConnectivityTest",
     "Grpc.Core.Tests.ChannelCredentialsTest",
     "Grpc.Core.Tests.ChannelOptionsTest",
     "Grpc.Core.Tests.ChannelTest",
@@ -38,7 +41,9 @@
     "Grpc.Core.Tests.UserAgentStringTest"
   ],
   "Grpc.Examples.Tests": [
-    "Math.Tests.MathClientServerTest"
+    "Math.Tests.MathClientMockableTest",
+    "Math.Tests.MathClientServerTest",
+    "Math.Tests.MathServiceImplTestabilityTest"
   ],
   "Grpc.HealthCheck.Tests": [
     "Grpc.HealthCheck.Tests.HealthClientServerTest",

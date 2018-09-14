@@ -20,10 +20,14 @@ import grpc
 from grpc import _common
 from grpc._cython import cygrpc
 
+_LOGGER = logging.getLogger(__name__)
+
 
 class _AuthMetadataContext(
         collections.namedtuple('AuthMetadataContext', (
-            'service_url', 'method_name',)), grpc.AuthMetadataContext):
+            'service_url',
+            'method_name',
+        )), grpc.AuthMetadataContext):
     pass
 
 
@@ -70,10 +74,11 @@ class _Plugin(object):
             _common.decode(service_url), _common.decode(method_name))
         callback_state = _CallbackState()
         try:
-            self._metadata_plugin(
-                context, _AuthMetadataPluginCallback(callback_state, callback))
+            self._metadata_plugin(context,
+                                  _AuthMetadataPluginCallback(
+                                      callback_state, callback))
         except Exception as exception:  # pylint: disable=broad-except
-            logging.exception(
+            _LOGGER.exception(
                 'AuthMetadataPluginCallback "%s" raised exception!',
                 self._metadata_plugin)
             with callback_state.lock:

@@ -24,15 +24,15 @@
 #include <unordered_map>
 #include <vector>
 
-#include <grpc++/channel.h>
-#include <grpc++/support/byte_buffer.h>
-#include <grpc++/support/channel_arguments.h>
-#include <grpc++/support/slice.h>
 #include <grpc/support/log.h>
 #include <grpc/support/time.h>
+#include <grpcpp/channel.h>
+#include <grpcpp/support/byte_buffer.h>
+#include <grpcpp/support/channel_arguments.h>
+#include <grpcpp/support/slice.h>
 
+#include "src/proto/grpc/testing/benchmark_service.grpc.pb.h"
 #include "src/proto/grpc/testing/payloads.pb.h"
-#include "src/proto/grpc/testing/services.grpc.pb.h"
 
 #include "src/cpp/util/core_stats.h"
 #include "test/cpp/qps/histogram.h"
@@ -450,7 +450,7 @@ class ClientImpl : public Client {
 
    private:
     void set_channel_args(const ClientConfig& config, ChannelArguments* args) {
-      for (auto channel_arg : config.channel_args()) {
+      for (const auto& channel_arg : config.channel_args()) {
         if (channel_arg.value_case() == ChannelArg::kStrValue) {
           args->SetString(channel_arg.name(), channel_arg.str_value());
         } else if (channel_arg.value_case() == ChannelArg::kIntValue) {

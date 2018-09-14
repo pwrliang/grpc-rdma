@@ -315,7 +315,7 @@ static VALUE grpc_rb_channel_get_connectivity_state(int argc, VALUE* argv,
 }
 
 typedef struct watch_state_stack {
-  grpc_channel* channel;
+  bg_watched_channel* bg_wrapped;
   gpr_timespec deadline;
   int last_state;
 } watch_state_stack;
@@ -328,15 +328,15 @@ static void* wait_for_watch_state_op_complete_without_gvl(void* arg) {
   gpr_mu_lock(&global_connection_polling_mu);
   // its unsafe to do a "watch" after "channel polling abort" because the cq has
   // been shut down.
-  if (abort_channel_polling) {
+  if (abort_channel_polling || stack->bg_wrapped->channel_destroyed) {
     gpr_mu_unlock(&global_connection_polling_mu);
     return (void*)0;
   }
   op = gpr_zalloc(sizeof(watch_state_op));
   op->op_type = WATCH_STATE_API;
-  grpc_channel_watch_connectivity_state(stack->channel, stack->last_state,
-                                        stack->deadline, channel_polling_cq,
-                                        op);
+  grpc_channel_watch_connectivity_state(stack->bg_wrapped->channel,
+                                        stack->last_state, stack->deadline,
+                                        channel_polling_cq, op);
 
   while (!op->op.api_callback_args.called_back) {
     gpr_cv_wait(&global_connection_polling_cv, &global_connection_polling_mu,
@@ -362,8 +362,8 @@ static void wait_for_watch_state_op_complete_unblocking_func(void* arg) {
 
 /* Wait until the channel's connectivity state becomes different from
  * "last_state", or "deadline" expires.
- * Returns true if the the channel's connectivity state becomes
- * different from "last_state" within "deadline".
+ * Returns true if the channel's connectivity state becomes different
+ * from "last_state" within "deadline".
  * Returns false if "deadline" expires before the channel's connectivity
  * state changes from "last_state".
  * */
@@ -388,7 +388,7 @@ static VALUE grpc_rb_channel_watch_connectivity_state(VALUE self,
     return Qnil;
   }
 
-  stack.channel = wrapper->bg_wrapped->channel;
+  stack.bg_wrapped = wrapper->bg_wrapped;
   stack.deadline = grpc_rb_time_timeval(deadline, 0),
   stack.last_state = NUM2LONG(last_state);
 
@@ -427,16 +427,15 @@ static VALUE grpc_rb_channel_create_call(VALUE self, VALUE parent, VALUE mask,
     parent_call = grpc_rb_get_wrapped_call(parent);
   }
 
-  cq = grpc_completion_queue_create_for_pluck(NULL);
   TypedData_Get_Struct(self, grpc_rb_channel, &grpc_channel_data_type, wrapper);
   if (wrapper->bg_wrapped == NULL) {
     rb_raise(rb_eRuntimeError, "closed!");
     return Qnil;
   }
 
+  cq = grpc_completion_queue_create_for_pluck(NULL);
   method_slice =
       grpc_slice_from_copied_buffer(RSTRING_PTR(method), RSTRING_LEN(method));
-
   call = grpc_channel_create_call(wrapper->bg_wrapped->channel, parent_call,
                                   flags, cq, method_slice, host_slice_ptr,
                                   grpc_rb_time_timeval(deadline,

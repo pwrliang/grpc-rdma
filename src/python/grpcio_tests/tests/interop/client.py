@@ -66,10 +66,6 @@ def _args():
     return parser.parse_args()
 
 
-def _application_default_credentials():
-    return oauth2client_client.GoogleCredentials.get_application_default()
-
-
 def _stub(args):
     target = '{}:{}'.format(args.server_host, args.server_port)
     if args.test_case == 'oauth2_auth_token':
@@ -104,8 +100,10 @@ def _stub(args):
             channel_credentials = grpc.composite_channel_credentials(
                 channel_credentials, call_credentials)
 
-        channel = grpc.secure_channel(target, channel_credentials, (
-            ('grpc.ssl_target_name_override', args.server_host_override,),))
+        channel = grpc.secure_channel(target, channel_credentials, ((
+            'grpc.ssl_target_name_override',
+            args.server_host_override,
+        ),))
     else:
         channel = grpc.insecure_channel(target)
     if args.test_case == "unimplemented_service":

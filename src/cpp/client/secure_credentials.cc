@@ -17,11 +17,11 @@
  */
 
 #include "src/cpp/client/secure_credentials.h"
-#include <grpc++/channel.h>
-#include <grpc++/impl/grpc_library.h>
-#include <grpc++/support/channel_arguments.h>
 #include <grpc/support/log.h>
 #include <grpc/support/string_util.h>
+#include <grpcpp/channel.h>
+#include <grpcpp/impl/grpc_library.h>
+#include <grpcpp/support/channel_arguments.h>
 #include "src/cpp/client/create_channel_internal.h"
 #include "src/cpp/common/secure_auth_context.h"
 
@@ -83,9 +83,31 @@ std::shared_ptr<ChannelCredentials> SslCredentials(
 
   grpc_channel_credentials* c_creds = grpc_ssl_credentials_create(
       options.pem_root_certs.empty() ? nullptr : options.pem_root_certs.c_str(),
-      options.pem_private_key.empty() ? nullptr : &pem_key_cert_pair, nullptr);
+      options.pem_private_key.empty() ? nullptr : &pem_key_cert_pair, nullptr,
+      nullptr);
   return WrapChannelCredentials(c_creds);
 }
+
+namespace experimental {
+
+// Builds ALTS Credentials given ALTS specific options
+std::shared_ptr<ChannelCredentials> AltsCredentials(
+    const AltsCredentialsOptions& options) {
+  GrpcLibraryCodegen init;  // To call grpc_init().
+  grpc_alts_credentials_options* c_options =
+      grpc_alts_credentials_client_options_create();
+  for (auto service_account = options.target_service_accounts.begin();
+       service_account != options.target_service_accounts.end();
+       service_account++) {
+    grpc_alts_credentials_client_options_add_target_service_account(
+        c_options, service_account->c_str());
+  }
+  grpc_channel_credentials* c_creds = grpc_alts_credentials_create(c_options);
+  grpc_alts_credentials_options_destroy(c_options);
+  return WrapChannelCredentials(c_creds);
+}
+
+}  // namespace experimental
 
 // Builds credentials for use when running in GCE
 std::shared_ptr<CallCredentials> GoogleComputeEngineCredentials() {
@@ -168,7 +190,7 @@ std::shared_ptr<CallCredentials> CompositeCallCredentials(
 void MetadataCredentialsPluginWrapper::Destroy(void* wrapper) {
   if (wrapper == nullptr) return;
   MetadataCredentialsPluginWrapper* w =
-      reinterpret_cast<MetadataCredentialsPluginWrapper*>(wrapper);
+      static_cast<MetadataCredentialsPluginWrapper*>(wrapper);
   delete w;
 }
 
@@ -180,7 +202,7 @@ int MetadataCredentialsPluginWrapper::GetMetadata(
     const char** error_details) {
   GPR_ASSERT(wrapper);
   MetadataCredentialsPluginWrapper* w =
-      reinterpret_cast<MetadataCredentialsPluginWrapper*>(wrapper);
+      static_cast<MetadataCredentialsPluginWrapper*>(wrapper);
   if (!w->plugin_) {
     *num_creds_md = 0;
     *status = GRPC_STATUS_OK;

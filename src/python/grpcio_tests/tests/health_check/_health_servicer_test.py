@@ -16,12 +16,11 @@
 import unittest
 
 import grpc
-from grpc.framework.foundation import logging_pool
 from grpc_health.v1 import health
 from grpc_health.v1 import health_pb2
 from grpc_health.v1 import health_pb2_grpc
 
-from tests.unit.framework.common import test_constants
+from tests.unit import test_common
 
 
 class HealthServicerTest(unittest.TestCase):
@@ -35,8 +34,7 @@ class HealthServicerTest(unittest.TestCase):
                      health_pb2.HealthCheckResponse.UNKNOWN)
         servicer.set('grpc.test.TestServiceNotServing',
                      health_pb2.HealthCheckResponse.NOT_SERVING)
-        server_pool = logging_pool.pool(test_constants.THREAD_CONCURRENCY)
-        self._server = grpc.server(server_pool)
+        self._server = test_common.test_server()
         port = self._server.add_insecure_port('[::]:0')
         health_pb2_grpc.add_HealthServicer_to_server(servicer, self._server)
         self._server.start()
@@ -74,6 +72,9 @@ class HealthServicerTest(unittest.TestCase):
             resp = self._stub.Check(request)
 
         self.assertEqual(grpc.StatusCode.NOT_FOUND, context.exception.code())
+
+    def test_health_service_name(self):
+        self.assertEqual(health.SERVICE_NAME, 'grpc.health.v1.Health')
 
 
 if __name__ == '__main__':

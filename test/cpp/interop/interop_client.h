@@ -21,8 +21,8 @@
 
 #include <memory>
 
-#include <grpc++/channel.h>
 #include <grpc/grpc.h>
+#include <grpcpp/channel.h>
 #include "src/proto/grpc/testing/messages.pb.h"
 #include "src/proto/grpc/testing/test.grpc.pb.h"
 
@@ -40,12 +40,12 @@ class InteropClient {
   /// created for every test case
   /// If do_not_abort_on_transient_failures is true, abort() is not called in
   /// case of transient failures (like connection failures)
-  explicit InteropClient(std::shared_ptr<Channel> channel,
+  explicit InteropClient(const std::shared_ptr<Channel>& channel,
                          bool new_stub_every_test_case,
                          bool do_not_abort_on_transient_failures);
   ~InteropClient() {}
 
-  void Reset(std::shared_ptr<Channel> channel);
+  void Reset(const std::shared_ptr<Channel>& channel);
 
   bool DoEmpty();
   bool DoLargeUnary();
@@ -83,12 +83,13 @@ class InteropClient {
    public:
     // If new_stub_every_call = true, pointer to a new instance of
     // TestServce::Stub is returned by Get() everytime it is called
-    ServiceStub(std::shared_ptr<Channel> channel, bool new_stub_every_call);
+    ServiceStub(const std::shared_ptr<Channel>& channel,
+                bool new_stub_every_call);
 
     TestService::Stub* Get();
     UnimplementedService::Stub* GetUnimplementedServiceStub();
 
-    void Reset(std::shared_ptr<Channel> channel);
+    void Reset(const std::shared_ptr<Channel>& channel);
 
    private:
     std::unique_ptr<TestService::Stub> stub_;
@@ -102,9 +103,11 @@ class InteropClient {
 
   /// Run \a custom_check_fn as an additional check.
   bool PerformLargeUnary(SimpleRequest* request, SimpleResponse* response,
-                         CheckerFn custom_checks_fn);
-  bool AssertStatusOk(const Status& s);
-  bool AssertStatusCode(const Status& s, StatusCode expected_code);
+                         const CheckerFn& custom_checks_fn);
+  bool AssertStatusOk(const Status& s,
+                      const grpc::string& optional_debug_string);
+  bool AssertStatusCode(const Status& s, StatusCode expected_code,
+                        const grpc::string& optional_debug_string);
   bool TransientFailureOrAbort();
   ServiceStub serviceStub_;
 

@@ -19,9 +19,10 @@
 #include <grpc/grpc.h>
 #include <grpc/grpc_security.h>
 #include <grpc/support/alloc.h>
-#include <grpc/support/host_port.h>
 #include <grpc/support/log.h>
 #include <grpc/support/time.h>
+
+#include "src/core/lib/gpr/host_port.h"
 #include "src/core/lib/security/credentials/credentials.h"
 #include "src/core/lib/security/credentials/fake/fake_credentials.h"
 #include "src/core/tsi/fake_transport_security.h"
@@ -36,6 +37,8 @@ void test_unparsable_target(void) {
   grpc_server_destroy(server);
 }
 
+// GRPC_ARG_ALLOW_REUSEPORT isn't supported for custom servers
+#ifndef GRPC_UV
 void test_add_same_port_twice() {
   grpc_arg a;
   a.type = GRPC_ARG_INTEGER;
@@ -61,12 +64,15 @@ void test_add_same_port_twice() {
   grpc_server_destroy(server);
   grpc_completion_queue_destroy(cq);
 }
+#endif
 
 int main(int argc, char** argv) {
   grpc_test_init(argc, argv);
   grpc_init();
   test_unparsable_target();
+#ifndef GRPC_UV
   test_add_same_port_twice();
+#endif
   grpc_shutdown();
   return 0;
 }
