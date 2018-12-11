@@ -43,6 +43,7 @@
 #include "src/core/lib/security/transport/auth_filters.h"
 #include "test/core/util/test_config.h"
 
+using grpc_core::internal::grpc_flush_cached_google_default_credentials;
 using grpc_core::internal::set_gce_tenancy_checker_for_testing;
 
 /* -- Mock channel credentials. -- */
@@ -610,7 +611,7 @@ static void test_compute_engine_creds_failure(void) {
   grpc_core::ExecCtx exec_ctx;
   request_metadata_state* state = make_request_metadata_state(
       GRPC_ERROR_CREATE_FROM_STATIC_STRING(
-          "Error occured when fetching oauth2 token."),
+          "Error occurred when fetching oauth2 token."),
       nullptr, 0);
   grpc_auth_metadata_context auth_md_ctx = {test_service_url, test_method,
                                             nullptr, nullptr};
@@ -699,7 +700,7 @@ static void test_refresh_token_creds_failure(void) {
   grpc_core::ExecCtx exec_ctx;
   request_metadata_state* state = make_request_metadata_state(
       GRPC_ERROR_CREATE_FROM_STATIC_STRING(
-          "Error occured when fetching oauth2 token."),
+          "Error occurred when fetching oauth2 token."),
       nullptr, 0);
   grpc_auth_metadata_context auth_md_ctx = {test_service_url, test_method,
                                             nullptr, nullptr};
@@ -954,17 +955,9 @@ static void test_google_default_creds_gce(void) {
   run_request_metadata_test(creds->call_creds, auth_md_ctx, state);
   grpc_core::ExecCtx::Get()->Flush();
 
-  /* Check that we get a cached creds if we call
-     grpc_google_default_credentials_create again.
-     GCE detection should not occur anymore either. */
-  g_test_gce_tenancy_checker_called = false;
-  grpc_channel_credentials* cached_creds =
-      grpc_google_default_credentials_create();
-  GPR_ASSERT(cached_creds == &creds->base);
-  GPR_ASSERT(g_test_gce_tenancy_checker_called == false);
+  GPR_ASSERT(g_test_gce_tenancy_checker_called == true);
 
   /* Cleanup. */
-  grpc_channel_credentials_unref(cached_creds);
   grpc_channel_credentials_unref(&creds->base);
   grpc_httpcli_set_override(nullptr, nullptr);
   grpc_override_well_known_credentials_path_getter(nullptr);
@@ -983,7 +976,7 @@ static void test_no_google_default_creds(void) {
   /* Simulate a successful detection of GCE. */
   GPR_ASSERT(grpc_google_default_credentials_create() == nullptr);
 
-  /* Try a cached one. GCE detection should not occur anymore. */
+  /* Try a second one. GCE detection should not occur anymore. */
   g_test_gce_tenancy_checker_called = false;
   GPR_ASSERT(grpc_google_default_credentials_create() == nullptr);
   GPR_ASSERT(g_test_gce_tenancy_checker_called == false);
