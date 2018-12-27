@@ -32,6 +32,7 @@
 #include "src/core/lib/security/context/security_context.h"
 #include "src/core/lib/security/credentials/credentials.h"
 #include "src/core/lib/security/security_connector/security_connector.h"
+#include "src/core/lib/security/security_connector/ssl_utils.h"
 #include "src/core/lib/slice/slice_internal.h"
 #include "src/core/lib/slice/slice_string_helpers.h"
 #include "src/core/lib/surface/call.h"
@@ -42,20 +43,39 @@
 namespace {
 /* We can have a per-call credentials. */
 struct call_data {
+  call_data(grpc_call_element* elem, const grpc_call_element_args& args)
+      : arena(args.arena),
+        owning_call(args.call_stack),
+        call_combiner(args.call_combiner) {}
+
+  // This method is technically the dtor of this class. However, since
+  // `get_request_metadata_cancel_closure` can run in parallel to
+  // `destroy_call_elem`, we cannot call the dtor in them. Otherwise,
+  // fields will be accessed after calling dtor, and msan correctly complains
+  // that the memory is not initialized.
+  void destroy() {
+    grpc_credentials_mdelem_array_destroy(&md_array);
+    grpc_call_credentials_unref(creds);
+    grpc_slice_unref_internal(host);
+    grpc_slice_unref_internal(method);
+    grpc_auth_metadata_context_reset(&auth_md_context);
+  }
+
   gpr_arena* arena;
   grpc_call_stack* owning_call;
   grpc_call_combiner* call_combiner;
-  grpc_call_credentials* creds;
-  grpc_slice host;
-  grpc_slice method;
+  grpc_call_credentials* creds = nullptr;
+  grpc_slice host = grpc_empty_slice();
+  grpc_slice method = grpc_empty_slice();
   /* pollset{_set} bound to this call; if we need to make external
      network requests, they should be done under a pollset added to this
      pollset_set so that work can progress when this call wants work to progress
   */
-  grpc_polling_entity* pollent;
+  grpc_polling_entity* pollent = nullptr;
   grpc_credentials_mdelem_array md_array;
-  grpc_linked_mdelem md_links[MAX_CREDENTIALS_METADATA_COUNT];
-  grpc_auth_metadata_context auth_md_context;
+  grpc_linked_mdelem md_links[MAX_CREDENTIALS_METADATA_COUNT] = {};
+  grpc_auth_metadata_context auth_md_context =
+      grpc_auth_metadata_context();  // Zero-initialize the C struct.
   grpc_closure async_result_closure;
   grpc_closure check_call_host_cancel_closure;
   grpc_closure get_request_metadata_cancel_closure;
@@ -167,7 +187,6 @@ static void cancel_get_request_metadata(void* arg, grpc_error* error) {
     grpc_call_credentials_cancel_get_request_metadata(
         calld->creds, &calld->md_array, GRPC_ERROR_REF(error));
   }
-  GRPC_CALL_STACK_UNREF(calld->owning_call, "cancel_get_request_metadata");
 }
 
 static void send_security_metadata(grpc_call_element* elem,
@@ -222,7 +241,6 @@ static void send_security_metadata(grpc_call_element* elem,
     GRPC_ERROR_UNREF(error);
   } else {
     // Async return; register cancellation closure with call combiner.
-    GRPC_CALL_STACK_REF(calld->owning_call, "cancel_get_request_metadata");
     grpc_call_combiner_set_notify_on_cancel(
         calld->call_combiner,
         GRPC_CLOSURE_INIT(&calld->get_request_metadata_cancel_closure,
@@ -265,7 +283,6 @@ static void cancel_check_call_host(void* arg, grpc_error* error) {
         chand->security_connector, &calld->async_result_closure,
         GRPC_ERROR_REF(error));
   }
-  GRPC_CALL_STACK_UNREF(calld->owning_call, "cancel_check_call_host");
 }
 
 static void auth_start_transport_stream_op_batch(
@@ -318,7 +335,6 @@ static void auth_start_transport_stream_op_batch(
         GRPC_ERROR_UNREF(error);
       } else {
         // Async return; register cancellation closure with call combiner.
-        GRPC_CALL_STACK_REF(calld->owning_call, "cancel_check_call_host");
         grpc_call_combiner_set_notify_on_cancel(
             calld->call_combiner,
             GRPC_CLOSURE_INIT(&calld->check_call_host_cancel_closure,
@@ -337,12 +353,7 @@ static void auth_start_transport_stream_op_batch(
 /* Constructor for call_data */
 static grpc_error* init_call_elem(grpc_call_element* elem,
                                   const grpc_call_element_args* args) {
-  call_data* calld = static_cast<call_data*>(elem->call_data);
-  calld->arena = args->arena;
-  calld->owning_call = args->call_stack;
-  calld->call_combiner = args->call_combiner;
-  calld->host = grpc_empty_slice();
-  calld->method = grpc_empty_slice();
+  new (elem->call_data) call_data(elem, *args);
   return GRPC_ERROR_NONE;
 }
 
@@ -357,11 +368,7 @@ static void destroy_call_elem(grpc_call_element* elem,
                               const grpc_call_final_info* final_info,
                               grpc_closure* ignored) {
   call_data* calld = static_cast<call_data*>(elem->call_data);
-  grpc_credentials_mdelem_array_destroy(&calld->md_array);
-  grpc_call_credentials_unref(calld->creds);
-  grpc_slice_unref_internal(calld->host);
-  grpc_slice_unref_internal(calld->method);
-  grpc_auth_metadata_context_reset(&calld->auth_md_context);
+  calld->destroy();
 }
 
 /* Constructor for channel_data */

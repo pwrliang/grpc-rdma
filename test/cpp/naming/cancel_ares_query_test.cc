@@ -45,11 +45,14 @@
 #include "test/core/util/port.h"
 #include "test/core/util/test_config.h"
 
-// TODO: pull in different headers when enabling this
-// test on windows. Also set BAD_SOCKET_RETURN_VAL
-// to INVALID_SOCKET on windows.
+#ifdef GPR_WINDOWS
+#include "src/core/lib/iomgr/sockaddr_windows.h"
+#include "src/core/lib/iomgr/socket_windows.h"
+#define BAD_SOCKET_RETURN_VAL INVALID_SOCKET
+#else
 #include "src/core/lib/iomgr/sockaddr_posix.h"
 #define BAD_SOCKET_RETURN_VAL -1
+#endif
 
 namespace {
 
@@ -91,7 +94,13 @@ class FakeNonResponsiveDNSServer {
       abort();
     }
   }
-  ~FakeNonResponsiveDNSServer() { close(socket_); }
+  ~FakeNonResponsiveDNSServer() {
+#ifdef GPR_WINDOWS
+    closesocket(socket_);
+#else
+    close(socket_);
+#endif
+  }
 
  private:
   int socket_;
@@ -193,6 +202,38 @@ TEST(CancelDuringAresQuery, TestCancelActiveDNSQuery) {
   TestCancelActiveDNSQuery(&args);
 }
 
+#ifdef GPR_WINDOWS
+
+void MaybePollArbitraryPollsetTwice() {
+  grpc_pollset* pollset = (grpc_pollset*)gpr_zalloc(grpc_pollset_size());
+  gpr_mu* mu;
+  grpc_pollset_init(pollset, &mu);
+  grpc_pollset_worker* worker = nullptr;
+  // Make a zero timeout poll
+  gpr_mu_lock(mu);
+  GRPC_LOG_IF_ERROR(
+      "pollset_work",
+      grpc_pollset_work(pollset, &worker, grpc_core::ExecCtx::Get()->Now()));
+  gpr_mu_unlock(mu);
+  grpc_core::ExecCtx::Get()->Flush();
+  // Make a second zero-timeout poll (in case the first one
+  // short-circuited by picking up a previous "kick")
+  gpr_mu_lock(mu);
+  GRPC_LOG_IF_ERROR(
+      "pollset_work",
+      grpc_pollset_work(pollset, &worker, grpc_core::ExecCtx::Get()->Now()));
+  gpr_mu_unlock(mu);
+  grpc_core::ExecCtx::Get()->Flush();
+  grpc_pollset_destroy(pollset);
+  gpr_free(pollset);
+}
+
+#else
+
+void MaybePollArbitraryPollsetTwice() {}
+
+#endif
+
 TEST(CancelDuringAresQuery, TestFdsAreDeletedFromPollsetSet) {
   grpc_core::ExecCtx exec_ctx;
   ArgsStruct args;
@@ -209,12 +250,25 @@ TEST(CancelDuringAresQuery, TestFdsAreDeletedFromPollsetSet) {
   // this test. This test only cares about what happens to fd's that c-ares
   // opens.
   TestCancelActiveDNSQuery(&args);
+  // This test relies on the assumption that cancelling a c-ares query
+  // will flush out all callbacks on the current exec ctx, which is true
+  // on posix platforms but not on Windows, because fd shutdown on Windows
+  // requires a trip through the polling loop to schedule the callback.
+  // So we need to do extra polling work on Windows to free things up.
+  MaybePollArbitraryPollsetTwice();
   EXPECT_EQ(grpc_iomgr_count_objects_for_testing(), 0u);
   grpc_pollset_set_destroy(fake_other_pollset_set);
 }
 
-TEST(CancelDuringAresQuery,
-     TestHitDeadlineAndDestroyChannelDuringAresResolutionIsGraceful) {
+// Settings for TestCancelDuringActiveQuery test
+typedef enum {
+  NONE,
+  SHORT,
+  ZERO,
+} cancellation_test_query_timeout_setting;
+
+void TestCancelDuringActiveQuery(
+    cancellation_test_query_timeout_setting query_timeout_setting) {
   // Start up fake non responsive DNS server
   int fake_dns_port = grpc_pick_unused_port_or_die();
   FakeNonResponsiveDNSServer fake_dns_server(fake_dns_port);
@@ -224,9 +278,33 @@ TEST(CancelDuringAresQuery,
       &client_target,
       "dns://[::1]:%d/dont-care-since-wont-be-resolved.test.com:1234",
       fake_dns_port));
+  gpr_log(GPR_DEBUG, "TestCancelActiveDNSQuery. query timeout setting: %d",
+          query_timeout_setting);
+  grpc_channel_args* client_args = nullptr;
+  grpc_status_code expected_status_code = GRPC_STATUS_OK;
+  if (query_timeout_setting == NONE) {
+    expected_status_code = GRPC_STATUS_DEADLINE_EXCEEDED;
+    client_args = nullptr;
+  } else if (query_timeout_setting == SHORT) {
+    expected_status_code = GRPC_STATUS_UNAVAILABLE;
+    grpc_arg arg;
+    arg.type = GRPC_ARG_INTEGER;
+    arg.key = const_cast<char*>(GRPC_ARG_DNS_ARES_QUERY_TIMEOUT_MS);
+    arg.value.integer =
+        1;  // Set this shorter than the call deadline so that it goes off.
+    client_args = grpc_channel_args_copy_and_add(nullptr, &arg, 1);
+  } else if (query_timeout_setting == ZERO) {
+    expected_status_code = GRPC_STATUS_DEADLINE_EXCEEDED;
+    grpc_arg arg;
+    arg.type = GRPC_ARG_INTEGER;
+    arg.key = const_cast<char*>(GRPC_ARG_DNS_ARES_QUERY_TIMEOUT_MS);
+    arg.value.integer = 0;  // Set this to zero to disable query timeouts.
+    client_args = grpc_channel_args_copy_and_add(nullptr, &arg, 1);
+  } else {
+    abort();
+  }
   grpc_channel* client =
-      grpc_insecure_channel_create(client_target,
-                                   /* client_args */ nullptr, nullptr);
+      grpc_insecure_channel_create(client_target, client_args, nullptr);
   gpr_free(client_target);
   grpc_completion_queue* cq = grpc_completion_queue_create_for_next(nullptr);
   cq_verifier* cqv = cq_verifier_create(cq);
@@ -278,8 +356,9 @@ TEST(CancelDuringAresQuery,
   EXPECT_EQ(GRPC_CALL_OK, error);
   CQ_EXPECT_COMPLETION(cqv, Tag(1), 1);
   cq_verify(cqv);
-  EXPECT_EQ(status, GRPC_STATUS_DEADLINE_EXCEEDED);
+  EXPECT_EQ(status, expected_status_code);
   // Teardown
+  grpc_channel_args_destroy(client_args);
   grpc_slice_unref(details);
   gpr_free((void*)error_string);
   grpc_metadata_array_destroy(&initial_metadata_recv);
@@ -289,6 +368,23 @@ TEST(CancelDuringAresQuery,
   grpc_call_unref(call);
   cq_verifier_destroy(cqv);
   EndTest(client, cq);
+}
+
+TEST(CancelDuringAresQuery,
+     TestHitDeadlineAndDestroyChannelDuringAresResolutionIsGraceful) {
+  TestCancelDuringActiveQuery(NONE /* don't set query timeouts */);
+}
+
+TEST(
+    CancelDuringAresQuery,
+    TestHitDeadlineAndDestroyChannelDuringAresResolutionWithQueryTimeoutIsGraceful) {
+  TestCancelDuringActiveQuery(SHORT /* set short query timeout */);
+}
+
+TEST(
+    CancelDuringAresQuery,
+    TestHitDeadlineAndDestroyChannelDuringAresResolutionWithZeroQueryTimeoutIsGraceful) {
+  TestCancelDuringActiveQuery(ZERO /* disable query timeouts */);
 }
 
 }  // namespace
