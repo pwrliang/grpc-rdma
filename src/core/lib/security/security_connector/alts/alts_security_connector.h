@@ -25,6 +25,7 @@
 #include "src/core/lib/security/credentials/alts/grpc_alts_credentials_options.h"
 
 #define GRPC_ALTS_TRANSPORT_SECURITY_TYPE "alts"
+#define GRPC_ALTS_URL_SCHEME "https"
 
 /**
  * This method creates an ALTS channel security connector.
@@ -36,12 +37,13 @@
  * - sc: address of ALTS channel security connector instance to be returned from
  *   the method.
  *
- * It returns GRPC_SECURITY_OK on success, and an error stauts code on failure.
+ * It returns nullptr on failure.
  */
-grpc_security_status grpc_alts_channel_security_connector_create(
-    grpc_channel_credentials* channel_creds,
-    grpc_call_credentials* request_metadata_creds, const char* target_name,
-    grpc_channel_security_connector** sc);
+grpc_core::RefCountedPtr<grpc_channel_security_connector>
+grpc_alts_channel_security_connector_create(
+    grpc_core::RefCountedPtr<grpc_channel_credentials> channel_creds,
+    grpc_core::RefCountedPtr<grpc_call_credentials> request_metadata_creds,
+    const char* target_name);
 
 /**
  * This method creates an ALTS server security connector.
@@ -50,17 +52,22 @@ grpc_security_status grpc_alts_channel_security_connector_create(
  * - sc: address of ALTS server security connector instance to be returned from
  *   the method.
  *
- * It returns GRPC_SECURITY_OK on success, and an error status code on failure.
+ * It returns nullptr on failure.
  */
-grpc_security_status grpc_alts_server_security_connector_create(
-    grpc_server_credentials* server_creds, grpc_server_security_connector** sc);
+grpc_core::RefCountedPtr<grpc_server_security_connector>
+grpc_alts_server_security_connector_create(
+    grpc_core::RefCountedPtr<grpc_server_credentials> server_creds);
+
+/* Initializes rpc_versions. */
+void grpc_alts_set_rpc_protocol_versions(
+    grpc_gcp_rpc_protocol_versions* rpc_versions);
 
 namespace grpc_core {
 namespace internal {
 
 /* Exposed only for testing. */
-grpc_security_status grpc_alts_auth_context_from_tsi_peer(
-    const tsi_peer* peer, grpc_auth_context** ctx);
+grpc_core::RefCountedPtr<grpc_auth_context>
+grpc_alts_auth_context_from_tsi_peer(const tsi_peer* peer);
 
 }  // namespace internal
 }  // namespace grpc_core

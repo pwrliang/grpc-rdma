@@ -12,20 +12,36 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-load("//bazel:grpc_build_system.bzl", "grpc_cc_library", "grpc_cc_test", "grpc_cc_binary", "grpc_package")
+load("//bazel:grpc_build_system.bzl", "grpc_cc_binary", "grpc_cc_library", "grpc_cc_test", "grpc_package")
 
 grpc_package(name = "test/core/client_channel_resolvers")
 
 licenses(["notice"])  # Apache v2
 
 grpc_cc_test(
-    name = "dns_resolver_connectivity_test",
+    name = "dns_resolver_connectivity_using_ares_resolver_test",
     srcs = ["dns_resolver_connectivity_test.cc"],
+    args = [
+        "--resolver=ares",
+    ],
     language = "C++",
     deps = [
         "//:gpr",
         "//:grpc",
-        "//test/core/util:gpr_test_util",
+        "//test/core/util:grpc_test_util",
+    ],
+)
+
+grpc_cc_test(
+    name = "dns_resolver_connectivity_using_native_resolver_test",
+    srcs = ["dns_resolver_connectivity_test.cc"],
+    args = [
+        "--resolver=native",
+    ],
+    language = "C++",
+    deps = [
+        "//:gpr",
+        "//:grpc",
         "//test/core/util:grpc_test_util",
     ],
 )
@@ -37,7 +53,6 @@ grpc_cc_test(
     deps = [
         "//:gpr",
         "//:grpc",
-        "//test/core/util:gpr_test_util",
         "//test/core/util:grpc_test_util",
     ],
 )
@@ -49,7 +64,6 @@ grpc_cc_test(
     deps = [
         "//:gpr",
         "//:grpc",
-        "//test/core/util:gpr_test_util",
         "//test/core/util:grpc_test_util",
     ],
 )
@@ -61,7 +75,6 @@ grpc_cc_test(
     deps = [
         "//:gpr",
         "//:grpc",
-        "//test/core/util:gpr_test_util",
         "//test/core/util:grpc_test_util",
     ],
 )
@@ -74,7 +87,6 @@ grpc_cc_test(
         "//:gpr",
         "//:grpc",
         "//:grpc_resolver_fake",
-        "//test/core/util:gpr_test_util",
         "//test/core/util:grpc_test_util",
     ],
 )

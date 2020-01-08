@@ -27,7 +27,7 @@
 
 #include "test/core/util/test_config.h"
 
-static void pollset_destroy(void* ps, grpc_error* error) {
+static void pollset_destroy(void* ps, grpc_error* /*error*/) {
   grpc_pollset_destroy(static_cast<grpc_pollset*>(ps));
   gpr_free(ps);
 }
@@ -92,7 +92,7 @@ static void test_pollable_owner_fd() {
 
 int main(int argc, char** argv) {
   const char* poll_strategy = nullptr;
-  grpc_test_init(argc, argv);
+  grpc::testing::TestEnvironment env(argc, argv);
   grpc_init();
   {
     grpc_core::ExecCtx exec_ctx;
@@ -111,5 +111,5 @@ int main(int argc, char** argv) {
   return 0;
 }
 #else /* defined(GRPC_LINUX_EPOLL_CREATE1) && defined(GRPC_LINUX_EVENTFD) */
-int main(int argc, char** argv) { return 0; }
+int main(int /*argc*/, char** /*argv*/) { return 0; }
 #endif

@@ -58,7 +58,7 @@ static void fake_test_check_handshaker_peers(tsi_test_fixture* fixture) {
   validate_handshaker_peers(fixture->server_result);
 }
 
-static void fake_test_destruct(tsi_test_fixture* fixture) {}
+static void fake_test_destruct(tsi_test_fixture* /*fixture*/) {}
 
 static const struct tsi_test_fixture_vtable vtable = {
     fake_test_setup_handshakers, fake_test_check_handshaker_peers,
@@ -139,7 +139,7 @@ void fake_tsi_test_do_round_trip_odd_buffer_size() {
 }
 
 int main(int argc, char** argv) {
-  grpc_test_init(argc, argv);
+  grpc::testing::TestEnvironment env(argc, argv);
   grpc_init();
   fake_tsi_test_do_handshake_tiny_handshake_buffer();
   fake_tsi_test_do_handshake_small_handshake_buffer();

@@ -102,7 +102,7 @@ class UnarySyncBenchmarkClient(BenchmarkClient):
             max_workers=config.outstanding_rpcs_per_channel)
 
     def send_request(self):
-        # Send requests in seperate threads to support multiple outstanding rpcs
+        # Send requests in separate threads to support multiple outstanding rpcs
         # (See src/proto/grpc/testing/control.proto)
         self._pool.submit(self._dispatch_request)
 
@@ -180,7 +180,7 @@ class StreamingSyncBenchmarkClient(BenchmarkClient):
         self._streams = [
             _SyncStream(self._stub, self._generic, self._request,
                         self._handle_response)
-            for _ in xrange(config.outstanding_rpcs_per_channel)
+            for _ in range(config.outstanding_rpcs_per_channel)
         ]
         self._curr_stream = 0
 

@@ -50,12 +50,13 @@ const int kReceiveDelayMilliSeconds = 20;
 const int kLargeRequestSize = 271828;
 const int kLargeResponseSize = 314159;
 
-void NoopChecks(const InteropClientContextInspector& inspector,
-                const SimpleRequest* request, const SimpleResponse* response) {}
+void NoopChecks(const InteropClientContextInspector& /*inspector*/,
+                const SimpleRequest* /*request*/,
+                const SimpleResponse* /*response*/) {}
 
 void UnaryCompressionChecks(const InteropClientContextInspector& inspector,
                             const SimpleRequest* request,
-                            const SimpleResponse* response) {
+                            const SimpleResponse* /*response*/) {
   const grpc_compression_algorithm received_compression =
       inspector.GetCallCompressionAlgorithm();
   if (request->response_compressed().value()) {
@@ -291,6 +292,25 @@ bool InteropClient::DoJwtTokenCreds(const grpc::string& username) {
   GPR_ASSERT(!response.username().empty());
   GPR_ASSERT(username.find(response.username()) != grpc::string::npos);
   gpr_log(GPR_DEBUG, "Large unary with JWT token creds done.");
+  return true;
+}
+
+bool InteropClient::DoGoogleDefaultCredentials(
+    const grpc::string& default_service_account) {
+  gpr_log(GPR_DEBUG,
+          "Sending a large unary rpc with GoogleDefaultCredentials...");
+  SimpleRequest request;
+  SimpleResponse response;
+  request.set_fill_username(true);
+
+  if (!PerformLargeUnary(&request, &response)) {
+    return false;
+  }
+
+  gpr_log(GPR_DEBUG, "Got username %s", response.username().c_str());
+  GPR_ASSERT(!response.username().empty());
+  GPR_ASSERT(response.username().c_str() == default_service_account);
+  gpr_log(GPR_DEBUG, "Large unary rpc with GoogleDefaultCredentials done.");
   return true;
 }
 
@@ -929,6 +949,32 @@ bool InteropClient::DoCacheableUnary() {
   return true;
 }
 
+bool InteropClient::DoPickFirstUnary() {
+  const int rpcCount = 100;
+  SimpleRequest request;
+  SimpleResponse response;
+  std::string server_id;
+  request.set_fill_server_id(true);
+  for (int i = 0; i < rpcCount; i++) {
+    ClientContext context;
+    Status s = serviceStub_.Get()->UnaryCall(&context, request, &response);
+    if (!AssertStatusOk(s, context.debug_error_string())) {
+      return false;
+    }
+    if (i == 0) {
+      server_id = response.server_id();
+      continue;
+    }
+    if (response.server_id() != server_id) {
+      gpr_log(GPR_ERROR, "#%d rpc hits server_id %s, expect server_id %s", i,
+              response.server_id().c_str(), server_id.c_str());
+      return false;
+    }
+  }
+  gpr_log(GPR_DEBUG, "pick first unary successfully finished");
+  return true;
+}
+
 bool InteropClient::DoCustomMetadata() {
   const grpc::string kEchoInitialMetadataKey("x-grpc-test-echo-initial");
   const grpc::string kInitialMetadataValue("test_initial_metadata_value");
@@ -1043,10 +1089,12 @@ bool InteropClient::DoChannelSoakTest(int32_t soak_iterations) {
   SimpleResponse response;
   for (int i = 0; i < soak_iterations; ++i) {
     serviceStub_.ResetChannel();
+    gpr_log(GPR_DEBUG, "Starting channel_soak iteration %d...", i);
     if (!PerformLargeUnary(&request, &response)) {
       gpr_log(GPR_ERROR, "channel_soak test failed on iteration %d", i);
       return false;
     }
+    gpr_log(GPR_DEBUG, "channel_soak iteration %d finished", i);
   }
   gpr_log(GPR_DEBUG, "channel_soak test done.");
   return true;

@@ -21,8 +21,13 @@
 #include <stdbool.h>
 #include <string.h>
 
-#include "src/core/lib/gpr/env.h"
+#include "src/core/lib/gprpp/global_config.h"
 #include "test/core/util/test_config.h"
+
+// Config declaration is supposed to be located at log.h but
+// log.h doesn't include global_config headers because it has to
+// be a strict C so declaration statement gets to be here.
+GPR_GLOBAL_CONFIG_DECLARE_STRING(grpc_verbosity);
 
 static bool log_func_reached = false;
 
@@ -32,11 +37,13 @@ static void test_callback(gpr_log_func_args* args) {
   GPR_ASSERT(0 == strcmp(args->message, "hello 1 2 3"));
 }
 
-static void test_should_log(gpr_log_func_args* args) {
+static void test_should_log(gpr_log_func_args* /*args*/) {
   log_func_reached = true;
 }
 
-static void test_should_not_log(gpr_log_func_args* args) { GPR_ASSERT(false); }
+static void test_should_not_log(gpr_log_func_args* /*args*/) {
+  GPR_ASSERT(false);
+}
 
 #define test_log_function_reached(SEVERITY)     \
   gpr_set_log_function(test_should_log);        \
@@ -53,7 +60,7 @@ static void test_should_not_log(gpr_log_func_args* args) { GPR_ASSERT(false); }
   gpr_log(SEVERITY, "hello %d %d %d", 1, 2, 3);
 
 int main(int argc, char** argv) {
-  grpc_test_init(argc, argv);
+  grpc::testing::TestEnvironment env(argc, argv);
   /* test logging at various verbosity levels */
   gpr_log(GPR_DEBUG, "%s", "hello world");
   gpr_log(GPR_INFO, "%s", "hello world");
@@ -67,7 +74,7 @@ int main(int argc, char** argv) {
 
   /* gpr_log_verbosity_init() will be effective only once, and only before
    * gpr_set_log_verbosity() is called */
-  gpr_setenv("GRPC_VERBOSITY", "ERROR");
+  GPR_GLOBAL_CONFIG_SET(grpc_verbosity, "ERROR");
   gpr_log_verbosity_init();
 
   test_log_function_reached(GPR_ERROR);
@@ -75,7 +82,7 @@ int main(int argc, char** argv) {
   test_log_function_unreached(GPR_DEBUG);
 
   /* gpr_log_verbosity_init() should not be effective */
-  gpr_setenv("GRPC_VERBOSITY", "DEBUG");
+  GPR_GLOBAL_CONFIG_SET(grpc_verbosity, "DEBUG");
   gpr_log_verbosity_init();
   test_log_function_reached(GPR_ERROR);
   test_log_function_unreached(GPR_INFO);
@@ -97,7 +104,7 @@ int main(int argc, char** argv) {
   test_log_function_unreached(GPR_DEBUG);
 
   /* gpr_log_verbosity_init() should not be effective */
-  gpr_setenv("GRPC_VERBOSITY", "DEBUG");
+  GPR_GLOBAL_CONFIG_SET(grpc_verbosity, "DEBUG");
   gpr_log_verbosity_init();
   test_log_function_reached(GPR_ERROR);
   test_log_function_unreached(GPR_INFO);

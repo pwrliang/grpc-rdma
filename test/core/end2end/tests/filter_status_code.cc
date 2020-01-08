@@ -260,6 +260,7 @@ typedef struct final_status_data {
 static void server_start_transport_stream_op_batch(
     grpc_call_element* elem, grpc_transport_stream_op_batch* op) {
   auto* data = static_cast<final_status_data*>(elem->call_data);
+  gpr_mu_lock(&g_mu);
   if (data->call == g_server_call_stack) {
     if (op->send_initial_metadata) {
       auto* batch = op->payload->send_initial_metadata.send_initial_metadata;
@@ -270,6 +271,7 @@ static void server_start_transport_stream_op_batch(
       }
     }
   }
+  gpr_mu_unlock(&g_mu);
   grpc_call_next_op(elem, op);
 }
 
@@ -282,7 +284,7 @@ static grpc_error* init_call_elem(grpc_call_element* elem,
 
 static void client_destroy_call_elem(grpc_call_element* elem,
                                      const grpc_call_final_info* final_info,
-                                     grpc_closure* ignored) {
+                                     grpc_closure* /*ignored*/) {
   final_status_data* data = static_cast<final_status_data*>(elem->call_data);
   gpr_mu_lock(&g_mu);
   // Some fixtures, like proxies, will spawn intermidiate calls
@@ -297,7 +299,7 @@ static void client_destroy_call_elem(grpc_call_element* elem,
 
 static void server_destroy_call_elem(grpc_call_element* elem,
                                      const grpc_call_final_info* final_info,
-                                     grpc_closure* ignored) {
+                                     grpc_closure* /*ignored*/) {
   final_status_data* data = static_cast<final_status_data*>(elem->call_data);
   gpr_mu_lock(&g_mu);
   // Some fixtures, like proxies, will spawn intermidiate calls
@@ -310,12 +312,12 @@ static void server_destroy_call_elem(grpc_call_element* elem,
   gpr_mu_unlock(&g_mu);
 }
 
-static grpc_error* init_channel_elem(grpc_channel_element* elem,
-                                     grpc_channel_element_args* args) {
+static grpc_error* init_channel_elem(grpc_channel_element* /*elem*/,
+                                     grpc_channel_element_args* /*args*/) {
   return GRPC_ERROR_NONE;
 }
 
-static void destroy_channel_elem(grpc_channel_element* elem) {}
+static void destroy_channel_elem(grpc_channel_element* /*elem*/) {}
 
 static const grpc_channel_filter test_client_filter = {
     grpc_call_next_op,

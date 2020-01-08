@@ -32,7 +32,7 @@
 #include <grpcpp/server_builder.h>
 #include <grpcpp/server_context.h>
 
-#include "src/core/lib/gpr/env.h"
+#include "src/core/ext/filters/client_channel/backup_poller.h"
 #include "src/core/lib/gpr/tls.h"
 #include "src/core/lib/iomgr/port.h"
 #include "src/proto/grpc/health/v1/health.grpc.pb.h"
@@ -42,6 +42,10 @@
 #include "test/core/util/test_config.h"
 #include "test/cpp/util/string_ref_helper.h"
 #include "test/cpp/util/test_credentials_provider.h"
+
+#ifdef GRPC_POSIX_SOCKET_EV
+#include "src/core/lib/iomgr/ev_posix.h"
+#endif  // GRPC_POSIX_SOCKET_EV
 
 #include <gtest/gtest.h>
 
@@ -204,7 +208,7 @@ bool plugin_has_sync_methods(std::unique_ptr<ServerBuilderPlugin>& plugin) {
 // that needs to be tested here.
 class ServerBuilderSyncPluginDisabler : public ::grpc::ServerBuilderOption {
  public:
-  void UpdateArguments(ChannelArguments* arg) override {}
+  void UpdateArguments(ChannelArguments* /*arg*/) override {}
 
   void UpdatePlugins(
       std::vector<std::unique_ptr<ServerBuilderPlugin>>* plugins) override {
@@ -294,9 +298,9 @@ class AsyncEnd2endTest : public ::testing::TestWithParam<TestScenario> {
     auto channel_creds = GetCredentialsProvider()->GetChannelCredentials(
         GetParam().credentials_type, &args);
     std::shared_ptr<Channel> channel =
-        !(GetParam().inproc)
-            ? CreateCustomChannel(server_address_.str(), channel_creds, args)
-            : server_->InProcessChannel(args);
+        !(GetParam().inproc) ? ::grpc::CreateCustomChannel(
+                                   server_address_.str(), channel_creds, args)
+                             : server_->InProcessChannel(args);
     stub_ = grpc::testing::EchoTestService::NewStub(channel);
   }
 
@@ -358,13 +362,14 @@ TEST_P(AsyncEnd2endTest, ReconnectChannel) {
     return;
   }
   int poller_slowdown_factor = 1;
+#ifdef GRPC_POSIX_SOCKET_EV
   // It needs 2 pollset_works to reconnect the channel with polling engine
   // "poll"
-  char* s = gpr_getenv("GRPC_POLL_STRATEGY");
-  if (s != nullptr && 0 == strcmp(s, "poll")) {
+  grpc_core::UniquePtr<char> poller = GPR_GLOBAL_CONFIG_GET(grpc_poll_strategy);
+  if (0 == strcmp(poller.get(), "poll")) {
     poller_slowdown_factor = 2;
   }
-  gpr_free(s);
+#endif  // GRPC_POSIX_SOCKET_EV
   ResetStub();
   SendRpc(1);
   server_->Shutdown();
@@ -1255,9 +1260,9 @@ TEST_P(AsyncEnd2endTest, UnimplementedRpc) {
   const auto& channel_creds = GetCredentialsProvider()->GetChannelCredentials(
       GetParam().credentials_type, &args);
   std::shared_ptr<Channel> channel =
-      !(GetParam().inproc)
-          ? CreateCustomChannel(server_address_.str(), channel_creds, args)
-          : server_->InProcessChannel(args);
+      !(GetParam().inproc) ? ::grpc::CreateCustomChannel(server_address_.str(),
+                                                         channel_creds, args)
+                           : server_->InProcessChannel(args);
   std::unique_ptr<grpc::testing::UnimplementedEchoService::Stub> stub;
   stub = grpc::testing::UnimplementedEchoService::NewStub(channel);
   EchoRequest send_request;
@@ -1373,7 +1378,7 @@ class AsyncEnd2endServerTryCancelTest : public AsyncEnd2endTest {
 
     if (server_try_cancel == CANCEL_DURING_PROCESSING) {
       server_try_cancel_thd =
-          new std::thread(&ServerContext::TryCancel, &srv_ctx);
+          new std::thread([&srv_ctx] { srv_ctx.TryCancel(); });
       // Server will cancel the RPC in a parallel thread while reading the
       // requests from the client. Since the cancellation can happen at anytime,
       // some of the cq results (i.e those until cancellation) might be true but
@@ -1521,7 +1526,7 @@ class AsyncEnd2endServerTryCancelTest : public AsyncEnd2endTest {
 
     if (server_try_cancel == CANCEL_DURING_PROCESSING) {
       server_try_cancel_thd =
-          new std::thread(&ServerContext::TryCancel, &srv_ctx);
+          new std::thread([&srv_ctx] { srv_ctx.TryCancel(); });
 
       // Server will cancel the RPC in a parallel thread while writing responses
       // to the client. Since the cancellation can happen at anytime, some of
@@ -1668,7 +1673,7 @@ class AsyncEnd2endServerTryCancelTest : public AsyncEnd2endTest {
 
     if (server_try_cancel == CANCEL_DURING_PROCESSING) {
       server_try_cancel_thd =
-          new std::thread(&ServerContext::TryCancel, &srv_ctx);
+          new std::thread([&srv_ctx] { srv_ctx.TryCancel(); });
 
       // Since server is going to cancel the RPC in a parallel thread, some of
       // the cq results (i.e those until the cancellation) might be true. Since
@@ -1816,7 +1821,7 @@ TEST_P(AsyncEnd2endServerTryCancelTest, ServerBidiStreamingTryCancelAfter) {
   TestBidiStreamingServerCancel(CANCEL_AFTER_PROCESSING);
 }
 
-std::vector<TestScenario> CreateTestScenarios(bool test_secure,
+std::vector<TestScenario> CreateTestScenarios(bool /*test_secure*/,
                                               bool test_message_size_limit) {
   std::vector<TestScenario> scenarios;
   std::vector<grpc::string> credentials_types;
@@ -1870,11 +1875,12 @@ std::vector<TestScenario> CreateTestScenarios(bool test_secure,
   return scenarios;
 }
 
-INSTANTIATE_TEST_CASE_P(AsyncEnd2end, AsyncEnd2endTest,
-                        ::testing::ValuesIn(CreateTestScenarios(true, true)));
-INSTANTIATE_TEST_CASE_P(AsyncEnd2endServerTryCancel,
-                        AsyncEnd2endServerTryCancelTest,
-                        ::testing::ValuesIn(CreateTestScenarios(false, false)));
+INSTANTIATE_TEST_SUITE_P(AsyncEnd2end, AsyncEnd2endTest,
+                         ::testing::ValuesIn(CreateTestScenarios(true, true)));
+INSTANTIATE_TEST_SUITE_P(AsyncEnd2endServerTryCancel,
+                         AsyncEnd2endServerTryCancelTest,
+                         ::testing::ValuesIn(CreateTestScenarios(false,
+                                                                 false)));
 
 }  // namespace
 }  // namespace testing
@@ -1883,8 +1889,8 @@ INSTANTIATE_TEST_CASE_P(AsyncEnd2endServerTryCancel,
 int main(int argc, char** argv) {
   // Change the backup poll interval from 5s to 100ms to speed up the
   // ReconnectChannel test
-  gpr_setenv("GRPC_CLIENT_CHANNEL_BACKUP_POLL_INTERVAL_MS", "100");
-  grpc_test_init(argc, argv);
+  GPR_GLOBAL_CONFIG_SET(grpc_client_channel_backup_poll_interval_ms, 100);
+  grpc::testing::TestEnvironment env(argc, argv);
   ::testing::InitGoogleTest(&argc, argv);
   int ret = RUN_ALL_TESTS();
   return ret;

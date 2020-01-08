@@ -19,6 +19,8 @@ py27_gevent/
 py27_native/
 py3[0-9]_gevent/
 py3[0-9]_native/
+a.out
+src/python/grpcio_*/LICENSE
 
 # Node installation output
 node_modules
@@ -94,6 +96,7 @@ DerivedData
 # Objective-C generated files
 *.pbobjc.*
 *.pbrpc.*
+src/objective-c/**/Build
 
 # Cocoapods artifacts
 Pods/
@@ -109,12 +112,14 @@ Podfile.lock
 # IDE specific folder for JetBrains IDEs
 .idea/
 
-# Blaze files
+# Bazel files
 bazel-bin
 bazel-genfiles
 bazel-grpc
 bazel-out
 bazel-testlogs
+bazel_format_virtual_environment/
+tools/bazel-*
 
 # Debug output
 gdb.txt
@@ -134,3 +139,17 @@ bm_*.json
 
 # cmake build files
 /cmake/build
+
+# Visual Studio Code artifacts
+.vscode/*
+.history/
+
+# Clion artifacts
+cmake-build-debug/
+
+# Benchmark outputs
+BenchmarkDotNet.Artifacts/
+
+# pyenv config
+.python-version
+

@@ -13,7 +13,7 @@
 @rem limitations under the License.
 
 @rem Current package versions
-set VERSION=1.17.1
+set VERSION=2.26.0
 
 @rem Adjust the location of nuget.exe
 set NUGET=C:\nuget\nuget.exe
@@ -40,6 +40,9 @@ xcopy /Y /I nativelibs\csharp_ext_windows_x64\grpc_csharp_ext.dll ..\..\cmake\bu
 
 @rem copy Grpc assemblies to the unity package skeleton
 @rem TODO(jtattermusch): Add Grpc.Auth assembly and its dependencies
+copy /Y Grpc.Core.Api\bin\Release\net45\Grpc.Core.Api.dll unitypackage\unitypackage_skeleton\Plugins\Grpc.Core.Api\lib\net45\Grpc.Core.Api.dll || goto :error
+copy /Y Grpc.Core.Api\bin\Release\net45\Grpc.Core.Api.pdb unitypackage\unitypackage_skeleton\Plugins\Grpc.Core.Api\lib\net45\Grpc.Core.Api.pdb || goto :error
+copy /Y Grpc.Core.Api\bin\Release\net45\Grpc.Core.Api.xml unitypackage\unitypackage_skeleton\Plugins\Grpc.Core.Api\lib\net45\Grpc.Core.Api.xml || goto :error
 copy /Y Grpc.Core\bin\Release\net45\Grpc.Core.dll unitypackage\unitypackage_skeleton\Plugins\Grpc.Core\lib\net45\Grpc.Core.dll || goto :error
 copy /Y Grpc.Core\bin\Release\net45\Grpc.Core.pdb unitypackage\unitypackage_skeleton\Plugins\Grpc.Core\lib\net45\Grpc.Core.pdb || goto :error
 copy /Y Grpc.Core\bin\Release\net45\Grpc.Core.xml unitypackage\unitypackage_skeleton\Plugins\Grpc.Core\lib\net45\Grpc.Core.xml || goto :error
@@ -61,7 +64,9 @@ copy /Y nativelibs\csharp_ext_macos_ios\libgrpc.a unitypackage\unitypackage_skel
 
 @rem add gRPC dependencies
 @rem TODO(jtattermusch): also include XMLdoc
-copy /Y Grpc.Core\bin\Release\net45\System.Interactive.Async.dll unitypackage\unitypackage_skeleton\Plugins\System.Interactive.Async\lib\net45\System.Interactive.Async.dll || goto :error
+copy /Y Grpc.Core\bin\Release\net45\System.Runtime.CompilerServices.Unsafe.dll unitypackage\unitypackage_skeleton\Plugins\System.Runtime.CompilerServices.Unsafe\lib\net45\System.Runtime.CompilerServices.Unsafe.dll || goto :error
+copy /Y Grpc.Core\bin\Release\net45\System.Buffers.dll unitypackage\unitypackage_skeleton\Plugins\System.Buffers\lib\net45\System.Buffers.dll || goto :error
+copy /Y Grpc.Core\bin\Release\net45\System.Memory.dll unitypackage\unitypackage_skeleton\Plugins\System.Memory\lib\net45\System.Memory.dll || goto :error
 
 @rem add Google.Protobuf
 @rem TODO(jtattermusch): also include XMLdoc

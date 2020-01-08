@@ -71,9 +71,11 @@ static void test1(void) {
     th.Join();
   }
   GPR_ASSERT(t.n == 0);
+  gpr_mu_destroy(&t.mu);
+  gpr_cv_destroy(&t.done_cv);
 }
 
-static void thd_body2(void* v) {}
+static void thd_body2(void* /*v*/) {}
 
 /* Test that we can create a number of threads and join them. */
 static void test2(void) {
@@ -92,7 +94,7 @@ static void test2(void) {
 /* ------------------------------------------------- */
 
 int main(int argc, char* argv[]) {
-  grpc_test_init(argc, argv);
+  grpc::testing::TestEnvironment env(argc, argv);
   test1();
   test2();
   return 0;

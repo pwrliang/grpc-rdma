@@ -21,7 +21,6 @@
  * Not intended to be robust for main-line code, often cuts across abstraction
  * boundaries.
  */
-
 #include <stdio.h>
 
 #include "src/core/ext/filters/client_channel/client_channel.h"
@@ -29,20 +28,19 @@
 #include "src/core/lib/channel/connected_channel.h"
 #include "src/core/lib/surface/call.h"
 
-void grpc_summon_debugger_macros() {}
-
 grpc_stream* grpc_transport_stream_from_call(grpc_call* call) {
   grpc_call_stack* cs = grpc_call_get_call_stack(call);
   for (;;) {
     grpc_call_element* el = grpc_call_stack_element(cs, cs->count - 1);
     if (el->filter == &grpc_client_channel_filter) {
-      grpc_subchannel_call* scc = grpc_client_channel_get_subchannel_call(el);
+      grpc_core::RefCountedPtr<grpc_core::SubchannelCall> scc =
+          grpc_client_channel_get_subchannel_call(el);
       if (scc == nullptr) {
         fprintf(stderr, "No subchannel-call");
         fflush(stderr);
         return nullptr;
       }
-      cs = grpc_subchannel_call_get_call_stack(scc);
+      cs = scc->GetCallStack();
     } else if (el->filter == &grpc_connected_filter) {
       return grpc_connected_channel_get_stream(el);
     } else {

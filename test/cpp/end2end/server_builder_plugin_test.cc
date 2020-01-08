@@ -61,9 +61,9 @@ class TestServerBuilderPlugin : public ServerBuilderPlugin {
     }
   }
 
-  void Finish(ServerInitializer* si) override { finish_is_called_ = true; }
+  void Finish(ServerInitializer* /*si*/) override { finish_is_called_ = true; }
 
-  void ChangeArguments(const grpc::string& name, void* value) override {
+  void ChangeArguments(const grpc::string& /*name*/, void* /*value*/) override {
     change_arguments_is_called_ = true;
   }
 
@@ -99,7 +99,7 @@ class InsertPluginServerBuilderOption : public ServerBuilderOption {
  public:
   InsertPluginServerBuilderOption() { register_service_ = false; }
 
-  void UpdateArguments(ChannelArguments* arg) override {}
+  void UpdateArguments(ChannelArguments* /*arg*/) override {}
 
   void UpdatePlugins(
       std::vector<std::unique_ptr<ServerBuilderPlugin>>* plugins) override {
@@ -185,7 +185,7 @@ class ServerBuilderPluginTest : public ::testing::TestWithParam<bool> {
 
   void ResetStub() {
     string target = "dns:localhost:" + to_string(port_);
-    channel_ = CreateChannel(target, InsecureChannelCredentials());
+    channel_ = grpc::CreateChannel(target, InsecureChannelCredentials());
     stub_ = grpc::testing::EchoTestService::NewStub(channel_);
   }
 
@@ -257,14 +257,14 @@ TEST_P(ServerBuilderPluginTest, PluginWithServiceTest) {
   EXPECT_TRUE(s.ok());
 }
 
-INSTANTIATE_TEST_CASE_P(ServerBuilderPluginTest, ServerBuilderPluginTest,
-                        ::testing::Values(false, true));
+INSTANTIATE_TEST_SUITE_P(ServerBuilderPluginTest, ServerBuilderPluginTest,
+                         ::testing::Values(false, true));
 
 }  // namespace testing
 }  // namespace grpc
 
 int main(int argc, char** argv) {
-  grpc_test_init(argc, argv);
+  grpc::testing::TestEnvironment env(argc, argv);
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

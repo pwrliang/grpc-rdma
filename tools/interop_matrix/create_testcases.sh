@@ -19,7 +19,7 @@
 # Params:
 #   LANG - The language.
 #   SKIP_TEST - If set, skip running the test cases for sanity.
-#   RELEASE - Create testcase for specific release, defautl to 'master'.
+#   RELEASE - Create testcase for specific release, default to 'master'.
 #   KEEP_IMAGE - Do not clean local docker image created for the test cases.
 
 set -e
@@ -60,7 +60,7 @@ fi
 echo $client_lang
 
 ${GRPC_ROOT}/tools/run_tests/run_interop_tests.py -l $client_lang --use_docker \
-  --cloud_to_prod --prod_servers default gateway_v4 --manual_run
+  --cloud_to_prod --prod_servers default gateway_v4 --manual_run --custom_credentials_type tls
 
 trap cleanup EXIT
 # TODO(adelez): add test auth tests but do not run if not testing on GCE.

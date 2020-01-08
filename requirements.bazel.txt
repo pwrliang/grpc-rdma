@@ -1,6 +1,6 @@
 # GRPC Python setup requirements
 coverage>=4.0
-cython==0.28.3
+cython>=0.29.8
 enum34>=1.0.4
 protobuf>=3.5.0.post1
 six>=1.10
@@ -13,3 +13,4 @@ urllib3>=1.23
 chardet==3.0.4
 certifi==2017.4.17
 idna==2.7
+googleapis-common-protos==1.5.5

@@ -33,7 +33,6 @@
 #include <grpcpp/server.h>
 #include <grpcpp/server_builder.h>
 
-#include "src/core/lib/gpr/host_port.h"
 #include "src/core/lib/profiling/timers.h"
 #include "src/proto/grpc/testing/benchmark_service.grpc.pb.h"
 #include "test/cpp/qps/client.h"
@@ -118,7 +117,7 @@ class SynchronousUnaryClient final : public SynchronousClient {
   }
   ~SynchronousUnaryClient() {}
 
-  bool InitThreadFuncImpl(size_t thread_idx) override { return true; }
+  bool InitThreadFuncImpl(size_t /*thread_idx*/) override { return true; }
 
   bool ThreadFuncImpl(HistogramEntry* entry, size_t thread_idx) override {
     if (!WaitToIssue(thread_idx)) {
@@ -395,7 +394,8 @@ class SynchronousStreamingBothWaysClient final
     return true;
   }
 
-  bool ThreadFuncImpl(HistogramEntry* entry, size_t thread_idx) override {
+  bool ThreadFuncImpl(HistogramEntry* /*entry*/,
+                      size_t /*thread_idx*/) override {
     // TODO (vjpai): Do this
     return true;
   }

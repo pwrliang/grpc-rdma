@@ -101,7 +101,7 @@ static void test_succeeds(grpc_slice_split_mode split_mode,
   grpc_slice* slices;
   va_list args;
   grpc_http_response response;
-  memset(&response, 0, sizeof(response));
+  response = {};
 
   grpc_split_slices(split_mode, &input_slice, 1, &slices, &num_slices);
   grpc_slice_unref(input_slice);
@@ -155,7 +155,7 @@ static void test_fails(grpc_slice_split_mode split_mode,
   grpc_slice* slices;
   grpc_error* error = GRPC_ERROR_NONE;
   grpc_http_response response;
-  memset(&response, 0, sizeof(response));
+  response = {};
 
   grpc_split_slices(split_mode, &input_slice, 1, &slices, &num_slices);
   grpc_slice_unref(input_slice);
@@ -218,7 +218,7 @@ int main(int argc, char** argv) {
                                                GRPC_SLICE_SPLIT_ONE_BYTE};
   char *tmp1, *tmp2;
 
-  grpc_test_init(argc, argv);
+  grpc::testing::TestEnvironment env(argc, argv);
   grpc_init();
 
   for (i = 0; i < GPR_ARRAY_SIZE(split_modes); i++) {

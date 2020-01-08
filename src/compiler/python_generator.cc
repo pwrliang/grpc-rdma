@@ -214,13 +214,15 @@ bool PrivateGenerator::PrintBetaServerFactory(
       grpc::string input_message_module_and_class;
       if (!method->get_module_and_message_path_input(
               &input_message_module_and_class, generator_file_name,
-              generate_in_pb2_grpc, config.import_prefix)) {
+              generate_in_pb2_grpc, config.import_prefix,
+              config.prefixes_to_filter)) {
         return false;
       }
       grpc::string output_message_module_and_class;
       if (!method->get_module_and_message_path_output(
               &output_message_module_and_class, generator_file_name,
-              generate_in_pb2_grpc, config.import_prefix)) {
+              generate_in_pb2_grpc, config.import_prefix,
+              config.prefixes_to_filter)) {
         return false;
       }
       method_implementation_constructors.insert(
@@ -320,13 +322,15 @@ bool PrivateGenerator::PrintBetaStubFactory(
       grpc::string input_message_module_and_class;
       if (!method->get_module_and_message_path_input(
               &input_message_module_and_class, generator_file_name,
-              generate_in_pb2_grpc, config.import_prefix)) {
+              generate_in_pb2_grpc, config.import_prefix,
+              config.prefixes_to_filter)) {
         return false;
       }
       grpc::string output_message_module_and_class;
       if (!method->get_module_and_message_path_output(
               &output_message_module_and_class, generator_file_name,
-              generate_in_pb2_grpc, config.import_prefix)) {
+              generate_in_pb2_grpc, config.import_prefix,
+              config.prefixes_to_filter)) {
         return false;
       }
       method_cardinalities.insert(
@@ -425,13 +429,15 @@ bool PrivateGenerator::PrintStub(
         grpc::string request_module_and_class;
         if (!method->get_module_and_message_path_input(
                 &request_module_and_class, generator_file_name,
-                generate_in_pb2_grpc, config.import_prefix)) {
+                generate_in_pb2_grpc, config.import_prefix,
+                config.prefixes_to_filter)) {
           return false;
         }
         grpc::string response_module_and_class;
         if (!method->get_module_and_message_path_output(
                 &response_module_and_class, generator_file_name,
-                generate_in_pb2_grpc, config.import_prefix)) {
+                generate_in_pb2_grpc, config.import_prefix,
+                config.prefixes_to_filter)) {
           return false;
         }
         StringMap method_dict;
@@ -516,13 +522,15 @@ bool PrivateGenerator::PrintAddServicerToServer(
         grpc::string request_module_and_class;
         if (!method->get_module_and_message_path_input(
                 &request_module_and_class, generator_file_name,
-                generate_in_pb2_grpc, config.import_prefix)) {
+                generate_in_pb2_grpc, config.import_prefix,
+                config.prefixes_to_filter)) {
           return false;
         }
         grpc::string response_module_and_class;
         if (!method->get_module_and_message_path_output(
                 &response_module_and_class, generator_file_name,
-                generate_in_pb2_grpc, config.import_prefix)) {
+                generate_in_pb2_grpc, config.import_prefix,
+                config.prefixes_to_filter)) {
           return false;
         }
         StringMap method_dict;
@@ -589,17 +597,21 @@ bool PrivateGenerator::PrintPreamble(grpc_generator::Printer* out) {
 
         grpc::string input_type_file_name = method->get_input_type_name();
         grpc::string input_module_name =
-            ModuleName(input_type_file_name, config.import_prefix);
+            ModuleName(input_type_file_name, config.import_prefix,
+                       config.prefixes_to_filter);
         grpc::string input_module_alias =
-            ModuleAlias(input_type_file_name, config.import_prefix);
+            ModuleAlias(input_type_file_name, config.import_prefix,
+                        config.prefixes_to_filter);
         imports_set.insert(
             std::make_tuple(input_module_name, input_module_alias));
 
         grpc::string output_type_file_name = method->get_output_type_name();
         grpc::string output_module_name =
-            ModuleName(output_type_file_name, config.import_prefix);
+            ModuleName(output_type_file_name, config.import_prefix,
+                       config.prefixes_to_filter);
         grpc::string output_module_alias =
-            ModuleAlias(output_type_file_name, config.import_prefix);
+            ModuleAlias(output_type_file_name, config.import_prefix,
+                        config.prefixes_to_filter);
         imports_set.insert(
             std::make_tuple(output_module_name, output_module_alias));
       }
@@ -744,6 +756,29 @@ static bool GenerateGrpc(GeneratorContext* context, PrivateGenerator& generator,
   }
 }
 
+static bool ParseParameters(const grpc::string& parameter,
+                            grpc::string* grpc_version,
+                            std::vector<grpc::string>* strip_prefixes,
+                            grpc::string* error) {
+  std::vector<grpc::string> comma_delimited_parameters;
+  grpc_python_generator::Split(parameter, ',', &comma_delimited_parameters);
+  if (comma_delimited_parameters.size() == 1 &&
+      comma_delimited_parameters[0].empty()) {
+    *grpc_version = "grpc_2_0";
+  } else if (comma_delimited_parameters.size() == 1) {
+    *grpc_version = comma_delimited_parameters[0];
+  } else if (comma_delimited_parameters.size() == 2) {
+    *grpc_version = comma_delimited_parameters[0];
+    std::copy(comma_delimited_parameters.begin() + 1,
+              comma_delimited_parameters.end(),
+              std::back_inserter(*strip_prefixes));
+  } else {
+    *error = "--grpc_python_out received too many comma-delimited parameters.";
+    return false;
+  }
+  return true;
+}
+
 bool PythonGrpcGenerator::Generate(const FileDescriptor* file,
                                    const grpc::string& parameter,
                                    GeneratorContext* context,
@@ -766,14 +801,19 @@ bool PythonGrpcGenerator::Generate(const FileDescriptor* file,
   generator_file_name = file->name();
 
   ProtoBufFile pbfile(file);
-  PrivateGenerator generator(config_, &pbfile);
-  if (parameter == "" || parameter == "grpc_2_0") {
+  grpc::string grpc_version;
+  GeneratorConfiguration extended_config(config_);
+  bool success = ParseParameters(parameter, &grpc_version,
+                                 &(extended_config.prefixes_to_filter), error);
+  PrivateGenerator generator(extended_config, &pbfile);
+  if (!success) return false;
+  if (grpc_version == "grpc_2_0") {
     return GenerateGrpc(context, generator, pb2_grpc_file_name, true);
-  } else if (parameter == "grpc_1_0") {
+  } else if (grpc_version == "grpc_1_0") {
     return GenerateGrpc(context, generator, pb2_grpc_file_name, true) &&
            GenerateGrpc(context, generator, pb2_file_name, false);
   } else {
-    *error = "Invalid parameter '" + parameter + "'.";
+    *error = "Invalid grpc version '" + grpc_version + "'.";
     return false;
   }
 }

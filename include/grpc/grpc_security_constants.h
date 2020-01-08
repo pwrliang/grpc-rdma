@@ -96,7 +96,7 @@ typedef enum {
   /** Server requests client certificate and enforces that the client presents a
      certificate.
 
-     The cerificate presented by the client is verified by the gRPC framework.
+     The certificate presented by the client is verified by the gRPC framework.
      (For a successful connection the client needs to present a certificate that
      can be verified against the root certificate configured by the server)
 
@@ -106,10 +106,10 @@ typedef enum {
 } grpc_ssl_client_certificate_request_type;
 
 /**
- * Type of local connection for which local channel/server credentials will be
- * applied. It only supports UDS for now.
+ * Type of local connections for which local channel/server credentials will be
+ * applied. It supports UDS and local TCP connections.
  */
-typedef enum { UDS = 0 } grpc_local_connect_type;
+typedef enum { UDS = 0, LOCAL_TCP } grpc_local_connect_type;
 
 #ifdef __cplusplus
 }

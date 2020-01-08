@@ -46,8 +46,8 @@ class TestServiceImpl : public ::grpc::testing::EchoTestService::Service {
  public:
   explicit TestServiceImpl(gpr_event* ev) : ev_(ev) {}
 
-  Status Echo(ServerContext* context, const EchoRequest* request,
-              EchoResponse* response) override {
+  Status Echo(ServerContext* context, const EchoRequest* /*request*/,
+              EchoResponse* /*response*/) override {
     gpr_event_set(ev_, (void*)1);
     while (!context->IsCancelled()) {
     }
@@ -86,7 +86,7 @@ class ShutdownTest : public ::testing::TestWithParam<string> {
     ChannelArguments args;
     auto channel_creds =
         GetCredentialsProvider()->GetChannelCredentials(GetParam(), &args);
-    channel_ = CreateCustomChannel(target, channel_creds, args);
+    channel_ = ::grpc::CreateCustomChannel(target, channel_creds, args);
     stub_ = grpc::testing::EchoTestService::NewStub(channel_);
   }
 
@@ -136,8 +136,8 @@ std::vector<string> GetAllCredentialsTypeList() {
   return credentials_types;
 }
 
-INSTANTIATE_TEST_CASE_P(End2EndShutdown, ShutdownTest,
-                        ::testing::ValuesIn(GetAllCredentialsTypeList()));
+INSTANTIATE_TEST_SUITE_P(End2EndShutdown, ShutdownTest,
+                         ::testing::ValuesIn(GetAllCredentialsTypeList()));
 
 // TODO(ctiller): leaked objects in this test
 TEST_P(ShutdownTest, ShutdownTest) {
@@ -164,7 +164,7 @@ TEST_P(ShutdownTest, ShutdownTest) {
 }  // namespace grpc
 
 int main(int argc, char** argv) {
-  grpc_test_init(argc, argv);
+  grpc::testing::TestEnvironment env(argc, argv);
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

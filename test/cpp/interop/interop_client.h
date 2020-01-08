@@ -69,6 +69,8 @@ class InteropClient {
   bool DoUnimplementedMethod();
   bool DoUnimplementedService();
   bool DoCacheableUnary();
+  // all requests are sent to one server despite multiple servers are resolved
+  bool DoPickFirstUnary();
 
   // The following interop test are not yet part of the interop spec, and are
   // not implemented cross-language. They are considered experimental for now,
@@ -89,6 +91,8 @@ class InteropClient {
                          const grpc::string& oauth_scope);
   // username is a string containing the user email
   bool DoPerRpcCreds(const grpc::string& json_key);
+  // default_service_account is the GCE default service account email
+  bool DoGoogleDefaultCredentials(const grpc::string& default_service_account);
 
  private:
   class ServiceStub {

@@ -25,25 +25,29 @@
 #include <grpc/support/string_util.h>
 
 #include <grpcpp/impl/codegen/interceptor_common.h>
+#include <grpcpp/impl/codegen/sync.h>
 #include <grpcpp/impl/grpc_library.h>
 #include <grpcpp/security/credentials.h>
 #include <grpcpp/server_context.h>
 #include <grpcpp/support/time.h>
 
-namespace grpc {
+namespace grpc_impl {
+
+class Channel;
 
 class DefaultGlobalClientCallbacks final
     : public ClientContext::GlobalCallbacks {
  public:
   ~DefaultGlobalClientCallbacks() override {}
-  void DefaultConstructor(ClientContext* context) override {}
-  void Destructor(ClientContext* context) override {}
+  void DefaultConstructor(ClientContext* /*context*/) override {}
+  void Destructor(ClientContext* /*context*/) override {}
 };
 
-static internal::GrpcLibraryInitializer g_gli_initializer;
-static DefaultGlobalClientCallbacks g_default_client_callbacks;
+static grpc::internal::GrpcLibraryInitializer g_gli_initializer;
+static DefaultGlobalClientCallbacks* g_default_client_callbacks =
+    new DefaultGlobalClientCallbacks();
 static ClientContext::GlobalCallbacks* g_client_callbacks =
-    &g_default_client_callbacks;
+    g_default_client_callbacks;
 
 ClientContext::ClientContext()
     : initial_metadata_received_(false),
@@ -56,6 +60,7 @@ ClientContext::ClientContext()
       deadline_(gpr_inf_future(GPR_CLOCK_REALTIME)),
       census_context_(nullptr),
       propagate_from_call_(nullptr),
+      compression_algorithm_(GRPC_COMPRESS_NONE),
       initial_metadata_corked_(false) {
   g_client_callbacks->DefaultConstructor(this);
 }
@@ -67,12 +72,40 @@ ClientContext::~ClientContext() {
   g_client_callbacks->Destructor(this);
 }
 
-std::unique_ptr<ClientContext> ClientContext::FromServerContext(
-    const ServerContext& context, PropagationOptions options) {
+void ClientContext::set_credentials(
+    const std::shared_ptr<grpc_impl::CallCredentials>& creds) {
+  creds_ = creds;
+  // If call_ is set, we have already created the call, and set the call
+  // credentials. This should only be done before we have started the batch
+  // for sending initial metadata.
+  if (creds_ != nullptr && call_ != nullptr) {
+    if (!creds_->ApplyToCall(call_)) {
+      SendCancelToInterceptors();
+      grpc_call_cancel_with_status(call_, GRPC_STATUS_CANCELLED,
+                                   "Failed to set credentials to rpc.",
+                                   nullptr);
+    }
+  }
+}
+
+std::unique_ptr<ClientContext> ClientContext::FromInternalServerContext(
+    const grpc_impl::ServerContextBase& context, PropagationOptions options) {
   std::unique_ptr<ClientContext> ctx(new ClientContext);
   ctx->propagate_from_call_ = context.call_;
   ctx->propagation_options_ = options;
   return ctx;
+}
+
+std::unique_ptr<ClientContext> ClientContext::FromServerContext(
+    const grpc_impl::ServerContext& server_context,
+    PropagationOptions options) {
+  return FromInternalServerContext(server_context, options);
+}
+
+std::unique_ptr<ClientContext> ClientContext::FromCallbackServerContext(
+    const grpc_impl::CallbackServerContext& server_context,
+    PropagationOptions options) {
+  return FromInternalServerContext(server_context, options);
 }
 
 void ClientContext::AddMetadata(const grpc::string& meta_key,
@@ -80,9 +113,9 @@ void ClientContext::AddMetadata(const grpc::string& meta_key,
   send_initial_metadata_.insert(std::make_pair(meta_key, meta_value));
 }
 
-void ClientContext::set_call(grpc_call* call,
-                             const std::shared_ptr<Channel>& channel) {
-  std::unique_lock<std::mutex> lock(mu_);
+void ClientContext::set_call(
+    grpc_call* call, const std::shared_ptr<::grpc_impl::Channel>& channel) {
+  grpc::internal::MutexLock lock(&mu_);
   GPR_ASSERT(call_ == nullptr);
   call_ = call;
   channel_ = channel;
@@ -112,7 +145,7 @@ void ClientContext::set_compression_algorithm(
 }
 
 void ClientContext::TryCancel() {
-  std::unique_lock<std::mutex> lock(mu_);
+  grpc::internal::MutexLock lock(&mu_);
   if (call_) {
     SendCancelToInterceptors();
     grpc_call_cancel(call_, nullptr);
@@ -122,7 +155,7 @@ void ClientContext::TryCancel() {
 }
 
 void ClientContext::SendCancelToInterceptors() {
-  internal::CancelInterceptorBatchMethods cancel_methods;
+  grpc::internal::CancelInterceptorBatchMethods cancel_methods;
   for (size_t i = 0; i < rpc_info_.interceptors_.size(); i++) {
     rpc_info_.RunInterceptor(&cancel_methods, i);
   }
@@ -139,10 +172,10 @@ grpc::string ClientContext::peer() const {
 }
 
 void ClientContext::SetGlobalCallbacks(GlobalCallbacks* client_callbacks) {
-  GPR_ASSERT(g_client_callbacks == &g_default_client_callbacks);
+  GPR_ASSERT(g_client_callbacks == g_default_client_callbacks);
   GPR_ASSERT(client_callbacks != nullptr);
-  GPR_ASSERT(client_callbacks != &g_default_client_callbacks);
+  GPR_ASSERT(client_callbacks != g_default_client_callbacks);
   g_client_callbacks = client_callbacks;
 }
 
-}  // namespace grpc
+}  // namespace grpc_impl

@@ -55,7 +55,7 @@ class MockSocketMutator : public grpc_socket_mutator {
   int mutate_fd_call_count_;
 };
 
-bool mock_socket_mutator_mutate_fd(int fd, grpc_socket_mutator* m) {
+bool mock_socket_mutator_mutate_fd(int /*fd*/, grpc_socket_mutator* m) {
   MockSocketMutator* s = reinterpret_cast<MockSocketMutator*>(m);
   s->mutate_fd_call_count_++;
   return true;
@@ -86,7 +86,14 @@ class MockSocketMutatorServerBuilderOption : public grpc::ServerBuilderOption {
   MockSocketMutator* mock_socket_mutator_;
 };
 
-TEST(ServerBuilderWithSocketMutatorTest, CreateServerWithSocketMutator) {
+class ServerBuilderWithSocketMutatorTest : public ::testing::Test {
+ protected:
+  static void SetUpTestCase() { grpc_init(); }
+
+  static void TearDownTestCase() { grpc_shutdown(); }
+};
+
+TEST_F(ServerBuilderWithSocketMutatorTest, CreateServerWithSocketMutator) {
   auto address = "localhost:" + std::to_string(grpc_pick_unused_port_or_die());
   auto mock_socket_mutator = new MockSocketMutator();
   std::unique_ptr<grpc::ServerBuilderOption> mock_socket_mutator_builder_option(
@@ -109,8 +116,6 @@ TEST(ServerBuilderWithSocketMutatorTest, CreateServerWithSocketMutator) {
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
-  grpc_init();
   int ret = RUN_ALL_TESTS();
-  grpc_shutdown();
   return ret;
 }

@@ -156,9 +156,13 @@ static unsigned long openssl_thread_id_cb(void) {
 #endif
 
 static void init_openssl(void) {
+#if OPENSSL_API_COMPAT >= 0x10100000L
+  OPENSSL_init_ssl(0, NULL);
+#else
   SSL_library_init();
   SSL_load_error_strings();
   OpenSSL_add_all_algorithms();
+#endif
 #if OPENSSL_VERSION_NUMBER < 0x10100000
   if (!CRYPTO_get_locking_callback()) {
     int num_locks = CRYPTO_num_locks();
@@ -209,7 +213,7 @@ static const char* ssl_error_string(int error) {
 /* TODO(jboeuf): Remove when we are past the debugging phase with this code. */
 static void ssl_log_where_info(const SSL* ssl, int where, int flag,
                                const char* msg) {
-  if ((where & flag) && tsi_tracing_enabled.enabled()) {
+  if ((where & flag) && GRPC_TRACE_FLAG_ENABLED(tsi_tracing_enabled)) {
     gpr_log(GPR_INFO, "%20.20s - %30.30s  - %5.10s", msg,
             SSL_state_string_long(ssl), SSL_state_string(ssl));
   }
@@ -229,11 +233,10 @@ static void ssl_info_callback(const SSL* ssl, int where, int ret) {
 
 /* Returns 1 if name looks like an IP address, 0 otherwise.
    This is a very rough heuristic, and only handles IPv6 in hexadecimal form. */
-static int looks_like_ip_address(const char* name) {
-  size_t i;
+static int looks_like_ip_address(grpc_core::StringView name) {
   size_t dot_count = 0;
   size_t num_size = 0;
-  for (i = 0; i < strlen(name); i++) {
+  for (size_t i = 0; i < name.size(); ++i) {
     if (name[i] == ':') {
       /* IPv6 Address in hexadecimal form, : is not allowed in DNS names. */
       return 1;
@@ -347,11 +350,19 @@ static tsi_result add_subject_alt_names_properties_to_peer(
   for (i = 0; i < subject_alt_name_count; i++) {
     GENERAL_NAME* subject_alt_name =
         sk_GENERAL_NAME_value(subject_alt_names, TSI_SIZE_AS_SIZE(i));
-    /* Filter out the non-dns entries names. */
-    if (subject_alt_name->type == GEN_DNS) {
+    if (subject_alt_name->type == GEN_DNS ||
+        subject_alt_name->type == GEN_EMAIL ||
+        subject_alt_name->type == GEN_URI) {
       unsigned char* name = nullptr;
       int name_size;
-      name_size = ASN1_STRING_to_UTF8(&name, subject_alt_name->d.dNSName);
+      if (subject_alt_name->type == GEN_DNS) {
+        name_size = ASN1_STRING_to_UTF8(&name, subject_alt_name->d.dNSName);
+      } else if (subject_alt_name->type == GEN_EMAIL) {
+        name_size = ASN1_STRING_to_UTF8(&name, subject_alt_name->d.rfc822Name);
+      } else {
+        name_size = ASN1_STRING_to_UTF8(
+            &name, subject_alt_name->d.uniformResourceIdentifier);
+      }
       if (name_size < 0) {
         gpr_log(GPR_ERROR, "Could not get utf8 from asn1 string.");
         result = TSI_INTERNAL_ERROR;
@@ -539,7 +550,8 @@ static tsi_result ssl_ctx_use_certificate_chain(SSL_CTX* context,
         break;
       }
       /* We don't need to free certificate_authority as its ownership has been
-         transfered to the context. That is not the case for certificate though.
+         transferred to the context. That is not the case for certificate
+         though.
        */
     }
   } while (0);
@@ -615,15 +627,19 @@ static tsi_result x509_store_load_certs(X509_STORE* cert_store,
       sk_X509_NAME_push(*root_names, root_name);
       root_name = nullptr;
     }
+    ERR_clear_error();
     if (!X509_STORE_add_cert(cert_store, root)) {
-      gpr_log(GPR_ERROR, "Could not add root certificate to ssl context.");
-      result = TSI_INTERNAL_ERROR;
-      break;
+      unsigned long error = ERR_get_error();
+      if (ERR_GET_LIB(error) != ERR_LIB_X509 ||
+          ERR_GET_REASON(error) != X509_R_CERT_ALREADY_IN_HASH_TABLE) {
+        gpr_log(GPR_ERROR, "Could not add root certificate to ssl context.");
+        result = TSI_INTERNAL_ERROR;
+        break;
+      }
     }
     X509_free(root);
     num_roots++;
   }
-
   if (num_roots == 0) {
     gpr_log(GPR_ERROR, "Could not load any root certificate.");
     result = TSI_INVALID_ARGUMENT;
@@ -647,6 +663,8 @@ static tsi_result ssl_ctx_load_verification_certs(SSL_CTX* context,
                                                   STACK_OF(X509_NAME) *
                                                       *root_name) {
   X509_STORE* cert_store = SSL_CTX_get_cert_store(context);
+  X509_STORE_set_flags(cert_store,
+                       X509_V_FLAG_PARTIAL_CHAIN | X509_V_FLAG_TRUSTED_FIRST);
   return x509_store_load_certs(cert_store, pem_roots, pem_roots_size,
                                root_name);
 }
@@ -694,8 +712,8 @@ static tsi_result populate_ssl_context(
 }
 
 /* Extracts the CN and the SANs from an X509 cert as a peer object. */
-static tsi_result extract_x509_subject_names_from_pem_cert(const char* pem_cert,
-                                                           tsi_peer* peer) {
+tsi_result tsi_ssl_extract_x509_subject_names_from_pem_cert(
+    const char* pem_cert, tsi_peer* peer) {
   tsi_result result = TSI_OK;
   X509* cert = nullptr;
   BIO* pem;
@@ -756,7 +774,7 @@ static tsi_result build_alpn_protocol_name_list(
 // the server's certificate, but we need to pull it anyway, in case a higher
 // layer wants to look at it. In this case the verification may fail, but
 // we don't really care.
-static int NullVerifyCallback(int preverify_ok, X509_STORE_CTX* ctx) {
+static int NullVerifyCallback(int /*preverify_ok*/, X509_STORE_CTX* /*ctx*/) {
   return 1;
 }
 
@@ -1007,7 +1025,6 @@ static void tsi_ssl_handshaker_factory_init(
 }
 
 /* --- tsi_handshaker_result methods implementation. ---*/
-
 static tsi_result ssl_handshaker_result_extract_peer(
     const tsi_handshaker_result* self, tsi_peer* peer) {
   tsi_result result = TSI_OK;
@@ -1015,6 +1032,7 @@ static tsi_result ssl_handshaker_result_extract_peer(
   unsigned int alpn_selected_len;
   const tsi_ssl_handshaker_result* impl =
       reinterpret_cast<const tsi_ssl_handshaker_result*>(self);
+  // TODO(yihuazhang): Return a full certificate chain as a peer property.
   X509* peer_cert = SSL_get_peer_certificate(impl->ssl);
   if (peer_cert != nullptr) {
     result = peer_from_x509(peer_cert, 1, peer);
@@ -1056,7 +1074,6 @@ static tsi_result ssl_handshaker_result_extract_peer(
       &peer->properties[peer->property_count]);
   if (result != TSI_OK) return result;
   peer->property_count++;
-
   return result;
 }
 
@@ -1248,7 +1265,7 @@ static tsi_result ssl_handshaker_next(
     tsi_handshaker* self, const unsigned char* received_bytes,
     size_t received_bytes_size, const unsigned char** bytes_to_send,
     size_t* bytes_to_send_size, tsi_handshaker_result** handshaker_result,
-    tsi_handshaker_on_next_done_cb cb, void* user_data) {
+    tsi_handshaker_on_next_done_cb /*cb*/, void* /*user_data*/) {
   /* Input sanity check.  */
   if ((received_bytes_size > 0 && received_bytes == nullptr) ||
       bytes_to_send == nullptr || bytes_to_send_size == nullptr ||
@@ -1390,7 +1407,6 @@ static tsi_result create_tsi_ssl_handshaker(SSL_CTX* ctx, int is_client,
       static_cast<unsigned char*>(gpr_zalloc(impl->outgoing_bytes_buffer_size));
   impl->base.vtable = &handshaker_vtable;
   impl->factory_ref = tsi_ssl_handshaker_factory_ref(factory);
-
   *handshaker = &impl->base;
   return TSI_OK;
 }
@@ -1449,11 +1465,9 @@ static void tsi_ssl_client_handshaker_factory_destroy(
   gpr_free(self);
 }
 
-static int client_handshaker_factory_npn_callback(SSL* ssl, unsigned char** out,
-                                                  unsigned char* outlen,
-                                                  const unsigned char* in,
-                                                  unsigned int inlen,
-                                                  void* arg) {
+static int client_handshaker_factory_npn_callback(
+    SSL* /*ssl*/, unsigned char** out, unsigned char* outlen,
+    const unsigned char* in, unsigned int inlen, void* arg) {
   tsi_ssl_client_handshaker_factory* factory =
       static_cast<tsi_ssl_client_handshaker_factory*>(arg);
   return select_protocol_list((const unsigned char**)out, outlen,
@@ -1498,55 +1512,51 @@ static void tsi_ssl_server_handshaker_factory_destroy(
   gpr_free(self);
 }
 
-static int does_entry_match_name(const char* entry, size_t entry_length,
-                                 const char* name) {
-  const char* dot;
-  const char* name_subdomain = nullptr;
-  size_t name_length = strlen(name);
-  size_t name_subdomain_length;
-  if (entry_length == 0) return 0;
+static int does_entry_match_name(grpc_core::StringView entry,
+                                 grpc_core::StringView name) {
+  if (entry.empty()) return 0;
 
   /* Take care of '.' terminations. */
-  if (name[name_length - 1] == '.') {
-    name_length--;
+  if (name.back() == '.') {
+    name.remove_suffix(1);
   }
-  if (entry[entry_length - 1] == '.') {
-    entry_length--;
-    if (entry_length == 0) return 0;
+  if (entry.back() == '.') {
+    entry.remove_suffix(1);
+    if (entry.empty()) return 0;
   }
 
-  if ((name_length == entry_length) &&
-      strncmp(name, entry, entry_length) == 0) {
+  if (name == entry) {
     return 1; /* Perfect match. */
   }
-  if (entry[0] != '*') return 0;
+  if (entry.front() != '*') return 0;
 
   /* Wildchar subdomain matching. */
-  if (entry_length < 3 || entry[1] != '.') { /* At least *.x */
+  if (entry.size() < 3 || entry[1] != '.') { /* At least *.x */
     gpr_log(GPR_ERROR, "Invalid wildchar entry.");
     return 0;
   }
-  name_subdomain = strchr(name, '.');
-  if (name_subdomain == nullptr) return 0;
-  name_subdomain_length = strlen(name_subdomain);
-  if (name_subdomain_length < 2) return 0;
-  name_subdomain++; /* Starts after the dot. */
-  name_subdomain_length--;
-  entry += 2; /* Remove *. */
-  entry_length -= 2;
-  dot = strchr(name_subdomain, '.');
-  if ((dot == nullptr) || (dot == &name_subdomain[name_subdomain_length - 1])) {
-    gpr_log(GPR_ERROR, "Invalid toplevel subdomain: %s", name_subdomain);
+  size_t name_subdomain_pos = name.find('.');
+  if (name_subdomain_pos == grpc_core::StringView::npos) return 0;
+  if (name_subdomain_pos >= name.size() - 2) return 0;
+  grpc_core::StringView name_subdomain =
+      name.substr(name_subdomain_pos + 1); /* Starts after the dot. */
+  entry.remove_prefix(2);                  /* Remove *. */
+  size_t dot = name_subdomain.find('.');
+  if (dot == grpc_core::StringView::npos || dot == name_subdomain.size() - 1) {
+    grpc_core::UniquePtr<char> name_subdomain_cstr(
+        grpc_core::StringViewToCString(name_subdomain));
+    gpr_log(GPR_ERROR, "Invalid toplevel subdomain: %s",
+            name_subdomain_cstr.get());
     return 0;
   }
-  if (name_subdomain[name_subdomain_length - 1] == '.') {
-    name_subdomain_length--;
+  if (name_subdomain.back() == '.') {
+    name_subdomain.remove_suffix(1);
   }
-  return ((entry_length > 0) && (name_subdomain_length == entry_length) &&
-          strncmp(entry, name_subdomain, entry_length) == 0);
+  return !entry.empty() && name_subdomain == entry;
 }
 
-static int ssl_server_handshaker_factory_servername_callback(SSL* ssl, int* ap,
+static int ssl_server_handshaker_factory_servername_callback(SSL* ssl,
+                                                             int* /*ap*/,
                                                              void* arg) {
   tsi_ssl_server_handshaker_factory* impl =
       static_cast<tsi_ssl_server_handshaker_factory*>(arg);
@@ -1569,7 +1579,7 @@ static int ssl_server_handshaker_factory_servername_callback(SSL* ssl, int* ap,
 
 #if TSI_OPENSSL_ALPN_SUPPORT
 static int server_handshaker_factory_alpn_callback(
-    SSL* ssl, const unsigned char** out, unsigned char* outlen,
+    SSL* /*ssl*/, const unsigned char** out, unsigned char* outlen,
     const unsigned char* in, unsigned int inlen, void* arg) {
   tsi_ssl_server_handshaker_factory* factory =
       static_cast<tsi_ssl_server_handshaker_factory*>(arg);
@@ -1580,7 +1590,7 @@ static int server_handshaker_factory_alpn_callback(
 #endif /* TSI_OPENSSL_ALPN_SUPPORT */
 
 static int server_handshaker_factory_npn_advertised_callback(
-    SSL* ssl, const unsigned char** out, unsigned int* outlen, void* arg) {
+    SSL* /*ssl*/, const unsigned char** out, unsigned int* outlen, void* arg) {
   tsi_ssl_server_handshaker_factory* factory =
       static_cast<tsi_ssl_server_handshaker_factory*>(arg);
   *out = factory->alpn_protocol_list;
@@ -1609,7 +1619,7 @@ static int server_handshaker_factory_new_session_callback(
     return 0;
   }
   factory->session_cache->Put(server_name, tsi::SslSessionPtr(session));
-  // Return 1 to indicate transfered ownership over the given session.
+  // Return 1 to indicate transferred ownership over the given session.
   return 1;
 }
 
@@ -1624,7 +1634,6 @@ tsi_result tsi_create_ssl_client_handshaker_factory(
     const char** alpn_protocols, uint16_t num_alpn_protocols,
     tsi_ssl_client_handshaker_factory** factory) {
   tsi_ssl_client_handshaker_options options;
-  memset(&options, 0, sizeof(options));
   options.pem_key_cert_pair = pem_key_cert_pair;
   options.pem_root_certs = pem_root_certs;
   options.cipher_suites = cipher_suites;
@@ -1649,7 +1658,11 @@ tsi_result tsi_create_ssl_client_handshaker_factory_with_options(
     return TSI_INVALID_ARGUMENT;
   }
 
+#if defined(OPENSSL_NO_TLS1_2_METHOD) || OPENSSL_API_COMPAT >= 0x10100000L
+  ssl_context = SSL_CTX_new(TLS_method());
+#else
   ssl_context = SSL_CTX_new(TLSv1_2_method());
+#endif
   if (ssl_context == nullptr) {
     gpr_log(GPR_ERROR, "Could not create ssl context.");
     return TSI_INVALID_ARGUMENT;
@@ -1750,7 +1763,6 @@ tsi_result tsi_create_ssl_server_handshaker_factory_ex(
     const char* cipher_suites, const char** alpn_protocols,
     uint16_t num_alpn_protocols, tsi_ssl_server_handshaker_factory** factory) {
   tsi_ssl_server_handshaker_options options;
-  memset(&options, 0, sizeof(options));
   options.pem_key_cert_pairs = pem_key_cert_pairs;
   options.num_key_cert_pairs = num_key_cert_pairs;
   options.pem_client_root_certs = pem_client_root_certs;
@@ -1806,7 +1818,11 @@ tsi_result tsi_create_ssl_server_handshaker_factory_with_options(
 
   for (i = 0; i < options->num_key_cert_pairs; i++) {
     do {
+#if defined(OPENSSL_NO_TLS1_2_METHOD) || OPENSSL_API_COMPAT >= 0x10100000L
+      impl->ssl_contexts[i] = SSL_CTX_new(TLS_method());
+#else
       impl->ssl_contexts[i] = SSL_CTX_new(TLSv1_2_method());
+#endif
       if (impl->ssl_contexts[i] == nullptr) {
         gpr_log(GPR_ERROR, "Could not create ssl context.");
         result = TSI_OUT_OF_RESOURCES;
@@ -1850,33 +1866,32 @@ tsi_result tsi_create_ssl_server_handshaker_factory_with_options(
           break;
         }
         SSL_CTX_set_client_CA_list(impl->ssl_contexts[i], root_names);
-        switch (options->client_certificate_request) {
-          case TSI_DONT_REQUEST_CLIENT_CERTIFICATE:
-            SSL_CTX_set_verify(impl->ssl_contexts[i], SSL_VERIFY_NONE, nullptr);
-            break;
-          case TSI_REQUEST_CLIENT_CERTIFICATE_BUT_DONT_VERIFY:
-            SSL_CTX_set_verify(impl->ssl_contexts[i], SSL_VERIFY_PEER,
-                               NullVerifyCallback);
-            break;
-          case TSI_REQUEST_CLIENT_CERTIFICATE_AND_VERIFY:
-            SSL_CTX_set_verify(impl->ssl_contexts[i], SSL_VERIFY_PEER, nullptr);
-            break;
-          case TSI_REQUEST_AND_REQUIRE_CLIENT_CERTIFICATE_BUT_DONT_VERIFY:
-            SSL_CTX_set_verify(
-                impl->ssl_contexts[i],
-                SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT,
-                NullVerifyCallback);
-            break;
-          case TSI_REQUEST_AND_REQUIRE_CLIENT_CERTIFICATE_AND_VERIFY:
-            SSL_CTX_set_verify(
-                impl->ssl_contexts[i],
-                SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT, nullptr);
-            break;
-        }
-        /* TODO(jboeuf): Add revocation verification. */
       }
+      switch (options->client_certificate_request) {
+        case TSI_DONT_REQUEST_CLIENT_CERTIFICATE:
+          SSL_CTX_set_verify(impl->ssl_contexts[i], SSL_VERIFY_NONE, nullptr);
+          break;
+        case TSI_REQUEST_CLIENT_CERTIFICATE_BUT_DONT_VERIFY:
+          SSL_CTX_set_verify(impl->ssl_contexts[i], SSL_VERIFY_PEER,
+                             NullVerifyCallback);
+          break;
+        case TSI_REQUEST_CLIENT_CERTIFICATE_AND_VERIFY:
+          SSL_CTX_set_verify(impl->ssl_contexts[i], SSL_VERIFY_PEER, nullptr);
+          break;
+        case TSI_REQUEST_AND_REQUIRE_CLIENT_CERTIFICATE_BUT_DONT_VERIFY:
+          SSL_CTX_set_verify(impl->ssl_contexts[i],
+                             SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT,
+                             NullVerifyCallback);
+          break;
+        case TSI_REQUEST_AND_REQUIRE_CLIENT_CERTIFICATE_AND_VERIFY:
+          SSL_CTX_set_verify(impl->ssl_contexts[i],
+                             SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT,
+                             nullptr);
+          break;
+      }
+      /* TODO(jboeuf): Add revocation verification. */
 
-      result = extract_x509_subject_names_from_pem_cert(
+      result = tsi_ssl_extract_x509_subject_names_from_pem_cert(
           options->pem_key_cert_pairs[i].cert_chain,
           &impl->ssl_context_x509_subject_names[i]);
       if (result != TSI_OK) break;
@@ -1906,7 +1921,8 @@ tsi_result tsi_create_ssl_server_handshaker_factory_with_options(
 
 /* --- tsi_ssl utils. --- */
 
-int tsi_ssl_peer_matches_name(const tsi_peer* peer, const char* name) {
+int tsi_ssl_peer_matches_name(const tsi_peer* peer,
+                              grpc_core::StringView name) {
   size_t i = 0;
   size_t san_count = 0;
   const tsi_peer_property* cn_property = nullptr;
@@ -1920,13 +1936,10 @@ int tsi_ssl_peer_matches_name(const tsi_peer* peer, const char* name) {
                TSI_X509_SUBJECT_ALTERNATIVE_NAME_PEER_PROPERTY) == 0) {
       san_count++;
 
-      if (!like_ip && does_entry_match_name(property->value.data,
-                                            property->value.length, name)) {
+      grpc_core::StringView entry(property->value.data, property->value.length);
+      if (!like_ip && does_entry_match_name(entry, name)) {
         return 1;
-      } else if (like_ip &&
-                 strncmp(name, property->value.data, property->value.length) ==
-                     0 &&
-                 strlen(name) == property->value.length) {
+      } else if (like_ip && name == entry) {
         /* IP Addresses are exact matches only. */
         return 1;
       }
@@ -1938,8 +1951,9 @@ int tsi_ssl_peer_matches_name(const tsi_peer* peer, const char* name) {
 
   /* If there's no SAN, try the CN, but only if its not like an IP Address */
   if (san_count == 0 && cn_property != nullptr && !like_ip) {
-    if (does_entry_match_name(cn_property->value.data,
-                              cn_property->value.length, name)) {
+    if (does_entry_match_name(grpc_core::StringView(cn_property->value.data,
+                                                    cn_property->value.length),
+                              name)) {
       return 1;
     }
   }

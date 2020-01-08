@@ -135,7 +135,7 @@ def create_scenario_jobspec(scenario_json,
 
     return jobset.JobSpec(
         cmdline=[cmd],
-        shortname='qps_json_driver.%s' % scenario_json['name'],
+        shortname='%s' % scenario_json['name'],
         timeout_seconds=_SCENARIO_TIMEOUT,
         shell=True,
         verbose_success=True)
@@ -153,7 +153,7 @@ def create_quit_jobspec(workers, remote_host=None):
 
     return jobset.JobSpec(
         cmdline=[cmd],
-        shortname='qps_json_driver.quit',
+        shortname='shutdown_workers',
         timeout_seconds=_QUIT_WORKER_TIMEOUT,
         shell=True,
         verbose_success=True)
@@ -193,13 +193,7 @@ def create_netperf_jobspec(server_host='localhost',
 
 def archive_repo(languages):
     """Archives local version of repo including submodules."""
-    # Directory contains symlinks that can't be correctly untarred on Windows
-    # so we just skip them as a workaround.
-    # See https://github.com/grpc/grpc/issues/16334
-    bad_symlinks_dir = '../grpc/third_party/libcxx/test/std/experimental/filesystem/Inputs/static_test_env'
-    cmdline = [
-        'tar', '--exclude', bad_symlinks_dir, '-cf', '../grpc.tar', '../grpc/'
-    ]
+    cmdline = ['tar', '-cf', '../grpc.tar', '../grpc/']
     if 'java' in languages:
         cmdline.append('../grpc-java')
     if 'go' in languages:
@@ -328,10 +322,10 @@ def perf_report_processor_job(worker_host, perf_base_name, output_filename,
     cmd = ''
     if worker_host != 'localhost':
         user_at_host = "%s@%s" % (_REMOTE_HOST_USERNAME, worker_host)
-        cmd = "USER_AT_HOST=%s OUTPUT_FILENAME=%s OUTPUT_DIR=%s PERF_BASE_NAME=%stools/run_tests/performance/process_remote_perf_flamegraphs.sh" % (
+        cmd = "USER_AT_HOST=%s OUTPUT_FILENAME=%s OUTPUT_DIR=%s PERF_BASE_NAME=%s tools/run_tests/performance/process_remote_perf_flamegraphs.sh" % (
             user_at_host, output_filename, flame_graph_reports, perf_base_name)
     else:
-        cmd = "OUTPUT_FILENAME=%s OUTPUT_DIR=%s PERF_BASE_NAME=%stools/run_tests/performance/process_local_perf_flamegraphs.sh" % (
+        cmd = "OUTPUT_FILENAME=%s OUTPUT_DIR=%s PERF_BASE_NAME=%s tools/run_tests/performance/process_local_perf_flamegraphs.sh" % (
             output_filename, flame_graph_reports, perf_base_name)
 
     return jobset.JobSpec(
@@ -484,7 +478,7 @@ def run_collect_perf_profile_jobs(hosts_and_base_names, scenario_name,
     failures, _ = jobset.run(
         perf_report_jobs, newline_on_success=True, maxjobs=1)
     jobset.message(
-        'END', 'Collecting perf reports from qps workers', do_newline=True)
+        'SUCCESS', 'Collecting perf reports from qps workers', do_newline=True)
     return failures
 
 
@@ -670,6 +664,8 @@ def main():
                     worker.start()
                 jobs = [scenario.jobspec]
                 if scenario.workers:
+                    # TODO(jtattermusch): ideally the "quit" job won't show up
+                    # in the report
                     jobs.append(
                         create_quit_jobspec(
                             scenario.workers,
@@ -707,7 +703,10 @@ def main():
             '%s/index.html' % args.flame_graph_reports, profile_output_files)
 
     report_utils.render_junit_xml_report(
-        merged_resultset, args.xml_report, suite_name='benchmarks')
+        merged_resultset,
+        args.xml_report,
+        suite_name='benchmarks',
+        multi_target=True)
 
     if total_scenario_failures > 0 or qps_workers_killed > 0:
         print('%s scenarios failed and %s qps worker jobs killed' %

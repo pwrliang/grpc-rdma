@@ -157,15 +157,20 @@ typedef struct {
 /** Maximum message length that the channel can send. Int valued, bytes.
     -1 means unlimited. */
 #define GRPC_ARG_MAX_SEND_MESSAGE_LENGTH "grpc.max_send_message_length"
-/** Maximum time that a channel may have no outstanding rpcs. Int valued,
-    milliseconds. INT_MAX means unlimited. */
+/** Maximum time that a channel may have no outstanding rpcs, after which the
+ * server will close the connection. Int valued, milliseconds. INT_MAX means
+ * unlimited. */
 #define GRPC_ARG_MAX_CONNECTION_IDLE_MS "grpc.max_connection_idle_ms"
 /** Maximum time that a channel may exist. Int valued, milliseconds.
  * INT_MAX means unlimited. */
 #define GRPC_ARG_MAX_CONNECTION_AGE_MS "grpc.max_connection_age_ms"
-/** Grace period after the chennel reaches its max age. Int valued,
+/** Grace period after the channel reaches its max age. Int valued,
    milliseconds. INT_MAX means unlimited. */
 #define GRPC_ARG_MAX_CONNECTION_AGE_GRACE_MS "grpc.max_connection_age_grace_ms"
+/** Timeout after the last RPC finishes on the client channel at which the
+ * channel goes back into IDLE state. Int valued, milliseconds. INT_MAX means
+ * unlimited. The default value is 30 minutes and the min value is 1 second. */
+#define GRPC_ARG_CLIENT_IDLE_TIMEOUT_MS "grpc.client_idle_timeout_ms"
 /** Enable/disable support for per-message compression. Defaults to 1, unless
     GRPC_ARG_MINIMAL_STACK is enabled, in which case it defaults to 0. */
 #define GRPC_ARG_ENABLE_PER_MESSAGE_COMPRESSION "grpc.per_message_compression"
@@ -262,6 +267,14 @@ typedef struct {
     grpc_ssl_session_cache*). (use grpc_ssl_session_cache_arg_vtable() to fetch
     an appropriate pointer arg vtable) */
 #define GRPC_SSL_SESSION_CACHE_ARG "grpc.ssl_session_cache"
+/** If non-zero, it will determine the maximum frame size used by TSI's frame
+ *  protector.
+ *
+ *  NOTE: Be aware that using a large "max_frame_size" is memory inefficient
+ *        for non-zerocopy protectors. Also, increasing this value above 1MiB
+ *        can break old binaries that don't support larger than 1MiB frame
+ *        size. */
+#define GRPC_ARG_TSI_MAX_FRAME_SIZE "grpc.tsi.max_frame_size"
 /** Maximum metadata size, in bytes. Note this limit applies to the max sum of
     all metadata key-value entries in a batch of headers. */
 #define GRPC_ARG_MAX_METADATA_SIZE "grpc.max_metadata_size"
@@ -293,7 +306,7 @@ typedef struct {
   "grpc.max_channel_trace_event_memory_per_node"
 /** If non-zero, gRPC library will track stats and information at at per channel
  * level. Disabling channelz naturally disables channel tracing. The default
- * is for channelz to be disabled. */
+ * is for channelz to be enabled. */
 #define GRPC_ARG_ENABLE_CHANNELZ "grpc.enable_channelz"
 /** If non-zero, Cronet transport will coalesce packets to fewer frames
  * when possible. */
@@ -315,8 +328,24 @@ typedef struct {
 #define GRPC_ARG_GRPCLB_CALL_TIMEOUT_MS "grpc.grpclb_call_timeout_ms"
 /* Timeout in milliseconds to wait for the serverlist from the grpclb load
    balancer before using fallback backend addresses from the resolver.
-   If 0, fallback will never be used. Default value is 10000. */
+   If 0, enter fallback mode immediately. Default value is 10000. */
 #define GRPC_ARG_GRPCLB_FALLBACK_TIMEOUT_MS "grpc.grpclb_fallback_timeout_ms"
+/* Timeout in milliseconds to wait for the serverlist from the xDS load
+   balancer before using fallback backend addresses from the resolver.
+   If 0, enter fallback mode immediately. Default value is 10000. */
+#define GRPC_ARG_XDS_FALLBACK_TIMEOUT_MS "grpc.xds_fallback_timeout_ms"
+/* Time in milliseconds to wait before a locality is deleted after it's removed
+   from the received EDS update. If 0, delete the locality immediately. Default
+   value is 15 minutes. */
+#define GRPC_ARG_LOCALITY_RETENTION_INTERVAL_MS \
+  "grpc.xds_locality_retention_interval_ms"
+/* Timeout in milliseconds to wait for the localities of a specific priority to
+   complete their initial connection attempt before xDS fails over to the next
+   priority. Specifically, the connection attempt of a priority is considered
+   completed when any locality of that priority is ready or all the localities
+   of that priority fail to connect. If 0, failover happens immediately. Default
+   value is 10 seconds. */
+#define GRPC_ARG_XDS_FAILOVER_TIMEOUT_MS "grpc.xds_failover_timeout_ms"
 /** If non-zero, grpc server's cronet compression workaround will be enabled */
 #define GRPC_ARG_WORKAROUND_CRONET_COMPRESSION \
   "grpc.workaround.cronet_compression"
@@ -350,11 +379,25 @@ typedef struct {
 /** If set, inhibits health checking (which may be enabled via the
  *  service config.) */
 #define GRPC_ARG_INHIBIT_HEALTH_CHECKING "grpc.inhibit_health_checking"
-/** If set, determines the number of milliseconds that the c-ares based
- * DNS resolver will wait on queries before cancelling them. The default value
- * is 10000. Setting this to "0" will disable c-ares query timeouts
- * entirely. */
+/** If set, the channel's resolver is allowed to query for SRV records.
+ * For example, this is useful as a way to enable the "grpclb"
+ * load balancing policy. Note that this only works with the "ares"
+ * DNS resolver, and isn't supported by the "native" DNS resolver. */
+#define GRPC_ARG_DNS_ENABLE_SRV_QUERIES "grpc.dns_enable_srv_queries"
+/** If set, determines an upper bound on the number of milliseconds that the
+ * c-ares based DNS resolver will wait on queries before cancelling them.
+ * The default value is 120,000. Setting this to "0" will disable the
+ * overall timeout entirely. Note that this doesn't include internal c-ares
+ * timeouts/backoff/retry logic, and so the actual DNS resolution may time out
+ * sooner than the value specified here. */
 #define GRPC_ARG_DNS_ARES_QUERY_TIMEOUT_MS "grpc.dns_ares_query_timeout"
+/** If set, uses a local subchannel pool within the channel. Otherwise, uses the
+ * global subchannel pool. */
+#define GRPC_ARG_USE_LOCAL_SUBCHANNEL_POOL "grpc.use_local_subchannel_pool"
+/** gRPC Objective-C channel pooling domain string. */
+#define GRPC_ARG_CHANNEL_POOL_DOMAIN "grpc.channel_pooling_domain"
+/** gRPC Objective-C channel pooling id. */
+#define GRPC_ARG_CHANNEL_ID "grpc.channel_id"
 /** \} */
 
 /** Result of a grpc call. If the caller satisfies the prerequisites of a
@@ -478,7 +521,8 @@ typedef struct grpc_event {
       field is guaranteed to be 0 */
   int success;
   /** The tag passed to grpc_call_start_batch etc to start this operation.
-      Only GRPC_OP_COMPLETE has a tag. */
+      *Only* GRPC_OP_COMPLETE has a tag. For all other grpc_completion_type
+      values, tag is uninitialized. */
   void* tag;
 } grpc_event;
 
@@ -681,6 +725,14 @@ typedef struct grpc_experimental_completion_queue_functor {
       pointer to this functor and a boolean that indicates whether the
       operation succeeded (non-zero) or failed (zero) */
   void (*functor_run)(struct grpc_experimental_completion_queue_functor*, int);
+
+  /** The inlineable member specifies whether this functor can be run inline.
+      This should only be used for trivial internally-defined functors. */
+  int inlineable;
+
+  /** The following fields are not API. They are meant for internal use. */
+  int internal_success;
+  struct grpc_experimental_completion_queue_functor* internal_next;
 } grpc_experimental_completion_queue_functor;
 
 /* The upgrade to version 2 is currently experimental. */

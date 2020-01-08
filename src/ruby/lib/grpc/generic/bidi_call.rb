@@ -17,7 +17,7 @@ require_relative '../grpc'
 
 # GRPC contains the General RPC module.
 module GRPC
-  # The BiDiCall class orchestrates exection of a BiDi stream on a client or
+  # The BiDiCall class orchestrates execution of a BiDi stream on a client or
   # server.
   class BidiCall
     include Core::CallOps
@@ -224,7 +224,7 @@ module GRPC
         set_input_stream_done.call
       end
       GRPC.logger.debug('bidi-read-loop: finished')
-      # Make sure that the write loop is done done before finishing the call.
+      # Make sure that the write loop is done before finishing the call.
       # Note that blocking is ok at this point because we've already received
       # a status
       @enq_th.join if is_client

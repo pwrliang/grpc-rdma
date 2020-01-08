@@ -24,10 +24,18 @@ grpc_config = ENV['GRPC_CONFIG'] || 'opt'
 
 ENV['MACOSX_DEPLOYMENT_TARGET'] = '10.7'
 
-ENV['AR'] = RbConfig::CONFIG['AR'] + ' rcs'
-ENV['CC'] = RbConfig::CONFIG['CC']
-ENV['CXX'] = RbConfig::CONFIG['CXX']
-ENV['LD'] = ENV['CC']
+if ENV['AR'].nil? || ENV['AR'].size == 0
+    ENV['AR'] = RbConfig::CONFIG['AR'] + ' rcs'
+end
+if ENV['CC'].nil? || ENV['CC'].size == 0
+    ENV['CC'] = RbConfig::CONFIG['CC']
+end
+if ENV['CXX'].nil? || ENV['CXX'].size == 0
+    ENV['CXX'] = RbConfig::CONFIG['CXX']
+end
+if ENV['LD'].nil? || ENV['LD'].size == 0
+    ENV['LD'] = ENV['CC']
+end
 
 ENV['AR'] = 'libtool -o' if RUBY_PLATFORM =~ /darwin/
 
@@ -52,6 +60,11 @@ unless windows
 end
 
 $CFLAGS << ' -I' + File.join(grpc_root, 'include')
+
+ext_export_file = File.join(grpc_root, 'src', 'ruby', 'ext', 'grpc', 'ext-export')
+$LDFLAGS << ' -Wl,--version-script="' + ext_export_file + '.gcc"' if RUBY_PLATFORM =~ /linux/
+$LDFLAGS << ' -Wl,-exported_symbols_list,"' + ext_export_file + '.clang"' if RUBY_PLATFORM =~ /darwin/
+
 $LDFLAGS << ' ' + File.join(grpc_lib_dir, 'libgrpc.a') unless windows
 if grpc_config == 'gcov'
   $CFLAGS << ' -O0 -fprofile-arcs -ftest-coverage'
@@ -63,6 +76,7 @@ if grpc_config == 'dbg'
 end
 
 $LDFLAGS << ' -Wl,-wrap,memcpy' if RUBY_PLATFORM =~ /linux/
+$LDFLAGS << ' -static-libgcc -static-libstdc++' if RUBY_PLATFORM =~ /linux/
 $LDFLAGS << ' -static' if windows
 
 $CFLAGS << ' -std=c99 '

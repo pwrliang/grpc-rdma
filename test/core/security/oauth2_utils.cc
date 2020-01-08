@@ -63,14 +63,17 @@ static void on_oauth2_response(void* arg, grpc_error* error) {
   gpr_mu_unlock(request->mu);
 }
 
-static void do_nothing(void* unused, grpc_error* error) {}
+static void destroy_after_shutdown(void* pollset, grpc_error* /*error*/) {
+  grpc_pollset_destroy(reinterpret_cast<grpc_pollset*>(pollset));
+  gpr_free(pollset);
+}
 
 char* grpc_test_fetch_oauth2_token_with_credentials(
     grpc_call_credentials* creds) {
   oauth2_request request;
-  memset(&request, 0, sizeof(request));
+  request = {};
   grpc_core::ExecCtx exec_ctx;
-  grpc_closure do_nothing_closure;
+  grpc_closure destroy_after_shutdown_closure;
   grpc_auth_metadata_context null_ctx = {"", "", nullptr, nullptr};
 
   grpc_pollset* pollset =
@@ -79,16 +82,15 @@ char* grpc_test_fetch_oauth2_token_with_credentials(
   request.pops = grpc_polling_entity_create_from_pollset(pollset);
   request.is_done = false;
 
-  GRPC_CLOSURE_INIT(&do_nothing_closure, do_nothing, nullptr,
-                    grpc_schedule_on_exec_ctx);
+  GRPC_CLOSURE_INIT(&destroy_after_shutdown_closure, destroy_after_shutdown,
+                    pollset, grpc_schedule_on_exec_ctx);
 
   GRPC_CLOSURE_INIT(&request.closure, on_oauth2_response, &request,
                     grpc_schedule_on_exec_ctx);
 
   grpc_error* error = GRPC_ERROR_NONE;
-  if (grpc_call_credentials_get_request_metadata(creds, &request.pops, null_ctx,
-                                                 &request.md_array,
-                                                 &request.closure, &error)) {
+  if (creds->get_request_metadata(&request.pops, null_ctx, &request.md_array,
+                                  &request.closure, &error)) {
     // Synchronous result; invoke callback directly.
     on_oauth2_response(&request, error);
     GRPC_ERROR_UNREF(error);
@@ -108,8 +110,6 @@ char* grpc_test_fetch_oauth2_token_with_credentials(
   gpr_mu_unlock(request.mu);
 
   grpc_pollset_shutdown(grpc_polling_entity_pollset(&request.pops),
-                        &do_nothing_closure);
-
-  gpr_free(grpc_polling_entity_pollset(&request.pops));
+                        &destroy_after_shutdown_closure);
   return request.token;
 }

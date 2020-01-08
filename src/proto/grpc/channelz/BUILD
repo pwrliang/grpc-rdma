@@ -14,13 +14,34 @@
 
 licenses(["notice"])  # Apache v2
 
-load("//bazel:grpc_build_system.bzl", "grpc_proto_library", "grpc_package")
+load("//bazel:grpc_build_system.bzl", "grpc_package", "grpc_proto_library")
 
-grpc_package(name = "channelz", visibility = "public")
+grpc_package(
+    name = "channelz",
+    visibility = "public",
+)
 
 grpc_proto_library(
     name = "channelz_proto",
     srcs = ["channelz.proto"],
     has_services = True,
     well_known_protos = True,
+)
+
+proto_library(
+    name = "channelz_proto_descriptors",
+    srcs = ["channelz.proto"],
+    deps = [
+        "@com_google_protobuf//:any_proto",
+        "@com_google_protobuf//:duration_proto",
+        "@com_google_protobuf//:timestamp_proto",
+        "@com_google_protobuf//:wrappers_proto",
+    ],
+)
+
+filegroup(
+    name = "channelz_proto_file",
+    srcs = [
+        "channelz.proto",
+    ],
 )

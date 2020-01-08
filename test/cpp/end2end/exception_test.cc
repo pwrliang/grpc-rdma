@@ -39,13 +39,13 @@ const char* kErrorMessage = "This service caused an exception";
 #if GRPC_ALLOW_EXCEPTIONS
 class ExceptingServiceImpl : public ::grpc::testing::EchoTestService::Service {
  public:
-  Status Echo(ServerContext* server_context, const EchoRequest* request,
-              EchoResponse* response) override {
+  Status Echo(ServerContext* /*server_context*/, const EchoRequest* /*request*/,
+              EchoResponse* /*response*/) override {
     throw - 1;
   }
-  Status RequestStream(ServerContext* context,
-                       ServerReader<EchoRequest>* reader,
-                       EchoResponse* response) override {
+  Status RequestStream(ServerContext* /*context*/,
+                       ServerReader<EchoRequest>* /*reader*/,
+                       EchoResponse* /*response*/) override {
     throw ServiceException();
   }
 
@@ -117,7 +117,7 @@ TEST_F(ExceptionTest, RequestStream) {
 }  // namespace grpc
 
 int main(int argc, char** argv) {
-  grpc_test_init(argc, argv);
+  grpc::testing::TestEnvironment env(argc, argv);
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

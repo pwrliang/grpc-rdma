@@ -23,6 +23,7 @@
 #include <grpc/support/time.h>
 #include "src/core/lib/gpr/useful.h"
 #include "src/core/lib/gprpp/memory.h"
+#include "src/core/lib/gprpp/sync.h"
 #include "src/core/lib/iomgr/iomgr.h"
 #include "test/core/util/test_config.h"
 
@@ -128,7 +129,8 @@ static void test_wait_empty(void) {
   }
 }
 
-static void do_nothing_end_completion(void* arg, grpc_cq_completion* c) {}
+static void do_nothing_end_completion(void* /*arg*/,
+                                      grpc_cq_completion* /*c*/) {}
 
 static void test_cq_end_op(void) {
   grpc_event ev;
@@ -359,12 +361,19 @@ static void test_pluck_after_shutdown(void) {
 
 static void test_callback(void) {
   grpc_completion_queue* cc;
-  void* tags[128];
+  static void* tags[128];
   grpc_cq_completion completions[GPR_ARRAY_SIZE(tags)];
   grpc_cq_polling_type polling_types[] = {
       GRPC_CQ_DEFAULT_POLLING, GRPC_CQ_NON_LISTENING, GRPC_CQ_NON_POLLING};
   grpc_completion_queue_attributes attr;
   unsigned i;
+  static gpr_mu mu, shutdown_mu;
+  static gpr_cv cv, shutdown_cv;
+  static int cb_counter;
+  gpr_mu_init(&mu);
+  gpr_mu_init(&shutdown_mu);
+  gpr_cv_init(&cv);
+  gpr_cv_init(&shutdown_cv);
 
   LOG_TEST("test_callback");
 
@@ -373,10 +382,15 @@ static void test_callback(void) {
    public:
     ShutdownCallback(bool* done) : done_(done) {
       functor_run = &ShutdownCallback::Run;
+      inlineable = false;
     }
     ~ShutdownCallback() {}
     static void Run(grpc_experimental_completion_queue_functor* cb, int ok) {
+      gpr_mu_lock(&shutdown_mu);
       *static_cast<ShutdownCallback*>(cb)->done_ = static_cast<bool>(ok);
+      // Signal when the shutdown callback is completed.
+      gpr_cv_signal(&shutdown_cv);
+      gpr_mu_unlock(&shutdown_mu);
     }
 
    private:
@@ -389,49 +403,82 @@ static void test_callback(void) {
   attr.cq_shutdown_cb = &shutdown_cb;
 
   for (size_t pidx = 0; pidx < GPR_ARRAY_SIZE(polling_types); pidx++) {
-    grpc_core::ExecCtx exec_ctx;  // reset exec_ctx
-    attr.cq_polling_type = polling_types[pidx];
-    cc = grpc_completion_queue_create(
-        grpc_completion_queue_factory_lookup(&attr), &attr, nullptr);
-
+    int sumtags = 0;
     int counter = 0;
-    class TagCallback : public grpc_experimental_completion_queue_functor {
-     public:
-      TagCallback(int* counter, int tag) : counter_(counter), tag_(tag) {
-        functor_run = &TagCallback::Run;
-      }
-      ~TagCallback() {}
-      static void Run(grpc_experimental_completion_queue_functor* cb, int ok) {
-        GPR_ASSERT(static_cast<bool>(ok));
-        auto* callback = static_cast<TagCallback*>(cb);
-        *callback->counter_ += callback->tag_;
-        grpc_core::Delete(callback);
+    cb_counter = 0;
+    {
+      // reset exec_ctx types
+      grpc_core::ExecCtx exec_ctx;
+      attr.cq_polling_type = polling_types[pidx];
+      cc = grpc_completion_queue_create(
+          grpc_completion_queue_factory_lookup(&attr), &attr, nullptr);
+
+      class TagCallback : public grpc_experimental_completion_queue_functor {
+       public:
+        TagCallback(int* counter, int tag) : counter_(counter), tag_(tag) {
+          functor_run = &TagCallback::Run;
+          // Inlineable should be false since this callback takes locks.
+          inlineable = false;
+        }
+        ~TagCallback() {}
+        static void Run(grpc_experimental_completion_queue_functor* cb,
+                        int ok) {
+          GPR_ASSERT(static_cast<bool>(ok));
+          auto* callback = static_cast<TagCallback*>(cb);
+          gpr_mu_lock(&mu);
+          cb_counter++;
+          *callback->counter_ += callback->tag_;
+          if (cb_counter == GPR_ARRAY_SIZE(tags)) {
+            gpr_cv_signal(&cv);
+          }
+          gpr_mu_unlock(&mu);
+          delete callback;
+        };
+
+       private:
+        int* counter_;
+        int tag_;
       };
 
-     private:
-      int* counter_;
-      int tag_;
-    };
+      for (i = 0; i < GPR_ARRAY_SIZE(tags); i++) {
+        tags[i] = static_cast<void*>(new TagCallback(&counter, i));
+        sumtags += i;
+      }
 
-    int sumtags = 0;
-    for (i = 0; i < GPR_ARRAY_SIZE(tags); i++) {
-      tags[i] = static_cast<void*>(grpc_core::New<TagCallback>(&counter, i));
-      sumtags += i;
+      for (i = 0; i < GPR_ARRAY_SIZE(tags); i++) {
+        GPR_ASSERT(grpc_cq_begin_op(cc, tags[i]));
+        grpc_cq_end_op(cc, tags[i], GRPC_ERROR_NONE, do_nothing_end_completion,
+                       nullptr, &completions[i]);
+      }
+
+      gpr_mu_lock(&mu);
+      while (cb_counter != GPR_ARRAY_SIZE(tags)) {
+        // Wait for all the callbacks to complete.
+        gpr_cv_wait(&cv, &mu, gpr_inf_future(GPR_CLOCK_REALTIME));
+      }
+      gpr_mu_unlock(&mu);
+
+      shutdown_and_destroy(cc);
+
+      gpr_mu_lock(&shutdown_mu);
+      while (!got_shutdown) {
+        // Wait for the shutdown callback to complete.
+        gpr_cv_wait(&shutdown_cv, &shutdown_mu,
+                    gpr_inf_future(GPR_CLOCK_REALTIME));
+      }
+      gpr_mu_unlock(&shutdown_mu);
     }
 
-    for (i = 0; i < GPR_ARRAY_SIZE(tags); i++) {
-      GPR_ASSERT(grpc_cq_begin_op(cc, tags[i]));
-      grpc_cq_end_op(cc, tags[i], GRPC_ERROR_NONE, do_nothing_end_completion,
-                     nullptr, &completions[i]);
-    }
-
+    // Run the assertions to check if the test ran successfully.
     GPR_ASSERT(sumtags == counter);
-
-    shutdown_and_destroy(cc);
-
     GPR_ASSERT(got_shutdown);
     got_shutdown = false;
   }
+
+  gpr_cv_destroy(&cv);
+  gpr_cv_destroy(&shutdown_cv);
+  gpr_mu_destroy(&mu);
+  gpr_mu_destroy(&shutdown_mu);
 }
 
 struct thread_state {
@@ -440,7 +487,7 @@ struct thread_state {
 };
 
 int main(int argc, char** argv) {
-  grpc_test_init(argc, argv);
+  grpc::testing::TestEnvironment env(argc, argv);
   grpc_init();
   test_no_op();
   test_pollset_conversion();

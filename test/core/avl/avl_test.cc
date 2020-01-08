@@ -33,14 +33,14 @@ static int* box(int x) {
   return b;
 }
 
-static long int_compare(void* int1, void* int2, void* unused) {
+static long int_compare(void* int1, void* int2, void* /*unused*/) {
   return (*static_cast<int*>(int1)) - (*static_cast<int*>(int2));
 }
-static void* int_copy(void* p, void* unused) {
+static void* int_copy(void* p, void* /*unused*/) {
   return box(*static_cast<int*>(p));
 }
 
-static void destroy(void* p, void* unused) { gpr_free(p); }
+static void destroy(void* p, void* /*unused*/) { gpr_free(p); }
 
 static const grpc_avl_vtable int_int_vtable = {destroy, int_copy, int_compare,
                                                destroy, int_copy};
@@ -283,7 +283,7 @@ static void test_stress(int amount_of_stress) {
 }
 
 int main(int argc, char* argv[]) {
-  grpc_test_init(argc, argv);
+  grpc::testing::TestEnvironment env(argc, argv);
 
   test_get();
   test_ll();

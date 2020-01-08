@@ -24,7 +24,7 @@
   "\x00\x00\x00\x04\x00\x00\x00\x00\x00"
 
 static void verifier(grpc_server* server, grpc_completion_queue* cq,
-                     void* registered_method) {
+                     void* /*registered_method*/) {
   while (grpc_server_has_open_connections(server)) {
     GPR_ASSERT(grpc_completion_queue_next(
                    cq, grpc_timeout_milliseconds_to_deadline(20), nullptr)
@@ -33,7 +33,7 @@ static void verifier(grpc_server* server, grpc_completion_queue* cq,
 }
 
 int main(int argc, char** argv) {
-  grpc_test_init(argc, argv);
+  grpc::testing::TestEnvironment env(argc, argv);
   grpc_init();
 
   /* partial http2 header prefixes */

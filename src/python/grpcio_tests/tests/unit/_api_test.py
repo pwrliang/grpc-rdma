@@ -31,7 +31,9 @@ class AllTest(unittest.TestCase):
             'FutureCancelledError',
             'Future',
             'ChannelConnectivity',
+            'Compression',
             'StatusCode',
+            'Status',
             'RpcError',
             'RpcContext',
             'Call',
@@ -58,6 +60,9 @@ class AllTest(unittest.TestCase):
             'ServiceRpcHandler',
             'Server',
             'ServerInterceptor',
+            'LocalConnectionType',
+            'local_channel_credentials',
+            'local_server_credentials',
             'unary_unary_rpc_method_handler',
             'unary_stream_rpc_method_handler',
             'stream_unary_rpc_method_handler',
@@ -100,6 +105,7 @@ class ChannelTest(unittest.TestCase):
     def test_secure_channel(self):
         channel_credentials = grpc.ssl_channel_credentials()
         channel = grpc.secure_channel('google.com:443', channel_credentials)
+        channel.close()
 
 
 if __name__ == '__main__':

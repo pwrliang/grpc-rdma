@@ -14,6 +14,12 @@
 
 FROM gcr.io/oss-fuzz-base/base-builder
 
+# -------------------------- WARNING --------------------------------------
+# If you are making changes to this file, consider changing
+# https://github.com/google/oss-fuzz/blob/master/projects/grpc/Dockerfile
+# accordingly.
+# -------------------------------------------------------------------------
+
 # Install basic packages and Bazel dependencies.
 RUN apt-get update && apt-get install -y software-properties-common python-software-properties
 RUN add-apt-repository ppa:webupd8team/java
@@ -21,6 +27,7 @@ RUN apt-get update && apt-get -y install \
   autoconf \
   build-essential \
   curl \
+  wget \
   libtool \
   make \
   openjdk-8-jdk \
@@ -42,12 +49,40 @@ RUN pip install virtualenv
 RUN pip install futures==2.2.0 enum34==1.0.4 protobuf==3.5.2.post1 six==1.10.0 twisted==17.5.0
 
 
+#=================
+# Compile CPython 3.6.9 from source
+
+RUN apt-get update && apt-get install -y zlib1g-dev libssl-dev
+RUN apt-get update && apt-get install -y jq build-essential libffi-dev
+
+RUN cd /tmp && \
+    wget -q https://www.python.org/ftp/python/3.6.9/Python-3.6.9.tgz && \
+    tar xzvf Python-3.6.9.tgz && \
+    cd Python-3.6.9 && \
+    ./configure && \
+    make install
+
+RUN cd /tmp && \
+    echo "ff7cdaef4846c89c1ec0d7b709bbd54d Python-3.6.9.tgz" > checksum.md5 && \
+    md5sum -c checksum.md5
+
+RUN python3.6 -m ensurepip && \
+    python3.6 -m pip install coverage
+
+
 #========================
 # Bazel installation
 
+# Must be in sync with tools/bazel
+ENV BAZEL_VERSION 1.0.0
+
+# The correct bazel version is already preinstalled, no need to use //tools/bazel wrapper.
+ENV DISABLE_BAZEL_WRAPPER 1
+
 RUN apt-get update && apt-get install -y wget && apt-get clean
-RUN wget -q https://github.com/bazelbuild/bazel/releases/download/0.17.1/bazel-0.17.1-linux-x86_64 -O /usr/local/bin/bazel
-RUN chmod 755 /usr/local/bin/bazel
+RUN wget "https://github.com/bazelbuild/bazel/releases/download/$BAZEL_VERSION/bazel-$BAZEL_VERSION-installer-linux-x86_64.sh" && \
+  bash ./bazel-$BAZEL_VERSION-installer-linux-x86_64.sh && \
+  rm bazel-$BAZEL_VERSION-installer-linux-x86_64.sh
 
 
 RUN mkdir -p /var/local/jenkins

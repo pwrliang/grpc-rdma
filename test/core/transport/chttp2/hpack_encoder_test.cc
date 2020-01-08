@@ -97,7 +97,7 @@ static void verify(const verify_params params, const char* expected,
   grpc_slice_buffer_init(&output);
 
   grpc_transport_one_way_stats stats;
-  memset(&stats, 0, sizeof(stats));
+  stats = {};
   grpc_encode_header_options hopt = {
       0xdeadbeef,                      /* stream_id */
       params.eof,                      /* is_eof */
@@ -217,7 +217,7 @@ static void verify_table_size_change_match_elem_size(const char* key,
   grpc_slice_buffer_init(&output);
 
   grpc_transport_one_way_stats stats;
-  memset(&stats, 0, sizeof(stats));
+  stats = {};
   grpc_encode_header_options hopt = {
       0xdeadbeef,      /* stream_id */
       false,           /* is_eof */
@@ -261,7 +261,7 @@ static void run_test(void (*test)(), const char* name) {
 int main(int argc, char** argv) {
   size_t i;
   grpc_test_only_set_slice_hash_seed(0);
-  grpc_test_init(argc, argv);
+  grpc::testing::TestEnvironment env(argc, argv);
   grpc_init();
   TEST(test_basic_headers);
   TEST(test_decode_table_overflow);

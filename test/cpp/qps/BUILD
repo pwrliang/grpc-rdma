@@ -14,8 +14,9 @@
 
 licenses(["notice"])  # Apache v2
 
-load("//bazel:grpc_build_system.bzl", "grpc_cc_test", "grpc_cc_library", "grpc_cc_binary", "grpc_package")
-load("//test/cpp/qps:qps_benchmark_script.bzl", "qps_json_driver_batch", "json_run_localhost_batch")
+load("//bazel:grpc_build_system.bzl", "grpc_cc_binary", "grpc_cc_library", "grpc_cc_test", "grpc_package")
+load("//test/cpp/qps:qps_benchmark_script.bzl", "json_run_localhost_batch", "qps_json_driver_batch")
+load("//bazel:custom_exec_properties.bzl", "LARGE_MACHINE")
 
 grpc_package(name = "test/cpp/qps")
 
@@ -60,7 +61,6 @@ grpc_cc_library(
         "//src/proto/grpc/testing:payloads_proto",
         "//src/proto/grpc/testing:worker_service_proto",
         "//test/core/end2end:ssl_test_data",
-        "//test/core/util:gpr_test_util",
         "//test/core/util:grpc_test_util",
         "//test/cpp/util:test_config",
         "//test/cpp/util:test_util",
@@ -86,7 +86,6 @@ grpc_cc_library(
         "//src/proto/grpc/testing:messages_proto",
         "//src/proto/grpc/testing:report_qps_scenario_service_proto",
         "//src/proto/grpc/testing:worker_service_proto",
-        "//test/core/util:gpr_test_util",
         "//test/core/util:grpc_test_util",
         "//test/cpp/util:test_util",
     ],
@@ -160,6 +159,7 @@ json_run_localhost_batch()
 grpc_cc_test(
     name = "qps_interarrival_test",
     srcs = ["qps_interarrival_test.cc"],
+    uses_polling = False,
     deps = [
         ":histogram",
         ":interarrival",
@@ -170,7 +170,8 @@ grpc_cc_test(
 grpc_cc_test(
     name = "qps_openloop_test",
     srcs = ["qps_openloop_test.cc"],
-    data = ["//third_party/toolchains:RBE_USE_MACHINE_TYPE_LARGE"],
+    exec_properties = LARGE_MACHINE,
+    tags = ["no_windows"],  # LARGE_MACHINE is not configured for windows RBE
     deps = [
         ":benchmark_config",
         ":driver_impl",
@@ -205,7 +206,6 @@ grpc_cc_binary(
     deps = [
         ":qps_worker_impl",
         "//:grpc++",
-        "//test/core/util:gpr_test_util",
         "//test/core/util:grpc_test_util",
         "//test/cpp/util:test_config",
         "//test/cpp/util:test_util",

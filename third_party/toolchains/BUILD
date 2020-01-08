@@ -16,37 +16,24 @@ licenses(["notice"])  # Apache v2
 
 package(default_visibility = ["//visibility:public"])
 
-exports_files(["RBE_USE_MACHINE_TYPE_LARGE",])
+load("@bazel_toolchains//rules/exec_properties:exec_properties.bzl", "create_exec_properties_dict")
 
-# Latest RBE Ubuntu16_04 container
-# Update every time when a new container is released.
 alias(
-    name = "rbe_ubuntu1604",
-    actual = ":rbe_ubuntu1604_r328903",
+    name = "rbe_windows",
+    actual = ":rbe_windows_1803",
 )
 
-# RBE Ubuntu16_04 r328903
+# RBE Windows
 platform(
-    name = "rbe_ubuntu1604_r328903",
+    name = "rbe_windows_1803",
     constraint_values = [
         "@bazel_tools//platforms:x86_64",
-        "@bazel_tools//platforms:linux",
-        "@bazel_tools//tools/cpp:clang",
-        "@com_github_bazelbuild_bazeltoolchains//constraints:xenial",
-        "@com_github_bazelbuild_bazeltoolchains//constraints/sanitizers:support_msan",
+        "@bazel_tools//platforms:windows",
+        "@bazel_tools//tools/cpp:msvc",
     ],
-    remote_execution_properties = """
-        properties: {
-          name: "container-image"
-          value:"docker://gcr.io/cloud-marketplace/google/rbe-ubuntu16-04@sha256:59bf0e191a6b5cc1ab62c2224c810681d1326bad5a27b1d36c9f40113e79da7f"
-        }
-        properties: {
-          name: "gceMachineType"  # Small machines for majority of tests.
-          value: "n1-highmem-2"
-        }
-        properties: {
-          name: "gceMachineType_LARGE"  # Large machines for a small set of resource-consuming tests such as combiner_tests under TSAN.
-          value: "n1-standard-8"
-        }
-        """,
+    exec_properties = create_exec_properties_dict(
+        container_image = "docker://gcr.io/grpc-testing/rbe_windows_toolchain@sha256:75728e7d6d804090f71095e5fec627b18cfa1f47adc52096c209f2a687e06b2e",
+        gce_machine_type = "n1-highmem-2",
+        os_family = "Windows",
+    ),
 )

@@ -92,7 +92,7 @@ sudo pypy get-pip.py
 sudo pypy -m pip install tabulate
 sudo pypy -m pip install google-api-python-client oauth2client
 # TODO(jtattermusch): for some reason, we need psutil installed
-# in pypy for kokoro_log_reader.py (strange, because the comand is
+# in pypy for kokoro_log_reader.py (strange, because the command is
 # "python kokoro_log_reader.py" and pypy is not the system default)
 sudo pypy -m pip install psutil
 
@@ -133,6 +133,12 @@ sudo cp -r dotnet105_download/shared/Microsoft.NETCore.App/1.0.5/ /usr/share/dot
 wget -q http://security.ubuntu.com/ubuntu/pool/main/i/icu/libicu55_55.1-7ubuntu0.4_amd64.deb
 sudo dpkg -i libicu55_55.1-7ubuntu0.4_amd64.deb
 
+# Install .NET Core 1.1.10 runtime (required to run netcoreapp1.1)
+wget -q -O dotnet_old.tar.gz https://download.visualstudio.microsoft.com/download/pr/b25b5650-0cb8-4699-a347-48d73650da0b/920966211e9bb1907232bbda1faa895a/dotnet-ubuntu.18.04-x64.1.1.10.tar.gz
+mkdir -p dotnet_old
+tar zxf dotnet_old.tar.gz -C dotnet_old
+sudo cp -r dotnet_old/shared/Microsoft.NETCore.App/1.1.10/ /usr/share/dotnet/shared/Microsoft.NETCore.App/
+
 # Ruby dependencies
 gpg --keyserver hkp://keys.gnupg.net --recv-keys 409B6B1796C275462A1703113804BB82D39DC0E3
 curl -sSL https://get.rvm.io | bash -s stable --ruby
@@ -155,7 +161,10 @@ ruby -v
 gem install bundler
 
 # PHP dependencies
-sudo apt-get install -y php php-dev phpunit php-pear unzip zlib1g-dev
+sudo apt-get install -y php php-dev php-pear unzip zlib1g-dev
+sudo wget https://phar.phpunit.de/phpunit-5.7.27.phar && \
+    sudo mv phpunit-5.7.27.phar /usr/local/bin/phpunit && \
+    sudo chmod +x /usr/local/bin/phpunit
 curl -sS https://getcomposer.org/installer | php
 sudo mv composer.phar /usr/local/bin/composer
 
@@ -208,6 +217,13 @@ sudo tee --append ~kbuilder/.ssh/authorized_keys < kokoro_performance.pub
 sudo mkdir /tmpfs
 sudo chown kbuilder /tmpfs
 touch /tmpfs/READY
+
+# Disable automatic updates to prevent spurious apt-get install failures
+# See https://github.com/grpc/grpc/issues/17794
+sudo sed -i 's/APT::Periodic::Update-Package-Lists "1"/APT::Periodic::Update-Package-Lists "0"/' /etc/apt/apt.conf.d/10periodic
+sudo sed -i 's/APT::Periodic::AutocleanInterval "1"/APT::Periodic::AutocleanInterval "0"/' /etc/apt/apt.conf.d/10periodic
+sudo sed -i 's/APT::Periodic::Update-Package-Lists "1"/APT::Periodic::Update-Package-Lists "0"/' /etc/apt/apt.conf.d/20auto-upgrades
+sudo sed -i 's/APT::Periodic::Unattended-Upgrade "1"/APT::Periodic::Unattended-Upgrade "0"/' /etc/apt/apt.conf.d/20auto-upgrades
 
 # Restart for VM to pick up kernel update
 echo 'Successfully initialized the linux worker, going for reboot in 10 seconds'

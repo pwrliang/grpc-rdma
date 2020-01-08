@@ -52,7 +52,7 @@
 static void* tag(intptr_t t) { return (void*)t; }
 
 static void verifier(grpc_server* server, grpc_completion_queue* cq,
-                     void* registered_method) {
+                     void* /*registered_method*/) {
   grpc_call_error error;
   grpc_call* s;
   grpc_call_details call_details;
@@ -122,7 +122,7 @@ static void verifier(grpc_server* server, grpc_completion_queue* cq,
 }
 
 int main(int argc, char** argv) {
-  grpc_test_init(argc, argv);
+  grpc::testing::TestEnvironment env(argc, argv);
   grpc_init();
 
   /* Verify that sending multiple headers doesn't segfault */

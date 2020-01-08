@@ -29,13 +29,12 @@
 #include <grpcpp/server_context.h>
 
 #include <grpcpp/ext/channelz_service_plugin.h>
+#include "src/core/lib/gpr/env.h"
 #include "src/proto/grpc/channelz/channelz.grpc.pb.h"
 #include "src/proto/grpc/testing/echo.grpc.pb.h"
 #include "test/core/util/port.h"
 #include "test/core/util/test_config.h"
 #include "test/cpp/end2end/test_service_impl.h"
-
-#include <google/protobuf/text_format.h>
 
 #include <gtest/gtest.h>
 
@@ -106,7 +105,12 @@ class Proxy : public ::grpc::testing::EchoTestService::Service {
 class ChannelzServerTest : public ::testing::Test {
  public:
   ChannelzServerTest() {}
-
+  static void SetUpTestCase() {
+#if TARGET_OS_IPHONE
+    // Workaround Apple CFStream bug
+    gpr_setenv("grpc_cfstream", "0");
+#endif
+  }
   void SetUp() override {
     // ensure channel server is brought up on all severs we build.
     ::grpc::channelz::experimental::InitChannelzService();
@@ -147,7 +151,7 @@ class ChannelzServerTest : public ::testing::Test {
       ChannelArguments args;
       args.SetInt(GRPC_ARG_ENABLE_CHANNELZ, 1);
       args.SetInt(GRPC_ARG_MAX_CHANNEL_TRACE_EVENT_MEMORY_PER_NODE, 1024);
-      std::shared_ptr<Channel> channel_to_backend = CreateCustomChannel(
+      std::shared_ptr<Channel> channel_to_backend = ::grpc::CreateCustomChannel(
           backend_server_address, InsecureChannelCredentials(), args);
       proxy_service_.AddChannelToBackend(channel_to_backend);
     }
@@ -159,9 +163,21 @@ class ChannelzServerTest : public ::testing::Test {
     // disable channelz. We only want to focus on proxy to backend outbound.
     args.SetInt(GRPC_ARG_ENABLE_CHANNELZ, 0);
     std::shared_ptr<Channel> channel =
-        CreateCustomChannel(target, InsecureChannelCredentials(), args);
+        ::grpc::CreateCustomChannel(target, InsecureChannelCredentials(), args);
     channelz_stub_ = grpc::channelz::v1::Channelz::NewStub(channel);
     echo_stub_ = grpc::testing::EchoTestService::NewStub(channel);
+  }
+
+  std::unique_ptr<grpc::testing::EchoTestService::Stub> NewEchoStub() {
+    string target = "dns:localhost:" + to_string(proxy_port_);
+    ChannelArguments args;
+    // disable channelz. We only want to focus on proxy to backend outbound.
+    args.SetInt(GRPC_ARG_ENABLE_CHANNELZ, 0);
+    // This ensures that gRPC will not do connection sharing.
+    args.SetInt(GRPC_ARG_USE_LOCAL_SUBCHANNEL_POOL, true);
+    std::shared_ptr<Channel> channel =
+        ::grpc::CreateCustomChannel(target, InsecureChannelCredentials(), args);
+    return grpc::testing::EchoTestService::NewStub(channel);
   }
 
   void SendSuccessfulEcho(int channel_idx) {
@@ -561,6 +577,8 @@ TEST_F(ChannelzServerTest, ManySubchannelsAndSockets) {
         get_subchannel_resp.subchannel().socket_ref(0).socket_id());
     s = channelz_stub_->GetSocket(&get_socket_ctx, get_socket_req,
                                   &get_socket_resp);
+    EXPECT_TRUE(
+        get_subchannel_resp.subchannel().socket_ref(0).name().find("http"));
     EXPECT_TRUE(s.ok()) << s.error_message();
     // calls started == streams started AND stream succeeded. Since none of
     // these RPCs were canceled, all of the streams will succeeded even though
@@ -616,6 +634,8 @@ TEST_F(ChannelzServerTest, StreamingRPC) {
   ClientContext get_socket_context;
   get_socket_request.set_socket_id(
       get_subchannel_response.subchannel().socket_ref(0).socket_id());
+  EXPECT_TRUE(
+      get_subchannel_response.subchannel().socket_ref(0).name().find("http"));
   s = channelz_stub_->GetSocket(&get_socket_context, get_socket_request,
                                 &get_socket_response);
   EXPECT_TRUE(s.ok()) << "s.error_message() = " << s.error_message();
@@ -649,6 +669,68 @@ TEST_F(ChannelzServerTest, GetServerSocketsTest) {
                                        &get_server_sockets_response);
   EXPECT_TRUE(s.ok()) << "s.error_message() = " << s.error_message();
   EXPECT_EQ(get_server_sockets_response.socket_ref_size(), 1);
+  EXPECT_TRUE(get_server_sockets_response.socket_ref(0).name().find("http"));
+}
+
+TEST_F(ChannelzServerTest, GetServerSocketsPaginationTest) {
+  ResetStubs();
+  ConfigureProxy(1);
+  std::vector<std::unique_ptr<grpc::testing::EchoTestService::Stub>> stubs;
+  const int kNumServerSocketsCreated = 20;
+  for (int i = 0; i < kNumServerSocketsCreated; ++i) {
+    stubs.push_back(NewEchoStub());
+    EchoRequest request;
+    EchoResponse response;
+    request.set_message("Hello channelz");
+    request.mutable_param()->set_backend_channel_idx(0);
+    ClientContext context;
+    Status s = stubs.back()->Echo(&context, request, &response);
+    EXPECT_EQ(response.message(), request.message());
+    EXPECT_TRUE(s.ok()) << "s.error_message() = " << s.error_message();
+  }
+  GetServersRequest get_server_request;
+  GetServersResponse get_server_response;
+  get_server_request.set_start_server_id(0);
+  ClientContext get_server_context;
+  Status s = channelz_stub_->GetServers(&get_server_context, get_server_request,
+                                        &get_server_response);
+  EXPECT_TRUE(s.ok()) << "s.error_message() = " << s.error_message();
+  EXPECT_EQ(get_server_response.server_size(), 1);
+  // Make a request that gets all of the serversockets
+  {
+    GetServerSocketsRequest get_server_sockets_request;
+    GetServerSocketsResponse get_server_sockets_response;
+    get_server_sockets_request.set_server_id(
+        get_server_response.server(0).ref().server_id());
+    get_server_sockets_request.set_start_socket_id(0);
+    ClientContext get_server_sockets_context;
+    s = channelz_stub_->GetServerSockets(&get_server_sockets_context,
+                                         get_server_sockets_request,
+                                         &get_server_sockets_response);
+    EXPECT_TRUE(s.ok()) << "s.error_message() = " << s.error_message();
+    // We add one to account the channelz stub that will end up creating
+    // a serversocket.
+    EXPECT_EQ(get_server_sockets_response.socket_ref_size(),
+              kNumServerSocketsCreated + 1);
+    EXPECT_TRUE(get_server_sockets_response.end());
+  }
+  // Now we make a request that exercises pagination.
+  {
+    GetServerSocketsRequest get_server_sockets_request;
+    GetServerSocketsResponse get_server_sockets_response;
+    get_server_sockets_request.set_server_id(
+        get_server_response.server(0).ref().server_id());
+    get_server_sockets_request.set_start_socket_id(0);
+    const int kMaxResults = 10;
+    get_server_sockets_request.set_max_results(kMaxResults);
+    ClientContext get_server_sockets_context;
+    s = channelz_stub_->GetServerSockets(&get_server_sockets_context,
+                                         get_server_sockets_request,
+                                         &get_server_sockets_response);
+    EXPECT_TRUE(s.ok()) << "s.error_message() = " << s.error_message();
+    EXPECT_EQ(get_server_sockets_response.socket_ref_size(), kMaxResults);
+    EXPECT_FALSE(get_server_sockets_response.end());
+  }
 }
 
 TEST_F(ChannelzServerTest, GetServerListenSocketsTest) {
@@ -667,6 +749,8 @@ TEST_F(ChannelzServerTest, GetServerListenSocketsTest) {
   GetSocketResponse get_socket_response;
   get_socket_request.set_socket_id(
       get_server_response.server(0).listen_socket(0).socket_id());
+  EXPECT_TRUE(
+      get_server_response.server(0).listen_socket(0).name().find("http"));
   ClientContext get_socket_context;
   s = channelz_stub_->GetSocket(&get_socket_context, get_socket_request,
                                 &get_socket_response);
@@ -677,7 +761,7 @@ TEST_F(ChannelzServerTest, GetServerListenSocketsTest) {
 }  // namespace grpc
 
 int main(int argc, char** argv) {
-  grpc_test_init(argc, argv);
+  grpc::testing::TestEnvironment env(argc, argv);
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

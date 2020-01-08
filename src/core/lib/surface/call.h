@@ -23,6 +23,7 @@
 
 #include "src/core/lib/channel/channel_stack.h"
 #include "src/core/lib/channel/context.h"
+#include "src/core/lib/gprpp/arena.h"
 #include "src/core/lib/surface/api_trace.h"
 
 #include <grpc/grpc.h>
@@ -72,7 +73,7 @@ void grpc_call_internal_unref(grpc_call* call);
 #define GRPC_CALL_INTERNAL_UNREF(call, reason) grpc_call_internal_unref(call)
 #endif
 
-gpr_arena* grpc_call_get_arena(grpc_call* call);
+grpc_core::Arena* grpc_call_get_arena(grpc_call* call);
 
 grpc_call_stack* grpc_call_get_call_stack(grpc_call* call);
 
@@ -89,8 +90,7 @@ void grpc_call_cancel_internal(grpc_call* call);
 grpc_call* grpc_call_from_top_element(grpc_call_element* surface_element);
 
 void grpc_call_log_batch(const char* file, int line, gpr_log_severity severity,
-                         grpc_call* call, const grpc_op* ops, size_t nops,
-                         void* tag);
+                         const grpc_op* ops, size_t nops);
 
 /* Set a context pointer.
    No thread safety guarantees are made wrt this value. */
@@ -100,8 +100,12 @@ void grpc_call_context_set(grpc_call* call, grpc_context_index elem,
 /* Get a context pointer. */
 void* grpc_call_context_get(grpc_call* call, grpc_context_index elem);
 
-#define GRPC_CALL_LOG_BATCH(sev, call, ops, nops, tag) \
-  if (grpc_api_trace.enabled()) grpc_call_log_batch(sev, call, ops, nops, tag)
+#define GRPC_CALL_LOG_BATCH(sev, ops, nops)        \
+  do {                                             \
+    if (GRPC_TRACE_FLAG_ENABLED(grpc_api_trace)) { \
+      grpc_call_log_batch(sev, ops, nops);         \
+    }                                              \
+  } while (0)
 
 uint8_t grpc_call_is_client(grpc_call* call);
 

@@ -36,7 +36,7 @@ class TestSocketMutator : public grpc_socket_mutator {
  public:
   TestSocketMutator();
 
-  bool MutateFd(int fd) {
+  bool MutateFd(int /*fd*/) {
     // Do nothing on the fd
     return true;
   }
@@ -83,6 +83,10 @@ class ChannelArgumentsTest : public ::testing::Test {
                       grpc_channel_args* args) {
     channel_args.SetChannelArgs(args);
   }
+
+  static void SetUpTestCase() { grpc_init(); }
+
+  static void TearDownTestCase() { grpc_shutdown(); }
 
   grpc::string GetDefaultUserAgentPrefix() {
     std::ostringstream user_agent_prefix;
@@ -209,6 +213,9 @@ TEST_F(ChannelArgumentsTest, SetSocketMutator) {
   channel_args_.SetSocketMutator(mutator0);
   EXPECT_TRUE(HasArg(arg0));
 
+  // Exercise the copy constructor because we ran some sanity checks in it.
+  grpc::ChannelArguments new_args{channel_args_};
+
   channel_args_.SetSocketMutator(mutator1);
   EXPECT_TRUE(HasArg(arg1));
   // arg0 is replaced by arg1
@@ -249,8 +256,6 @@ TEST_F(ChannelArgumentsTest, SetUserAgentPrefix) {
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
-  grpc_init();
   int ret = RUN_ALL_TESTS();
-  grpc_shutdown();
   return ret;
 }

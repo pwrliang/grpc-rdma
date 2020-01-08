@@ -20,7 +20,6 @@
 #define GRPC_INTERNAL_CPP_SERVER_DEFAULT_HEALTH_CHECK_SERVICE_H
 
 #include <atomic>
-#include <mutex>
 #include <set>
 
 #include <grpc/support/log.h>
@@ -28,9 +27,11 @@
 #include <grpcpp/health_check_service_interface.h>
 #include <grpcpp/impl/codegen/async_generic_service.h>
 #include <grpcpp/impl/codegen/async_unary_call.h>
+#include <grpcpp/impl/codegen/completion_queue.h>
 #include <grpcpp/impl/codegen/service_type.h>
 #include <grpcpp/support/byte_buffer.h>
 
+#include "src/core/lib/gprpp/sync.h"
 #include "src/core/lib/gprpp/thd.h"
 
 namespace grpc {
@@ -118,8 +119,8 @@ class DefaultHealthCheckService final : public HealthCheckServiceInterface {
                        HealthCheckServiceImpl* service);
 
       // Not used for Check.
-      void SendHealth(std::shared_ptr<CallHandler> self,
-                      ServingStatus status) override {}
+      void SendHealth(std::shared_ptr<CallHandler> /*self*/,
+                      ServingStatus /*status*/) override {}
 
      private:
       // Called when we receive a call.
@@ -197,7 +198,7 @@ class DefaultHealthCheckService final : public HealthCheckServiceInterface {
       GenericServerAsyncWriter stream_;
       ServerContext ctx_;
 
-      std::mutex send_mu_;
+      grpc_core::Mutex send_mu_;
       bool send_in_flight_ = false;               // Guarded by mu_.
       ServingStatus pending_status_ = NOT_FOUND;  // Guarded by mu_.
 
@@ -226,7 +227,7 @@ class DefaultHealthCheckService final : public HealthCheckServiceInterface {
 
     // To synchronize the operations related to shutdown state of cq_, so that
     // we don't enqueue new tags into cq_ after it is already shut down.
-    std::mutex cq_shutdown_mu_;
+    grpc_core::Mutex cq_shutdown_mu_;
     std::atomic_bool shutdown_{false};
     std::unique_ptr<::grpc_core::Thread> thread_;
   };
@@ -236,6 +237,8 @@ class DefaultHealthCheckService final : public HealthCheckServiceInterface {
   void SetServingStatus(const grpc::string& service_name,
                         bool serving) override;
   void SetServingStatus(bool serving) override;
+
+  void Shutdown() override;
 
   ServingStatus GetServingStatus(const grpc::string& service_name) const;
 
@@ -271,7 +274,8 @@ class DefaultHealthCheckService final : public HealthCheckServiceInterface {
       const grpc::string& service_name,
       const std::shared_ptr<HealthCheckServiceImpl::CallHandler>& handler);
 
-  mutable std::mutex mu_;
+  mutable grpc_core::Mutex mu_;
+  bool shutdown_ = false;                             // Guarded by mu_.
   std::map<grpc::string, ServiceData> services_map_;  // Guarded by mu_.
   std::unique_ptr<HealthCheckServiceImpl> impl_;
 };

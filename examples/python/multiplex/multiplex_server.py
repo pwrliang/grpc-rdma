@@ -16,6 +16,7 @@
 from concurrent import futures
 import time
 import math
+import logging
 
 import grpc
 
@@ -24,8 +25,6 @@ import helloworld_pb2_grpc
 import route_guide_pb2
 import route_guide_pb2_grpc
 import route_guide_resources
-
-_ONE_DAY_IN_SECONDS = 60 * 60 * 24
 
 
 def _get_feature(feature_db, point):
@@ -128,12 +127,9 @@ def serve():
         _RouteGuideServicer(), server)
     server.add_insecure_port('[::]:50051')
     server.start()
-    try:
-        while True:
-            time.sleep(_ONE_DAY_IN_SECONDS)
-    except KeyboardInterrupt:
-        server.stop(0)
+    server.wait_for_termination()
 
 
 if __name__ == '__main__':
+    logging.basicConfig()
     serve()

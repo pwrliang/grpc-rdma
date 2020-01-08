@@ -29,6 +29,10 @@
 #include <thread>
 #include <vector>
 
+#ifdef __FreeBSD__
+#include <sys/wait.h>
+#endif
+
 #include "test/cpp/util/subprocess.h"
 #include "test/cpp/util/test_config.h"
 
@@ -55,7 +59,7 @@ using grpc::SubProcess;
 
 static volatile sig_atomic_t abort_wait_for_child = 0;
 
-static void sighandler(int sig) { abort_wait_for_child = 1; }
+static void sighandler(int /*sig*/) { abort_wait_for_child = 1; }
 
 static void register_sighandler() {
   struct sigaction act;

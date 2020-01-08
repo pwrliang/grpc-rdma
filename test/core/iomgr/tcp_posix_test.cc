@@ -19,7 +19,7 @@
 #include "src/core/lib/iomgr/port.h"
 
 // This test won't work except with posix sockets enabled
-#ifdef GRPC_POSIX_SOCKET
+#ifdef GRPC_POSIX_SOCKET_TCP
 
 #include "src/core/lib/iomgr/tcp_posix.h"
 
@@ -191,8 +191,9 @@ static void read_cb(void* user_data, grpc_error* error) {
         GRPC_LOG_IF_ERROR("kick", grpc_pollset_kick(g_pollset, nullptr)));
     gpr_mu_unlock(g_mu);
   } else {
-    grpc_endpoint_read(state->ep, &state->incoming, &state->read_cb);
     gpr_mu_unlock(g_mu);
+    grpc_endpoint_read(state->ep, &state->incoming, &state->read_cb,
+                       /*urgent=*/false);
   }
 }
 
@@ -229,7 +230,7 @@ static void read_test(size_t num_bytes, size_t slice_size) {
   grpc_slice_buffer_init(&state.incoming);
   GRPC_CLOSURE_INIT(&state.read_cb, read_cb, &state, grpc_schedule_on_exec_ctx);
 
-  grpc_endpoint_read(ep, &state.incoming, &state.read_cb);
+  grpc_endpoint_read(ep, &state.incoming, &state.read_cb, /*urgent=*/false);
 
   gpr_mu_lock(g_mu);
   while (state.read_bytes < state.target_read_bytes) {
@@ -280,7 +281,7 @@ static void large_read_test(size_t slice_size) {
   grpc_slice_buffer_init(&state.incoming);
   GRPC_CLOSURE_INIT(&state.read_cb, read_cb, &state, grpc_schedule_on_exec_ctx);
 
-  grpc_endpoint_read(ep, &state.incoming, &state.read_cb);
+  grpc_endpoint_read(ep, &state.incoming, &state.read_cb, /*urgent=*/false);
 
   gpr_mu_lock(g_mu);
   while (state.read_bytes < state.target_read_bytes) {
@@ -384,9 +385,9 @@ void timestamps_verifier(void* arg, grpc_core::Timestamps* ts,
                          grpc_error* error) {
   GPR_ASSERT(error == GRPC_ERROR_NONE);
   GPR_ASSERT(arg != nullptr);
-  GPR_ASSERT(ts->sendmsg_time.clock_type == GPR_CLOCK_REALTIME);
-  GPR_ASSERT(ts->scheduled_time.clock_type == GPR_CLOCK_REALTIME);
-  GPR_ASSERT(ts->acked_time.clock_type == GPR_CLOCK_REALTIME);
+  GPR_ASSERT(ts->sendmsg_time.time.clock_type == GPR_CLOCK_REALTIME);
+  GPR_ASSERT(ts->scheduled_time.time.clock_type == GPR_CLOCK_REALTIME);
+  GPR_ASSERT(ts->acked_time.time.clock_type == GPR_CLOCK_REALTIME);
   gpr_atm* done_timestamps = (gpr_atm*)arg;
   gpr_atm_rel_store(done_timestamps, static_cast<gpr_atm>(1));
 }
@@ -471,7 +472,7 @@ static void write_test(size_t num_bytes, size_t slice_size,
   gpr_free(slices);
 }
 
-void on_fd_released(void* arg, grpc_error* errors) {
+void on_fd_released(void* arg, grpc_error* /*errors*/) {
   int* done = static_cast<int*>(arg);
   *done = 1;
   GPR_ASSERT(
@@ -519,7 +520,7 @@ static void release_fd_test(size_t num_bytes, size_t slice_size) {
   grpc_slice_buffer_init(&state.incoming);
   GRPC_CLOSURE_INIT(&state.read_cb, read_cb, &state, grpc_schedule_on_exec_ctx);
 
-  grpc_endpoint_read(ep, &state.incoming, &state.read_cb);
+  grpc_endpoint_read(ep, &state.incoming, &state.read_cb, /*urgent=*/false);
 
   gpr_mu_lock(g_mu);
   while (state.read_bytes < state.target_read_bytes) {
@@ -617,13 +618,13 @@ static grpc_endpoint_test_config configs[] = {
     {"tcp/tcp_socketpair", create_fixture_tcp_socketpair, clean_up},
 };
 
-static void destroy_pollset(void* p, grpc_error* error) {
+static void destroy_pollset(void* p, grpc_error* /*error*/) {
   grpc_pollset_destroy(static_cast<grpc_pollset*>(p));
 }
 
 int main(int argc, char** argv) {
   grpc_closure destroyed;
-  grpc_test_init(argc, argv);
+  grpc::testing::TestEnvironment env(argc, argv);
   grpc_init();
   grpc_core::grpc_tcp_set_write_timestamps_callback(timestamps_verifier);
   {
@@ -644,8 +645,8 @@ int main(int argc, char** argv) {
   return 0;
 }
 
-#else /* GRPC_POSIX_SOCKET */
+#else /* GRPC_POSIX_SOCKET_TCP */
 
 int main(int argc, char** argv) { return 1; }
 
-#endif /* GRPC_POSIX_SOCKET */
+#endif /* GRPC_POSIX_SOCKET_TCP */

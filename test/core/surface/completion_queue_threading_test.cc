@@ -60,7 +60,8 @@ static void shutdown_and_destroy(grpc_completion_queue* cc) {
   grpc_completion_queue_destroy(cc);
 }
 
-static void do_nothing_end_completion(void* arg, grpc_cq_completion* c) {}
+static void do_nothing_end_completion(void* /*arg*/,
+                                      grpc_cq_completion* /*c*/) {}
 
 struct thread_state {
   grpc_completion_queue* cc;
@@ -136,7 +137,7 @@ gpr_timespec ten_seconds_time(void) {
   return grpc_timeout_seconds_to_deadline(10);
 }
 
-static void free_completion(void* arg, grpc_cq_completion* completion) {
+static void free_completion(void* /*arg*/, grpc_cq_completion* completion) {
   gpr_free(completion);
 }
 
@@ -288,7 +289,7 @@ static void test_threading(size_t producers, size_t consumers) {
 }
 
 int main(int argc, char** argv) {
-  grpc_test_init(argc, argv);
+  grpc::testing::TestEnvironment env(argc, argv);
   grpc_init();
   test_too_many_plucks();
   test_threading(1, 1);

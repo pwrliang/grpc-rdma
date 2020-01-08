@@ -62,6 +62,9 @@ void test_encoding(void) {
   assert_encodes_as(20 * 60 * GPR_MS_PER_SEC, "20M");
   assert_encodes_as(60 * 60 * GPR_MS_PER_SEC, "1H");
   assert_encodes_as(10 * 60 * 60 * GPR_MS_PER_SEC, "10H");
+  assert_encodes_as(60 * 60 * GPR_MS_PER_SEC - 100, "1H");
+  assert_encodes_as(100 * 60 * 60 * GPR_MS_PER_SEC, "100H");
+  assert_encodes_as(100000000000, "99999999S");
 }
 
 static void assert_decodes_as(const char* buffer, grpc_millis expected) {
@@ -156,7 +159,7 @@ void test_decoding_fails(void) {
 }
 
 int main(int argc, char** argv) {
-  grpc_test_init(argc, argv);
+  grpc::testing::TestEnvironment env(argc, argv);
   test_encoding();
   test_decoding();
   test_decoding_fails();

@@ -131,15 +131,15 @@ TEST_P(BdpEstimatorRandomTest, GetEstimateRandomValues) {
   }
 }
 
-INSTANTIATE_TEST_CASE_P(TooManyNames, BdpEstimatorRandomTest,
-                        ::testing::Values(3, 4, 6, 9, 13, 19, 28, 42, 63, 94,
-                                          141, 211, 316, 474, 711));
+INSTANTIATE_TEST_SUITE_P(TooManyNames, BdpEstimatorRandomTest,
+                         ::testing::Values(3, 4, 6, 9, 13, 19, 28, 42, 63, 94,
+                                           141, 211, 316, 474, 711));
 
 }  // namespace testing
 }  // namespace grpc_core
 
 int main(int argc, char** argv) {
-  grpc_test_init(argc, argv);
+  grpc::testing::TestEnvironment env(argc, argv);
   gpr_now_impl = grpc_core::testing::fake_gpr_now;
   grpc_init();
   grpc_timer_manager_set_threading(false);

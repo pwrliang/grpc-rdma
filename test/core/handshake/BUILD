@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-load("//bazel:grpc_build_system.bzl", "grpc_cc_library", "grpc_cc_test", "grpc_cc_binary", "grpc_package")
+load("//bazel:grpc_build_system.bzl", "grpc_cc_binary", "grpc_cc_library", "grpc_cc_test", "grpc_package")
 
 grpc_package(name = "test/core/handshake")
 
@@ -21,28 +21,28 @@ licenses(["notice"])  # Apache v2
 grpc_cc_test(
     name = "client_ssl",
     srcs = ["client_ssl.cc"],
-    language = "C++",
     data = [
         "//src/core/tsi/test_creds:ca.pem",
         "//src/core/tsi/test_creds:server1.key",
         "//src/core/tsi/test_creds:server1.pem",
     ],
+    language = "C++",
+    tags = ["no_windows"],
     deps = [
         "//:gpr",
         "//:grpc",
-        "//test/core/util:gpr_test_util",
         "//test/core/util:grpc_test_util",
     ],
 )
 
 grpc_cc_library(
     name = "server_ssl_common",
-    hdrs = ["server_ssl_common.h"],
     srcs = ["server_ssl_common.cc"],
+    hdrs = ["server_ssl_common.h"],
+    tags = ["no_windows"],
     deps = [
         "//:gpr",
         "//:grpc",
-        "//test/core/util:gpr_test_util",
         "//test/core/util:grpc_test_util",
     ],
 )
@@ -50,17 +50,17 @@ grpc_cc_library(
 grpc_cc_test(
     name = "server_ssl",
     srcs = ["server_ssl.cc"],
-    language = "C++",
     data = [
         "//src/core/tsi/test_creds:ca.pem",
         "//src/core/tsi/test_creds:server1.key",
         "//src/core/tsi/test_creds:server1.pem",
     ],
+    language = "C++",
+    tags = ["no_windows"],
     deps = [
         ":server_ssl_common",
         "//:gpr",
         "//:grpc",
-        "//test/core/util:gpr_test_util",
         "//test/core/util:grpc_test_util",
     ],
 )
@@ -68,17 +68,17 @@ grpc_cc_test(
 grpc_cc_test(
     name = "handshake_server_with_readahead_handshaker",
     srcs = ["readahead_handshaker_server_ssl.cc"],
-    language = "C++",
     data = [
         "//src/core/tsi/test_creds:ca.pem",
         "//src/core/tsi/test_creds:server1.key",
         "//src/core/tsi/test_creds:server1.pem",
     ],
+    language = "C++",
+    tags = ["no_windows"],
     deps = [
         ":server_ssl_common",
         "//:gpr",
         "//:grpc",
-        "//test/core/util:gpr_test_util",
         "//test/core/util:grpc_test_util",
     ],
 )
@@ -86,17 +86,16 @@ grpc_cc_test(
 grpc_cc_test(
     name = "handshake_verify_peer_options",
     srcs = ["verify_peer_options.cc"],
-    language = "C++",
     data = [
         "//src/core/tsi/test_creds:ca.pem",
         "//src/core/tsi/test_creds:server1.key",
         "//src/core/tsi/test_creds:server1.pem",
     ],
+    language = "C++",
+    tags = ["no_windows"],
     deps = [
         "//:gpr",
         "//:grpc",
-        "//test/core/util:gpr_test_util",
         "//test/core/util:grpc_test_util",
     ],
 )
-

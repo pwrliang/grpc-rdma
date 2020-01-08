@@ -1,6 +1,8 @@
 # How to contribute
 
-We definitely welcome your patches and contributions to gRPC!
+We definitely welcome your patches and contributions to gRPC! Please read the gRPC
+organization's [governance rules](https://github.com/grpc/grpc-community/blob/master/governance.md)
+and [contribution guidelines](https://github.com/grpc/grpc-community/blob/master/CONTRIBUTING.md) before proceeding.
 
 If you are new to github, please start by reading [Pull Request
 howto](https://help.github.com/articles/about-pull-requests/)
@@ -70,6 +72,10 @@ How to get your contributions merged smoothly and quickly.
 - Don't fix code style and formatting unless you are already changing that line
   to address an issue.  PRs with irrelevant changes won't be merged.  If you do
   want to fix formatting or style, do that in a separate PR.
+
+- If you are adding a new file, make sure it has the copyright message template
+  at the top as a comment. You can copy over the message from an existing file
+  and update the year.
  
 - Unless your PR is trivial, you should expect there will be reviewer comments
   that you'll need to address before merging.  We expect you to be reasonably
@@ -81,7 +87,7 @@ How to get your contributions merged smoothly and quickly.
   copyright holder for the contribution (yourself, if you are signing the
   individual CLA, or your company, for corporate CLAs) in the same PR as your
   contribution.  This needs to be done only once, for each company, or
-  individual.
+  individual. Please keep this file in alphabetical order.
  
 - Maintain **clean commit history** and use **meaningful commit messages**.
   PRs with messy commit history are difficult to review and won't be merged.
@@ -110,5 +116,16 @@ How to get your contributions merged smoothly and quickly.
 - Exceptions to the rules can be made if there's a compelling reason for doing
   so.
 
+## Obtaining Commit Access
+We grant Commit Access to contributors based on the following criteria:
+* Sustained contribution to the gRPC project.
+* Deep understanding of the areas contributed to, and good consideration of various reliability, usability and performance tradeoffs. 
+* Contributions demonstrate that obtaining Commit Access will significantly reduce friction for the contributors or others. 
 
+In addition to submitting PRs, a Contributor with Commit Access can:
+* Review PRs and merge once other checks and criteria pass.
+* Triage bugs and PRs and assign appropriate labels and reviewers. 
+
+### Obtaining Commit Access without Code Contributions 
+The [gRPC organization](https://github.com/grpc) is comprised of multiple repositories and commit access is usually restricted to one or more of these repositories. Some repositories such as the [grpc.github.io](https://github.com/grpc/grpc.github.io/) do not have code, but the same principle of sustained, high quality contributions, with a good understanding of the fundamentals, apply. 
 

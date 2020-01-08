@@ -28,9 +28,9 @@
 #include <grpc/support/alloc.h>
 #include <grpc/support/log.h>
 
-#include "src/core/lib/gpr/env.h"
 #include "src/core/lib/gpr/string.h"
 #include "src/core/lib/gpr/useful.h"
+#include "src/core/lib/surface/init.h"
 
 int64_t g_fixture_slowdown_factor = 1;
 int64_t g_poller_slowdown_factor = 1;
@@ -114,7 +114,7 @@ static void print_stack_from_context(CONTEXT c) {
   imageType = IMAGE_FILE_MACHINE_AMD64;
   s.AddrPC.Offset = c.Rip;
   s.AddrPC.Mode = AddrModeFlat;
-  s.AddrFrame.Offset = c.Rsp;
+  s.AddrFrame.Offset = c.Rbp;
   s.AddrFrame.Mode = AddrModeFlat;
   s.AddrStack.Offset = c.Rsp;
   s.AddrStack.Mode = AddrModeFlat;
@@ -231,7 +231,7 @@ static void output_num(long num) {
   output_string(buf);
 }
 
-static void crash_handler(int signum, siginfo_t* info, void* data) {
+static void crash_handler(int signum, siginfo_t* /*info*/, void* /*data*/) {
   void* addrlist[MAX_FRAMES + 1];
   int addrlen;
 
@@ -379,15 +379,8 @@ gpr_timespec grpc_timeout_milliseconds_to_deadline(int64_t time_ms) {
           GPR_TIMESPAN));
 }
 
-void grpc_test_init(int argc, char** argv) {
+void grpc_test_init(int /*argc*/, char** /*argv*/) {
   install_crash_handler();
-  { /* poll-cv poll strategy runs much more slowly than anything else */
-    char* s = gpr_getenv("GRPC_POLL_STRATEGY");
-    if (s != nullptr && 0 == strcmp(s, "poll-cv")) {
-      g_poller_slowdown_factor = 5;
-    }
-    gpr_free(s);
-  }
   gpr_log(GPR_DEBUG,
           "test slowdown factor: sanitizer=%" PRId64 ", fixture=%" PRId64
           ", poller=%" PRId64 ", total=%" PRId64,
@@ -397,3 +390,15 @@ void grpc_test_init(int argc, char** argv) {
      concurrently running test binary */
   srand(seed());
 }
+
+namespace grpc {
+namespace testing {
+
+TestEnvironment::TestEnvironment(int argc, char** argv) {
+  grpc_test_init(argc, argv);
+}
+
+TestEnvironment::~TestEnvironment() { grpc_maybe_wait_for_async_shutdown(); }
+
+}  // namespace testing
+}  // namespace grpc

@@ -122,7 +122,8 @@ export LANG=en_US.UTF-8
 
 # Allow build_ext to build C/C++ files in parallel
 # by enabling a monkeypatch. It speeds up the build a lot.
-export GRPC_PYTHON_BUILD_EXT_COMPILER_JOBS=4
+DEFAULT_PARALLEL_JOBS=$(nproc) || DEFAULT_PARALLEL_JOBS=4
+export GRPC_PYTHON_BUILD_EXT_COMPILER_JOBS=${GRPC_PYTHON_BUILD_EXT_COMPILER_JOBS:-$DEFAULT_PARALLEL_JOBS}
 
 # If ccache is available on Linux, use it.
 if [ "$(is_linux)" ]; then
@@ -165,7 +166,7 @@ pip_install_dir() {
 }
 
 case "$VENV" in
-  *py35_gevent*)
+  *py36_gevent*)
   # TODO(https://github.com/grpc/grpc/issues/15411) unpin this
   $VENV_PYTHON -m pip install gevent==1.3.b1
   ;;
@@ -189,6 +190,11 @@ pip_install_dir "$ROOT"
 $VENV_PYTHON "$ROOT/tools/distrib/python/make_grpcio_tools.py"
 pip_install_dir "$ROOT/tools/distrib/python/grpcio_tools"
 
+# Build/install Channelz
+$VENV_PYTHON "$ROOT/src/python/grpcio_channelz/setup.py" preprocess
+$VENV_PYTHON "$ROOT/src/python/grpcio_channelz/setup.py" build_package_protos
+pip_install_dir "$ROOT/src/python/grpcio_channelz"
+
 # Build/install health checking
 $VENV_PYTHON "$ROOT/src/python/grpcio_health_checking/setup.py" preprocess
 $VENV_PYTHON "$ROOT/src/python/grpcio_health_checking/setup.py" build_package_protos
@@ -199,12 +205,18 @@ $VENV_PYTHON "$ROOT/src/python/grpcio_reflection/setup.py" preprocess
 $VENV_PYTHON "$ROOT/src/python/grpcio_reflection/setup.py" build_package_protos
 pip_install_dir "$ROOT/src/python/grpcio_reflection"
 
+# Build/install status proto mapping
+$VENV_PYTHON "$ROOT/src/python/grpcio_status/setup.py" preprocess
+$VENV_PYTHON "$ROOT/src/python/grpcio_status/setup.py" build_package_protos
+pip_install_dir "$ROOT/src/python/grpcio_status"
+
 # Install testing
 pip_install_dir "$ROOT/src/python/grpcio_testing"
 
 # Build/install tests
 $VENV_PYTHON -m pip install coverage==4.4 oauth2client==4.1.0 \
-                            google-auth==1.0.0 requests==2.14.2
+                            google-auth==1.0.0 requests==2.14.2 \
+                            googleapis-common-protos==1.5.5
 $VENV_PYTHON "$ROOT/src/python/grpcio_tests/setup.py" preprocess
 $VENV_PYTHON "$ROOT/src/python/grpcio_tests/setup.py" build_package_protos
 pip_install_dir "$ROOT/src/python/grpcio_tests"

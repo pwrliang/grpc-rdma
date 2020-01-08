@@ -89,7 +89,7 @@ static void end_test(grpc_end2end_test_fixture* f) {
   grpc_completion_queue_destroy(f->shutdown_cq);
 }
 
-static void run_one_request(grpc_end2end_test_config config,
+static void run_one_request(grpc_end2end_test_config /*config*/,
                             grpc_end2end_test_fixture f,
                             bool request_is_success) {
   grpc_call* c;
@@ -259,8 +259,8 @@ static void test_channelz(grpc_end2end_test_config config) {
   GPR_ASSERT(nullptr == strstr(json, "\"severity\":\"CT_INFO\""));
   gpr_free(json);
 
-  json = channelz_server->RenderServerSockets(0);
-  GPR_ASSERT(nullptr != strstr(json, "\"socketRef\":"));
+  json = channelz_server->RenderServerSockets(0, 100);
+  GPR_ASSERT(nullptr != strstr(json, "\"end\":true"));
   gpr_free(json);
 
   end_test(&f);

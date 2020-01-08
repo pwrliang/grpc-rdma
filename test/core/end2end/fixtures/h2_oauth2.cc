@@ -25,7 +25,7 @@
 #include <grpc/support/log.h>
 
 #include "src/core/lib/channel/channel_args.h"
-#include "src/core/lib/gpr/host_port.h"
+#include "src/core/lib/gprpp/host_port.h"
 #include "src/core/lib/iomgr/iomgr.h"
 #include "src/core/lib/security/credentials/credentials.h"
 #include "test/core/end2end/data/ssl_test_data.h"
@@ -36,9 +36,9 @@ static const char oauth2_md[] = "Bearer aaslkfjs424535asdf";
 static const char* client_identity_property_name = "smurf_name";
 static const char* client_identity = "Brainy Smurf";
 
-typedef struct fullstack_secure_fixture_data {
-  char* localaddr;
-} fullstack_secure_fixture_data;
+struct fullstack_secure_fixture_data {
+  grpc_core::UniquePtr<char> localaddr;
+};
 
 static const grpc_metadata* find_metadata(const grpc_metadata* md,
                                           size_t md_count, const char* key,
@@ -76,7 +76,7 @@ static void process_oauth2_success(void* state, grpc_auth_context* ctx,
   cb(user_data, oauth2, 1, nullptr, 0, GRPC_STATUS_OK, nullptr);
 }
 
-static void process_oauth2_failure(void* state, grpc_auth_context* ctx,
+static void process_oauth2_failure(void* state, grpc_auth_context* /*ctx*/,
                                    const grpc_metadata* md, size_t md_count,
                                    grpc_process_auth_metadata_done_cb cb,
                                    void* user_data) {
@@ -91,20 +91,15 @@ static void process_oauth2_failure(void* state, grpc_auth_context* ctx,
 }
 
 static grpc_end2end_test_fixture chttp2_create_fixture_secure_fullstack(
-    grpc_channel_args* client_args, grpc_channel_args* server_args) {
+    grpc_channel_args* /*client_args*/, grpc_channel_args* /*server_args*/) {
   grpc_end2end_test_fixture f;
   int port = grpc_pick_unused_port_or_die();
-  fullstack_secure_fixture_data* ffd =
-      static_cast<fullstack_secure_fixture_data*>(
-          gpr_malloc(sizeof(fullstack_secure_fixture_data)));
+  fullstack_secure_fixture_data* ffd = new fullstack_secure_fixture_data();
   memset(&f, 0, sizeof(f));
-
-  gpr_join_host_port(&ffd->localaddr, "localhost", port);
-
+  grpc_core::JoinHostPort(&ffd->localaddr, "localhost", port);
   f.fixture_data = ffd;
   f.cq = grpc_completion_queue_create_for_next(nullptr);
   f.shutdown_cq = grpc_completion_queue_create_for_pluck(nullptr);
-
   return f;
 }
 
@@ -113,8 +108,8 @@ static void chttp2_init_client_secure_fullstack(
     grpc_channel_credentials* creds) {
   fullstack_secure_fixture_data* ffd =
       static_cast<fullstack_secure_fixture_data*>(f->fixture_data);
-  f->client =
-      grpc_secure_channel_create(creds, ffd->localaddr, client_args, nullptr);
+  f->client = grpc_secure_channel_create(creds, ffd->localaddr.get(),
+                                         client_args, nullptr);
   GPR_ASSERT(f->client != nullptr);
   grpc_channel_credentials_release(creds);
 }
@@ -129,7 +124,7 @@ static void chttp2_init_server_secure_fullstack(
   }
   f->server = grpc_server_create(server_args, nullptr);
   grpc_server_register_completion_queue(f->server, f->cq, nullptr);
-  GPR_ASSERT(grpc_server_add_secure_http2_port(f->server, ffd->localaddr,
+  GPR_ASSERT(grpc_server_add_secure_http2_port(f->server, ffd->localaddr.get(),
                                                server_creds));
   grpc_server_credentials_release(server_creds);
   grpc_server_start(f->server);
@@ -138,8 +133,7 @@ static void chttp2_init_server_secure_fullstack(
 void chttp2_tear_down_secure_fullstack(grpc_end2end_test_fixture* f) {
   fullstack_secure_fixture_data* ffd =
       static_cast<fullstack_secure_fixture_data*>(f->fixture_data);
-  gpr_free(ffd->localaddr);
-  gpr_free(ffd);
+  delete ffd;
 }
 
 static void chttp2_init_client_simple_ssl_with_oauth2_secure_fullstack(
@@ -224,7 +218,7 @@ static grpc_end2end_test_config configs[] = {
 
 int main(int argc, char** argv) {
   size_t i;
-  grpc_test_init(argc, argv);
+  grpc::testing::TestEnvironment env(argc, argv);
   grpc_end2end_tests_pre_init();
   grpc_init();
 

@@ -32,34 +32,85 @@
 #include "src/core/lib/gpr/useful.h"
 #include "src/core/lib/gprpp/memory.h"
 #include "src/core/lib/iomgr/exec_ctx.h"
+#include "src/core/lib/iomgr/iomgr.h"
 
 #define MAX_DEPTH 2
 
-#define EXECUTOR_TRACE(format, ...)                     \
-  if (executor_trace.enabled()) {                       \
-    gpr_log(GPR_INFO, "EXECUTOR " format, __VA_ARGS__); \
-  }
+#define EXECUTOR_TRACE(format, ...)                       \
+  do {                                                    \
+    if (GRPC_TRACE_FLAG_ENABLED(executor_trace)) {        \
+      gpr_log(GPR_INFO, "EXECUTOR " format, __VA_ARGS__); \
+    }                                                     \
+  } while (0)
 
-#define EXECUTOR_TRACE0(str)            \
-  if (executor_trace.enabled()) {       \
-    gpr_log(GPR_INFO, "EXECUTOR " str); \
-  }
+#define EXECUTOR_TRACE0(str)                       \
+  do {                                             \
+    if (GRPC_TRACE_FLAG_ENABLED(executor_trace)) { \
+      gpr_log(GPR_INFO, "EXECUTOR " str);          \
+    }                                              \
+  } while (0)
 
-grpc_core::TraceFlag executor_trace(false, "executor");
+namespace grpc_core {
+namespace {
 
 GPR_TLS_DECL(g_this_thread_state);
 
-GrpcExecutor::GrpcExecutor(const char* name) : name_(name) {
+Executor* executors[static_cast<size_t>(ExecutorType::NUM_EXECUTORS)];
+
+void default_enqueue_short(grpc_closure* closure, grpc_error* error) {
+  executors[static_cast<size_t>(ExecutorType::DEFAULT)]->Enqueue(
+      closure, error, true /* is_short */);
+}
+
+void default_enqueue_long(grpc_closure* closure, grpc_error* error) {
+  executors[static_cast<size_t>(ExecutorType::DEFAULT)]->Enqueue(
+      closure, error, false /* is_short */);
+}
+
+void resolver_enqueue_short(grpc_closure* closure, grpc_error* error) {
+  executors[static_cast<size_t>(ExecutorType::RESOLVER)]->Enqueue(
+      closure, error, true /* is_short */);
+}
+
+void resolver_enqueue_long(grpc_closure* closure, grpc_error* error) {
+  executors[static_cast<size_t>(ExecutorType::RESOLVER)]->Enqueue(
+      closure, error, false /* is_short */);
+}
+
+using EnqueueFunc = void (*)(grpc_closure* closure, grpc_error* error);
+
+const EnqueueFunc
+    executor_enqueue_fns_[static_cast<size_t>(ExecutorType::NUM_EXECUTORS)]
+                         [static_cast<size_t>(ExecutorJobType::NUM_JOB_TYPES)] =
+                             {{default_enqueue_short, default_enqueue_long},
+                              {resolver_enqueue_short, resolver_enqueue_long}};
+
+}  // namespace
+
+TraceFlag executor_trace(false, "executor");
+
+Executor::Executor(const char* name) : name_(name) {
   adding_thread_lock_ = GPR_SPINLOCK_STATIC_INITIALIZER;
   gpr_atm_rel_store(&num_threads_, 0);
   max_threads_ = GPR_MAX(1, 2 * gpr_cpu_num_cores());
 }
 
-void GrpcExecutor::Init() { SetThreading(true); }
+void Executor::Init() { SetThreading(true); }
 
-size_t GrpcExecutor::RunClosures(const char* executor_name,
-                                 grpc_closure_list list) {
+size_t Executor::RunClosures(const char* executor_name,
+                             grpc_closure_list list) {
   size_t n = 0;
+
+  // In the executor, the ExecCtx for the thread is declared in the executor
+  // thread itself, but this is the point where we could start seeing
+  // application-level callbacks. No need to create a new ExecCtx, though,
+  // since there already is one and it is flushed (but not destructed) in this
+  // function itself. The ApplicationCallbackExecCtx will have its callbacks
+  // invoked on its destruction, which will be after completing any closures in
+  // the executor's closure list (which were explicitly scheduled onto the
+  // executor).
+  grpc_core::ApplicationCallbackExecCtx callback_exec_ctx(
+      GRPC_APP_CALLBACK_EXEC_CTX_FLAG_IS_INTERNAL_THREAD);
 
   grpc_closure* c = list.head;
   while (c != nullptr) {
@@ -82,11 +133,11 @@ size_t GrpcExecutor::RunClosures(const char* executor_name,
   return n;
 }
 
-bool GrpcExecutor::IsThreaded() const {
+bool Executor::IsThreaded() const {
   return gpr_atm_acq_load(&num_threads_) > 0;
 }
 
-void GrpcExecutor::SetThreading(bool threading) {
+void Executor::SetThreading(bool threading) {
   gpr_atm curr_num_threads = gpr_atm_acq_load(&num_threads_);
   EXECUTOR_TRACE("(%s) SetThreading(%d) begin", name_, threading);
 
@@ -98,7 +149,6 @@ void GrpcExecutor::SetThreading(bool threading) {
 
     GPR_ASSERT(num_threads_ == 0);
     gpr_atm_rel_store(&num_threads_, 1);
-    gpr_tls_init(&g_this_thread_state);
     thd_state_ = static_cast<ThreadState*>(
         gpr_zalloc(sizeof(ThreadState) * max_threads_));
 
@@ -112,7 +162,7 @@ void GrpcExecutor::SetThreading(bool threading) {
     }
 
     thd_state_[0].thd =
-        grpc_core::Thread(name_, &GrpcExecutor::ThreadMain, &thd_state_[0]);
+        grpc_core::Thread(name_, &Executor::ThreadMain, &thd_state_[0]);
     thd_state_[0].thd.Start();
   } else {  // !threading
     if (curr_num_threads == 0) {
@@ -147,15 +197,22 @@ void GrpcExecutor::SetThreading(bool threading) {
     }
 
     gpr_free(thd_state_);
-    gpr_tls_destroy(&g_this_thread_state);
+
+    // grpc_iomgr_shutdown_background_closure() will close all the registered
+    // fds in the background poller, and wait for all pending closures to
+    // finish. Thus, never call Executor::SetThreading(false) in the middle of
+    // an application.
+    // TODO(guantaol): create another method to finish all the pending closures
+    // registered in the background poller by grpc_core::Executor.
+    grpc_iomgr_shutdown_background_closure();
   }
 
   EXECUTOR_TRACE("(%s) SetThreading(%d) done", name_, threading);
 }
 
-void GrpcExecutor::Shutdown() { SetThreading(false); }
+void Executor::Shutdown() { SetThreading(false); }
 
-void GrpcExecutor::ThreadMain(void* arg) {
+void Executor::ThreadMain(void* arg) {
   ThreadState* ts = static_cast<ThreadState*>(arg);
   gpr_tls_set(&g_this_thread_state, reinterpret_cast<intptr_t>(ts));
 
@@ -190,10 +247,12 @@ void GrpcExecutor::ThreadMain(void* arg) {
     grpc_core::ExecCtx::Get()->InvalidateNow();
     subtract_depth = RunClosures(ts->name, closures);
   }
+
+  gpr_tls_set(&g_this_thread_state, reinterpret_cast<intptr_t>(nullptr));
 }
 
-void GrpcExecutor::Enqueue(grpc_closure* closure, grpc_error* error,
-                           bool is_short) {
+void Executor::Enqueue(grpc_closure* closure, grpc_error* error,
+                       bool is_short) {
   bool retry_push;
   if (is_short) {
     GRPC_STATS_INC_EXECUTOR_SCHEDULED_SHORT_ITEMS();
@@ -217,6 +276,10 @@ void GrpcExecutor::Enqueue(grpc_closure* closure, grpc_error* error,
 #endif
       grpc_closure_list_append(grpc_core::ExecCtx::Get()->closure_list(),
                                closure, error);
+      return;
+    }
+
+    if (grpc_iomgr_add_closure_to_background_poller(closure, error)) {
       return;
     }
 
@@ -304,7 +367,7 @@ void GrpcExecutor::Enqueue(grpc_closure* closure, grpc_error* error,
         gpr_atm_rel_store(&num_threads_, cur_thread_count + 1);
 
         thd_state_[cur_thread_count].thd = grpc_core::Thread(
-            name_, &GrpcExecutor::ThreadMain, &thd_state_[cur_thread_count]);
+            name_, &Executor::ThreadMain, &thd_state_[cur_thread_count]);
         thd_state_[cur_thread_count].thd.Start();
       }
       gpr_spinlock_unlock(&adding_thread_lock_);
@@ -316,90 +379,53 @@ void GrpcExecutor::Enqueue(grpc_closure* closure, grpc_error* error,
   } while (retry_push);
 }
 
-static GrpcExecutor* executors[GRPC_NUM_EXECUTORS];
-
-void default_enqueue_short(grpc_closure* closure, grpc_error* error) {
-  executors[GRPC_DEFAULT_EXECUTOR]->Enqueue(closure, error,
-                                            true /* is_short */);
-}
-
-void default_enqueue_long(grpc_closure* closure, grpc_error* error) {
-  executors[GRPC_DEFAULT_EXECUTOR]->Enqueue(closure, error,
-                                            false /* is_short */);
-}
-
-void resolver_enqueue_short(grpc_closure* closure, grpc_error* error) {
-  executors[GRPC_RESOLVER_EXECUTOR]->Enqueue(closure, error,
-                                             true /* is_short */);
-}
-
-void resolver_enqueue_long(grpc_closure* closure, grpc_error* error) {
-  executors[GRPC_RESOLVER_EXECUTOR]->Enqueue(closure, error,
-                                             false /* is_short */);
-}
-
-static const grpc_closure_scheduler_vtable
-    vtables_[GRPC_NUM_EXECUTORS][GRPC_NUM_EXECUTOR_JOB_TYPES] = {
-        {{&default_enqueue_short, &default_enqueue_short, "def-ex-short"},
-         {&default_enqueue_long, &default_enqueue_long, "def-ex-long"}},
-        {{&resolver_enqueue_short, &resolver_enqueue_short, "res-ex-short"},
-         {&resolver_enqueue_long, &resolver_enqueue_long, "res-ex-long"}}};
-
-static grpc_closure_scheduler
-    schedulers_[GRPC_NUM_EXECUTORS][GRPC_NUM_EXECUTOR_JOB_TYPES] = {
-        {{&vtables_[GRPC_DEFAULT_EXECUTOR][GRPC_EXECUTOR_SHORT]},
-         {&vtables_[GRPC_DEFAULT_EXECUTOR][GRPC_EXECUTOR_LONG]}},
-        {{&vtables_[GRPC_RESOLVER_EXECUTOR][GRPC_EXECUTOR_SHORT]},
-         {&vtables_[GRPC_RESOLVER_EXECUTOR][GRPC_EXECUTOR_LONG]}}};
-
-// grpc_executor_init() and grpc_executor_shutdown() functions are called in the
+// Executor::InitAll() and Executor::ShutdownAll() functions are called in the
 // the grpc_init() and grpc_shutdown() code paths which are protected by a
 // global mutex. So it is okay to assume that these functions are thread-safe
-void grpc_executor_init() {
-  EXECUTOR_TRACE0("grpc_executor_init() enter");
+void Executor::InitAll() {
+  EXECUTOR_TRACE0("Executor::InitAll() enter");
 
-  // Return if grpc_executor_init() is already called earlier
-  if (executors[GRPC_DEFAULT_EXECUTOR] != nullptr) {
-    GPR_ASSERT(executors[GRPC_RESOLVER_EXECUTOR] != nullptr);
+  // Return if Executor::InitAll() is already called earlier
+  if (executors[static_cast<size_t>(ExecutorType::DEFAULT)] != nullptr) {
+    GPR_ASSERT(executors[static_cast<size_t>(ExecutorType::RESOLVER)] !=
+               nullptr);
     return;
   }
 
-  executors[GRPC_DEFAULT_EXECUTOR] =
-      grpc_core::New<GrpcExecutor>("default-executor");
-  executors[GRPC_RESOLVER_EXECUTOR] =
-      grpc_core::New<GrpcExecutor>("resolver-executor");
+  executors[static_cast<size_t>(ExecutorType::DEFAULT)] =
+      new Executor("default-executor");
+  executors[static_cast<size_t>(ExecutorType::RESOLVER)] =
+      new Executor("resolver-executor");
 
-  executors[GRPC_DEFAULT_EXECUTOR]->Init();
-  executors[GRPC_RESOLVER_EXECUTOR]->Init();
+  executors[static_cast<size_t>(ExecutorType::DEFAULT)]->Init();
+  executors[static_cast<size_t>(ExecutorType::RESOLVER)]->Init();
 
-  EXECUTOR_TRACE0("grpc_executor_init() done");
+  EXECUTOR_TRACE0("Executor::InitAll() done");
 }
 
-grpc_closure_scheduler* grpc_executor_scheduler(GrpcExecutorType executor_type,
-                                                GrpcExecutorJobType job_type) {
-  return &schedulers_[executor_type][job_type];
+void Executor::Run(grpc_closure* closure, grpc_error* error,
+                   ExecutorType executor_type, ExecutorJobType job_type) {
+  executor_enqueue_fns_[static_cast<size_t>(executor_type)]
+                       [static_cast<size_t>(job_type)](closure, error);
 }
 
-grpc_closure_scheduler* grpc_executor_scheduler(GrpcExecutorJobType job_type) {
-  return grpc_executor_scheduler(GRPC_DEFAULT_EXECUTOR, job_type);
-}
+void Executor::ShutdownAll() {
+  EXECUTOR_TRACE0("Executor::ShutdownAll() enter");
 
-void grpc_executor_shutdown() {
-  EXECUTOR_TRACE0("grpc_executor_shutdown() enter");
-
-  // Return if grpc_executor_shutdown() is already called earlier
-  if (executors[GRPC_DEFAULT_EXECUTOR] == nullptr) {
-    GPR_ASSERT(executors[GRPC_RESOLVER_EXECUTOR] == nullptr);
+  // Return if Executor:SshutdownAll() is already called earlier
+  if (executors[static_cast<size_t>(ExecutorType::DEFAULT)] == nullptr) {
+    GPR_ASSERT(executors[static_cast<size_t>(ExecutorType::RESOLVER)] ==
+               nullptr);
     return;
   }
 
-  executors[GRPC_DEFAULT_EXECUTOR]->Shutdown();
-  executors[GRPC_RESOLVER_EXECUTOR]->Shutdown();
+  executors[static_cast<size_t>(ExecutorType::DEFAULT)]->Shutdown();
+  executors[static_cast<size_t>(ExecutorType::RESOLVER)]->Shutdown();
 
   // Delete the executor objects.
   //
   // NOTE: It is important to call Shutdown() on all executors first before
-  // calling Delete() because it is possible for one executor (that is not
+  // calling delete  because it is possible for one executor (that is not
   // shutdown yet) to call Enqueue() on a different executor which is already
   // shutdown. This is legal and in such cases, the Enqueue() operation
   // effectively "fails" and enqueues that closure on the calling thread's
@@ -408,26 +434,36 @@ void grpc_executor_shutdown() {
   // By ensuring that all executors are shutdown first, we are also ensuring
   // that no thread is active across all executors.
 
-  grpc_core::Delete<GrpcExecutor>(executors[GRPC_DEFAULT_EXECUTOR]);
-  grpc_core::Delete<GrpcExecutor>(executors[GRPC_RESOLVER_EXECUTOR]);
-  executors[GRPC_DEFAULT_EXECUTOR] = nullptr;
-  executors[GRPC_RESOLVER_EXECUTOR] = nullptr;
+  delete executors[static_cast<size_t>(ExecutorType::DEFAULT)];
+  delete executors[static_cast<size_t>(ExecutorType::RESOLVER)];
+  executors[static_cast<size_t>(ExecutorType::DEFAULT)] = nullptr;
+  executors[static_cast<size_t>(ExecutorType::RESOLVER)] = nullptr;
 
-  EXECUTOR_TRACE0("grpc_executor_shutdown() done");
+  EXECUTOR_TRACE0("Executor::ShutdownAll() done");
 }
 
-bool grpc_executor_is_threaded(GrpcExecutorType executor_type) {
-  GPR_ASSERT(executor_type < GRPC_NUM_EXECUTORS);
-  return executors[executor_type]->IsThreaded();
+bool Executor::IsThreaded(ExecutorType executor_type) {
+  GPR_ASSERT(executor_type < ExecutorType::NUM_EXECUTORS);
+  return executors[static_cast<size_t>(executor_type)]->IsThreaded();
 }
 
-bool grpc_executor_is_threaded() {
-  return grpc_executor_is_threaded(GRPC_DEFAULT_EXECUTOR);
+bool Executor::IsThreadedDefault() {
+  return Executor::IsThreaded(ExecutorType::DEFAULT);
 }
 
-void grpc_executor_set_threading(bool enable) {
-  EXECUTOR_TRACE("grpc_executor_set_threading(%d) called", enable);
-  for (int i = 0; i < GRPC_NUM_EXECUTORS; i++) {
+void Executor::SetThreadingAll(bool enable) {
+  EXECUTOR_TRACE("Executor::SetThreadingAll(%d) called", enable);
+  for (size_t i = 0; i < static_cast<size_t>(ExecutorType::NUM_EXECUTORS);
+       i++) {
     executors[i]->SetThreading(enable);
   }
 }
+
+void Executor::SetThreadingDefault(bool enable) {
+  EXECUTOR_TRACE("Executor::SetThreadingDefault(%d) called", enable);
+  executors[static_cast<size_t>(ExecutorType::DEFAULT)]->SetThreading(enable);
+}
+
+void grpc_executor_global_init() { gpr_tls_init(&g_this_thread_state); }
+
+}  // namespace grpc_core

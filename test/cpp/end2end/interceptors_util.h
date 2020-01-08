@@ -72,13 +72,29 @@ class DummyInterceptorFactory
       public experimental::ServerInterceptorFactoryInterface {
  public:
   virtual experimental::Interceptor* CreateClientInterceptor(
-      experimental::ClientRpcInfo* info) override {
+      experimental::ClientRpcInfo* /*info*/) override {
     return new DummyInterceptor();
   }
 
   virtual experimental::Interceptor* CreateServerInterceptor(
-      experimental::ServerRpcInfo* info) override {
+      experimental::ServerRpcInfo* /*info*/) override {
     return new DummyInterceptor();
+  }
+};
+
+/* This interceptor factory returns nullptr on interceptor creation */
+class NullInterceptorFactory
+    : public experimental::ClientInterceptorFactoryInterface,
+      public experimental::ServerInterceptorFactoryInterface {
+ public:
+  virtual experimental::Interceptor* CreateClientInterceptor(
+      experimental::ClientRpcInfo* /*info*/) override {
+    return nullptr;
+  }
+
+  virtual experimental::Interceptor* CreateServerInterceptor(
+      experimental::ServerRpcInfo* /*info*/) override {
+    return nullptr;
   }
 };
 
@@ -136,6 +152,8 @@ class EchoTestServiceStreamingImpl : public EchoTestService::Service {
   }
 };
 
+constexpr int kNumStreamingMessages = 10;
+
 void MakeCall(const std::shared_ptr<Channel>& channel);
 
 void MakeClientStreamingCall(const std::shared_ptr<Channel>& channel);
@@ -147,6 +165,9 @@ void MakeBidiStreamingCall(const std::shared_ptr<Channel>& channel);
 void MakeCallbackCall(const std::shared_ptr<Channel>& channel);
 
 bool CheckMetadata(const std::multimap<grpc::string_ref, grpc::string_ref>& map,
+                   const string& key, const string& value);
+
+bool CheckMetadata(const std::multimap<grpc::string, grpc::string>& map,
                    const string& key, const string& value);
 
 std::vector<std::unique_ptr<experimental::ClientInterceptorFactoryInterface>>

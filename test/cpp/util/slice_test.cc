@@ -33,6 +33,10 @@ const char* kContent = "hello xxxxxxxxxxxxxxxxxxxx world";
 
 class SliceTest : public ::testing::Test {
  protected:
+  static void SetUpTestCase() { grpc_init(); }
+
+  static void TearDownTestCase() { grpc_shutdown(); }
+
   void CheckSliceSize(const Slice& s, const grpc::string& content) {
     EXPECT_EQ(content.size(), s.size());
   }
@@ -76,7 +80,7 @@ TEST_F(SliceTest, SliceNew) {
 }
 
 TEST_F(SliceTest, SliceNewDoNothing) {
-  Slice spp(const_cast<char*>(kContent), strlen(kContent), [](void* p) {});
+  Slice spp(const_cast<char*>(kContent), strlen(kContent), [](void* /*p*/) {});
   CheckSlice(spp, kContent);
 }
 
@@ -100,7 +104,7 @@ TEST_F(SliceTest, SliceNewWithUserData) {
 
 TEST_F(SliceTest, SliceNewLen) {
   Slice spp(const_cast<char*>(kContent), strlen(kContent),
-            [](void* p, size_t l) { EXPECT_EQ(l, strlen(kContent)); });
+            [](void* /*p*/, size_t l) { EXPECT_EQ(l, strlen(kContent)); });
   CheckSlice(spp, kContent);
 }
 
@@ -132,8 +136,6 @@ TEST_F(SliceTest, Cslice) {
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
-  grpc_init();
   int ret = RUN_ALL_TESTS();
-  grpc_shutdown();
   return ret;
 }

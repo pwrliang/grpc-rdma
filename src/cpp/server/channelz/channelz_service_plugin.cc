@@ -39,9 +39,10 @@ class ChannelzServicePlugin : public ::grpc::ServerBuilderPlugin {
     si->RegisterService(channelz_service_);
   }
 
-  void Finish(grpc::ServerInitializer* si) override {}
+  void Finish(grpc::ServerInitializer* /*si*/) override {}
 
-  void ChangeArguments(const grpc::string& name, void* value) override {}
+  void ChangeArguments(const grpc::string& /*name*/, void* /*value*/) override {
+  }
 
   bool has_sync_methods() const override {
     if (channelz_service_) {
@@ -67,13 +68,21 @@ CreateChannelzServicePlugin() {
       new ChannelzServicePlugin());
 }
 
+}  // namespace experimental
+}  // namespace channelz
+}  // namespace grpc
+namespace grpc_impl {
+namespace channelz {
+namespace experimental {
+
 void InitChannelzService() {
   static bool already_here = false;
   if (already_here) return;
   already_here = true;
-  ::grpc::ServerBuilder::InternalAddPluginFactory(&CreateChannelzServicePlugin);
+  ::grpc::ServerBuilder::InternalAddPluginFactory(
+      &grpc::channelz::experimental::CreateChannelzServicePlugin);
 }
 
 }  // namespace experimental
 }  // namespace channelz
-}  // namespace grpc
+}  // namespace grpc_impl

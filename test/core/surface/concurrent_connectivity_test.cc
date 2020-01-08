@@ -44,7 +44,7 @@
 #define NUM_OUTER_LOOPS 10
 #define NUM_INNER_LOOPS 10
 #define DELAY_MILLIS 10
-#define POLL_MILLIS 3000
+#define POLL_MILLIS 15000
 
 #define NUM_OUTER_LOOPS_SHORT_TIMEOUTS 10
 #define NUM_INNER_LOOPS_SHORT_TIMEOUTS 100
@@ -105,7 +105,7 @@ void server_thread(void* vargs) {
 }
 
 static void on_connect(void* vargs, grpc_endpoint* tcp,
-                       grpc_pollset* accepting_pollset,
+                       grpc_pollset* /*accepting_pollset*/,
                        grpc_tcp_server_acceptor* acceptor) {
   gpr_free(acceptor);
   struct server_thread_args* args =
@@ -160,7 +160,7 @@ void bad_server_thread(void* vargs) {
   gpr_free(args->addr);
 }
 
-static void done_pollset_shutdown(void* pollset, grpc_error* error) {
+static void done_pollset_shutdown(void* pollset, grpc_error* /*error*/) {
   grpc_pollset_destroy(static_cast<grpc_pollset*>(pollset));
   gpr_free(pollset);
 }
@@ -300,7 +300,7 @@ int run_concurrent_watches_with_short_timeouts_test() {
 }
 
 int main(int argc, char** argv) {
-  grpc_test_init(argc, argv);
+  grpc::testing::TestEnvironment env(argc, argv);
 
   run_concurrent_connectivity_test();
   run_concurrent_watches_with_short_timeouts_test();

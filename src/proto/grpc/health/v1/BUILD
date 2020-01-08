@@ -14,12 +14,20 @@
 
 licenses(["notice"])  # Apache v2
 
-load("//bazel:grpc_build_system.bzl", "grpc_proto_library", "grpc_package")
+load("//bazel:grpc_build_system.bzl", "grpc_package", "grpc_proto_library")
 
-grpc_package(name = "health", visibility = "public")
+grpc_package(
+    name = "health",
+    visibility = "public",
+)
 
 grpc_proto_library(
     name = "health_proto",
+    srcs = ["health.proto"],
+)
+
+proto_library(
+    name = "health_proto_descriptor",
     srcs = ["health.proto"],
 )
 
@@ -29,4 +37,3 @@ filegroup(
         "health.proto",
     ],
 )
-

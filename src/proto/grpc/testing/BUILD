@@ -14,15 +14,21 @@
 
 licenses(["notice"])  # Apache v2
 
-load("//bazel:grpc_build_system.bzl", "grpc_proto_library", "grpc_package")
+load("//bazel:grpc_build_system.bzl", "grpc_package", "grpc_proto_library")
 load("@grpc_python_dependencies//:requirements.bzl", "requirement")
-load("@org_pubref_rules_protobuf//python:rules.bzl", "py_proto_library")
+load("//bazel:python_rules.bzl", "py_grpc_library", "py_proto_library")
 
-grpc_package(name = "testing", visibility = "public")
+grpc_package(
+    name = "testing",
+    visibility = "public",
+)
 
 exports_files([
     "echo.proto",
     "echo_messages.proto",
+    "test.proto",
+    "empty.proto",
+    "messages.proto",
 ])
 
 grpc_proto_library(
@@ -44,14 +50,16 @@ grpc_proto_library(
 grpc_proto_library(
     name = "echo_messages_proto",
     srcs = ["echo_messages.proto"],
-    has_services = False,
 )
 
 grpc_proto_library(
     name = "echo_proto",
     srcs = ["echo.proto"],
-    deps = ["echo_messages_proto"],
     generate_mocks = True,
+    deps = [
+        "echo_messages_proto",
+        "simple_messages_proto",
+    ],
 )
 
 grpc_proto_library(
@@ -60,13 +68,20 @@ grpc_proto_library(
     has_services = False,
 )
 
+proto_library(
+    name = "empty_proto_descriptor",
+    srcs = ["empty.proto"],
+)
+
 py_proto_library(
-    name = "py_empty_proto",
-    protos = ["empty.proto",],
-    with_grpc = True,
-    deps = [
-        requirement('protobuf'),
-    ],
+    name = "empty_py_pb2",
+    deps = [":empty_proto_descriptor"],
+)
+
+py_grpc_library(
+    name = "empty_py_pb2_grpc",
+    srcs = [":empty_proto_descriptor"],
+    deps = [":empty_py_pb2"],
 )
 
 grpc_proto_library(
@@ -75,13 +90,20 @@ grpc_proto_library(
     has_services = False,
 )
 
+proto_library(
+    name = "messages_proto_descriptor",
+    srcs = ["messages.proto"],
+)
+
 py_proto_library(
     name = "py_messages_proto",
-    protos = ["messages.proto",],
-    with_grpc = True,
-    deps = [
-        requirement('protobuf'),
-    ],
+    deps = [":messages_proto_descriptor"],
+)
+
+py_grpc_library(
+    name = "messages_py_pb2_grpc",
+    srcs = [":messages_proto_descriptor"],
+    deps = [":py_messages_proto"],
 )
 
 grpc_proto_library(
@@ -99,15 +121,32 @@ grpc_proto_library(
     name = "benchmark_service_proto",
     srcs = ["benchmark_service.proto"],
     deps = [
-      "messages_proto",
+        "messages_proto",
     ],
+)
+
+proto_library(
+    name = "benchmark_service_descriptor",
+    srcs = ["benchmark_service.proto"],
+    deps = [":messages_proto_descriptor"],
+)
+
+py_proto_library(
+    name = "benchmark_service_py_pb2",
+    deps = [":benchmark_service_descriptor"],
+)
+
+py_grpc_library(
+    name = "benchmark_service_py_pb2_grpc",
+    srcs = [":benchmark_service_descriptor"],
+    deps = [":benchmark_service_py_pb2"],
 )
 
 grpc_proto_library(
     name = "report_qps_scenario_service_proto",
     srcs = ["report_qps_scenario_service.proto"],
     deps = [
-      "control_proto",
+        "control_proto",
     ],
 )
 
@@ -115,8 +154,13 @@ grpc_proto_library(
     name = "worker_service_proto",
     srcs = ["worker_service.proto"],
     deps = [
-      "control_proto",
+        "control_proto",
     ],
+)
+
+grpc_proto_library(
+    name = "simple_messages_proto",
+    srcs = ["simple_messages.proto"],
 )
 
 grpc_proto_library(
@@ -125,7 +169,7 @@ grpc_proto_library(
     has_services = False,
     deps = [
         "//src/proto/grpc/core:stats_proto",
-    ]
+    ],
 )
 
 grpc_proto_library(
@@ -137,16 +181,53 @@ grpc_proto_library(
     ],
 )
 
-py_proto_library(
-    name = "py_test_proto",
-    protos = ["test.proto",],
-    with_grpc = True,
-    deps = [
-        requirement('protobuf'),
-    ],
-    proto_deps = [
-        ":py_empty_proto",
-        ":py_messages_proto",
-    ]
+# Test that grpc_proto_library/cc_grpc_library can consume generated files
+genrule(
+    name = "messages_gen_proto_file",
+    srcs = ["messages.proto"],
+    outs = ["messages_gen.proto"],
+    cmd = "cp $< $@",
 )
 
+grpc_proto_library(
+    name = "messages_gen_proto",
+    srcs = ["messages_gen_proto_file"],
+    has_services = False,
+)
+
+genrule(
+    name = "test_gen_proto_file",
+    srcs = ["test.proto"],
+    outs = ["test_gen.proto"],
+    cmd = "sed 's/messages.proto/messages_gen.proto/' $< > $@",
+)
+
+# Consume generated files in srcs and in deps
+grpc_proto_library(
+    name = "test_gen_proto",
+    srcs = ["test_gen_proto_file"],
+    deps = [
+        "empty_proto",
+        "messages_gen_proto",
+    ],
+)
+
+proto_library(
+    name = "test_proto_descriptor",
+    srcs = ["test.proto"],
+    deps = [
+        ":empty_proto_descriptor",
+        ":messages_proto_descriptor",
+    ],
+)
+
+py_proto_library(
+    name = "py_test_proto",
+    deps = [":test_proto_descriptor"],
+)
+
+py_grpc_library(
+    name = "test_py_pb2_grpc",
+    srcs = [":test_proto_descriptor"],
+    deps = [":py_test_proto"],
+)

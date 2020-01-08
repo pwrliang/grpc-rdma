@@ -155,45 +155,6 @@ gpr_timespec grpc_rb_time_timeval(VALUE time, int interval) {
   return t;
 }
 
-static void Init_grpc_status_codes() {
-  /* Constants representing the status codes or grpc_status_code in status.h */
-  VALUE grpc_rb_mStatusCodes =
-      rb_define_module_under(grpc_rb_mGrpcCore, "StatusCodes");
-  rb_define_const(grpc_rb_mStatusCodes, "OK", INT2NUM(GRPC_STATUS_OK));
-  rb_define_const(grpc_rb_mStatusCodes, "CANCELLED",
-                  INT2NUM(GRPC_STATUS_CANCELLED));
-  rb_define_const(grpc_rb_mStatusCodes, "UNKNOWN",
-                  INT2NUM(GRPC_STATUS_UNKNOWN));
-  rb_define_const(grpc_rb_mStatusCodes, "INVALID_ARGUMENT",
-                  INT2NUM(GRPC_STATUS_INVALID_ARGUMENT));
-  rb_define_const(grpc_rb_mStatusCodes, "DEADLINE_EXCEEDED",
-                  INT2NUM(GRPC_STATUS_DEADLINE_EXCEEDED));
-  rb_define_const(grpc_rb_mStatusCodes, "NOT_FOUND",
-                  INT2NUM(GRPC_STATUS_NOT_FOUND));
-  rb_define_const(grpc_rb_mStatusCodes, "ALREADY_EXISTS",
-                  INT2NUM(GRPC_STATUS_ALREADY_EXISTS));
-  rb_define_const(grpc_rb_mStatusCodes, "PERMISSION_DENIED",
-                  INT2NUM(GRPC_STATUS_PERMISSION_DENIED));
-  rb_define_const(grpc_rb_mStatusCodes, "UNAUTHENTICATED",
-                  INT2NUM(GRPC_STATUS_UNAUTHENTICATED));
-  rb_define_const(grpc_rb_mStatusCodes, "RESOURCE_EXHAUSTED",
-                  INT2NUM(GRPC_STATUS_RESOURCE_EXHAUSTED));
-  rb_define_const(grpc_rb_mStatusCodes, "FAILED_PRECONDITION",
-                  INT2NUM(GRPC_STATUS_FAILED_PRECONDITION));
-  rb_define_const(grpc_rb_mStatusCodes, "ABORTED",
-                  INT2NUM(GRPC_STATUS_ABORTED));
-  rb_define_const(grpc_rb_mStatusCodes, "OUT_OF_RANGE",
-                  INT2NUM(GRPC_STATUS_OUT_OF_RANGE));
-  rb_define_const(grpc_rb_mStatusCodes, "UNIMPLEMENTED",
-                  INT2NUM(GRPC_STATUS_UNIMPLEMENTED));
-  rb_define_const(grpc_rb_mStatusCodes, "INTERNAL",
-                  INT2NUM(GRPC_STATUS_INTERNAL));
-  rb_define_const(grpc_rb_mStatusCodes, "UNAVAILABLE",
-                  INT2NUM(GRPC_STATUS_UNAVAILABLE));
-  rb_define_const(grpc_rb_mStatusCodes, "DATA_LOSS",
-                  INT2NUM(GRPC_STATUS_DATA_LOSS));
-}
-
 /* id_at is the constructor method of the ruby standard Time class. */
 static ID id_at;
 
@@ -276,10 +237,6 @@ static bool grpc_ruby_forked_after_init(void) {
 }
 #endif
 
-static void grpc_rb_shutdown(void) {
-  if (!grpc_ruby_forked_after_init()) grpc_shutdown();
-}
-
 /* Initialize the GRPC module structs */
 
 /* grpc_rb_sNewServerRpc is the struct that holds new server rpc details. */
@@ -298,12 +255,6 @@ VALUE sym_metadata = Qundef;
 
 static gpr_once g_once_init = GPR_ONCE_INIT;
 
-static void grpc_ruby_once_init_internal() {
-  grpc_ruby_set_init_pid();
-  grpc_init();
-  atexit(grpc_rb_shutdown);
-}
-
 void grpc_ruby_fork_guard() {
   if (grpc_ruby_forked_after_init()) {
     rb_raise(rb_eRuntimeError, "grpc cannot be used before and after forking");
@@ -313,20 +264,8 @@ void grpc_ruby_fork_guard() {
 static VALUE bg_thread_init_rb_mu = Qundef;
 static int bg_thread_init_done = 0;
 
-void grpc_ruby_once_init() {
-  /* ruby_vm_at_exit doesn't seem to be working. It would crash once every
-   * blue moon, and some users are getting it repeatedly. See the discussions
-   *  - https://github.com/grpc/grpc/pull/5337
-   *  - https://bugs.ruby-lang.org/issues/12095
-   *
-   * In order to still be able to handle the (unlikely) situation where the
-   * extension is loaded by a first Ruby VM that is subsequently destroyed,
-   * then loaded again by another VM within the same process, we need to
-   * schedule our initialization and destruction only once.
-   */
-  gpr_once_init(&g_once_init, grpc_ruby_once_init_internal);
-
-  // Avoid calling calling into ruby library (when creating threads here)
+static void grpc_ruby_init_threads() {
+  // Avoid calling into ruby library (when creating threads here)
   // in gpr_once_init. In general, it appears to be unsafe to call
   // into the ruby library while holding a non-ruby mutex, because a gil yield
   // could end up trying to lock onto that same mutex and deadlocking.
@@ -337,6 +276,27 @@ void grpc_ruby_once_init() {
     bg_thread_init_done = 1;
   }
   rb_mutex_unlock(bg_thread_init_rb_mu);
+}
+
+static int64_t g_grpc_ruby_init_count;
+
+void grpc_ruby_init() {
+  gpr_once_init(&g_once_init, grpc_ruby_set_init_pid);
+  grpc_init();
+  grpc_ruby_init_threads();
+  // (only gpr_log after logging has been initialized)
+  gpr_log(GPR_DEBUG,
+          "GRPC_RUBY: grpc_ruby_init - prev g_grpc_ruby_init_count:%" PRId64,
+          g_grpc_ruby_init_count++);
+}
+
+void grpc_ruby_shutdown() {
+  GPR_ASSERT(g_grpc_ruby_init_count > 0);
+  if (!grpc_ruby_forked_after_init()) grpc_shutdown();
+  gpr_log(
+      GPR_DEBUG,
+      "GRPC_RUBY: grpc_ruby_shutdown - prev g_grpc_ruby_init_count:%" PRId64,
+      g_grpc_ruby_init_count--);
 }
 
 void Init_grpc_c() {
@@ -352,8 +312,7 @@ void Init_grpc_c() {
   grpc_rb_mGrpcCore = rb_define_module_under(grpc_rb_mGRPC, "Core");
   grpc_rb_sNewServerRpc = rb_struct_define(
       "NewServerRpc", "method", "host", "deadline", "metadata", "call", NULL);
-  grpc_rb_sStatus =
-      rb_struct_define("Status", "code", "details", "metadata", NULL);
+  grpc_rb_sStatus = rb_const_get(rb_cStruct, rb_intern("Status"));
   sym_code = ID2SYM(rb_intern("code"));
   sym_details = ID2SYM(rb_intern("details"));
   sym_metadata = ID2SYM(rb_intern("metadata"));
@@ -364,7 +323,6 @@ void Init_grpc_c() {
   Init_grpc_channel_credentials();
   Init_grpc_server();
   Init_grpc_server_credentials();
-  Init_grpc_status_codes();
   Init_grpc_time_consts();
   Init_grpc_compression_options();
 }

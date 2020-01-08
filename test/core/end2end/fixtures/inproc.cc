@@ -28,7 +28,6 @@
 #include "src/core/ext/filters/http/server/http_server_filter.h"
 #include "src/core/ext/transport/inproc/inproc_transport.h"
 #include "src/core/lib/channel/connected_channel.h"
-#include "src/core/lib/gpr/host_port.h"
 #include "src/core/lib/surface/channel.h"
 #include "src/core/lib/surface/server.h"
 #include "test/core/util/port.h"
@@ -39,7 +38,7 @@ typedef struct inproc_fixture_data {
 } inproc_fixture_data;
 
 static grpc_end2end_test_fixture inproc_create_fixture(
-    grpc_channel_args* client_args, grpc_channel_args* server_args) {
+    grpc_channel_args* /*client_args*/, grpc_channel_args* /*server_args*/) {
   grpc_end2end_test_fixture f;
   inproc_fixture_data* ffd = static_cast<inproc_fixture_data*>(
       gpr_malloc(sizeof(inproc_fixture_data)));
@@ -83,7 +82,7 @@ static grpc_end2end_test_config configs[] = {
 int main(int argc, char** argv) {
   size_t i;
 
-  grpc_test_init(argc, argv);
+  grpc::testing::TestEnvironment env(argc, argv);
   grpc_end2end_tests_pre_init();
   grpc_init();
 

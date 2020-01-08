@@ -23,7 +23,7 @@
 
 #include "src/cpp/ext/proto_server_reflection.h"
 
-namespace grpc {
+namespace grpc_impl {
 namespace reflection {
 
 ProtoServerReflectionPlugin::ProtoServerReflectionPlugin()
@@ -41,8 +41,8 @@ void ProtoServerReflectionPlugin::Finish(grpc::ServerInitializer* si) {
   reflection_service_->SetServiceList(si->GetServiceList());
 }
 
-void ProtoServerReflectionPlugin::ChangeArguments(const grpc::string& name,
-                                                  void* value) {}
+void ProtoServerReflectionPlugin::ChangeArguments(const grpc::string& /*name*/,
+                                                  void* /*value*/) {}
 
 bool ProtoServerReflectionPlugin::has_sync_methods() const {
   if (reflection_service_) {
@@ -79,4 +79,4 @@ struct StaticProtoReflectionPluginInitializer {
 } static_proto_reflection_plugin_initializer;
 
 }  // namespace reflection
-}  // namespace grpc
+}  // namespace grpc_impl

@@ -15,7 +15,7 @@
 
 cdef class CallCredentials:
 
-  cdef grpc_call_credentials *c(self)
+  cdef grpc_call_credentials *c(self) except *
 
   # TODO(https://github.com/grpc/grpc/issues/12531): remove.
   cdef grpc_call_credentials *c_credentials
@@ -26,9 +26,9 @@ cdef int _get_metadata(
     grpc_credentials_plugin_metadata_cb cb, void *user_data,
     grpc_metadata creds_md[GRPC_METADATA_CREDENTIALS_PLUGIN_SYNC_MAX],
     size_t *num_creds_md, grpc_status_code *status,
-    const char **error_details) with gil
+    const char **error_details) except * with gil
 
-cdef void _destroy(void *state) with gil
+cdef void _destroy(void *state) except * with gil
 
 
 cdef class MetadataPluginCallCredentials(CallCredentials):
@@ -36,7 +36,7 @@ cdef class MetadataPluginCallCredentials(CallCredentials):
   cdef readonly object _metadata_plugin
   cdef readonly bytes _name
 
-  cdef grpc_call_credentials *c(self)
+  cdef grpc_call_credentials *c(self) except *
 
 
 cdef grpc_call_credentials *_composition(call_credentialses)
@@ -46,15 +46,12 @@ cdef class CompositeCallCredentials(CallCredentials):
 
   cdef readonly tuple _call_credentialses
 
-  cdef grpc_call_credentials *c(self)
+  cdef grpc_call_credentials *c(self) except *
 
 
 cdef class ChannelCredentials:
 
-  cdef grpc_channel_credentials *c(self)
-
-  # TODO(https://github.com/grpc/grpc/issues/12531): remove.
-  cdef grpc_channel_credentials *c_credentials
+  cdef grpc_channel_credentials *c(self) except *
 
 
 cdef class SSLSessionCacheLRU:
@@ -68,7 +65,7 @@ cdef class SSLChannelCredentials(ChannelCredentials):
   cdef readonly object _private_key
   cdef readonly object _certificate_chain
 
-  cdef grpc_channel_credentials *c(self)
+  cdef grpc_channel_credentials *c(self) except *
 
 
 cdef class CompositeChannelCredentials(ChannelCredentials):
@@ -76,7 +73,7 @@ cdef class CompositeChannelCredentials(ChannelCredentials):
   cdef readonly tuple _call_credentialses
   cdef readonly ChannelCredentials _channel_credentials
 
-  cdef grpc_channel_credentials *c(self)
+  cdef grpc_channel_credentials *c(self) except *
 
 
 cdef class ServerCertificateConfig:
@@ -100,3 +97,8 @@ cdef class ServerCredentials:
   cdef object cert_config_fetcher
   # whether C-core has asked for the initial_cert_config
   cdef bint initial_cert_config_fetched
+
+
+cdef class LocalChannelCredentials(ChannelCredentials):
+
+  cdef grpc_local_connect_type _local_connect_type

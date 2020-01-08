@@ -25,7 +25,7 @@
 #include <grpcpp/server.h>
 #include <grpcpp/server_context.h>
 
-#include "src/core/lib/gpr/host_port.h"
+#include "src/core/lib/gprpp/host_port.h"
 #include "src/proto/grpc/testing/benchmark_service.grpc.pb.h"
 #include "test/cpp/qps/qps_server_builder.h"
 #include "test/cpp/qps/server.h"
@@ -36,7 +36,7 @@ namespace testing {
 
 class BenchmarkServiceImpl final : public BenchmarkService::Service {
  public:
-  Status UnaryCall(ServerContext* context, const SimpleRequest* request,
+  Status UnaryCall(ServerContext* /*context*/, const SimpleRequest* request,
                    SimpleResponse* response) override {
     auto s = SetResponse(request, response);
     if (!s.ok()) {
@@ -45,7 +45,7 @@ class BenchmarkServiceImpl final : public BenchmarkService::Service {
     return Status::OK;
   }
   Status StreamingCall(
-      ServerContext* context,
+      ServerContext* /*context*/,
       ServerReaderWriter<SimpleResponse, SimpleRequest>* stream) override {
     SimpleRequest request;
     while (stream->Read(&request)) {
@@ -114,7 +114,7 @@ class BenchmarkServiceImpl final : public BenchmarkService::Service {
 
  private:
   template <class R>
-  static Status ClientPull(ServerContext* context, R* stream,
+  static Status ClientPull(ServerContext* /*context*/, R* stream,
                            SimpleResponse* response) {
     SimpleRequest request;
     while (stream->Read(&request)) {
@@ -128,7 +128,7 @@ class BenchmarkServiceImpl final : public BenchmarkService::Service {
     return Status::OK;
   }
   template <class W>
-  static Status ServerPush(ServerContext* context, W* stream,
+  static Status ServerPush(ServerContext* /*context*/, W* stream,
                            const SimpleResponse& response,
                            const std::function<bool()>& done) {
     while ((done == nullptr) || !done()) {
@@ -160,11 +160,10 @@ class SynchronousServer final : public grpc::testing::Server {
     auto port_num = port();
     // Negative port number means inproc server, so no listen port needed
     if (port_num >= 0) {
-      char* server_address = nullptr;
-      gpr_join_host_port(&server_address, "::", port_num);
-      builder->AddListeningPort(server_address,
+      grpc_core::UniquePtr<char> server_address;
+      grpc_core::JoinHostPort(&server_address, "::", port_num);
+      builder->AddListeningPort(server_address.get(),
                                 Server::CreateServerCredentials(config));
-      gpr_free(server_address);
     }
 
     ApplyConfigToBuilder(config, builder.get());

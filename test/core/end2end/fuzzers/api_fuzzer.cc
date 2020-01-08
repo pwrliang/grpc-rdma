@@ -24,8 +24,8 @@
 #include <grpc/support/log.h>
 #include <grpc/support/string_util.h>
 
-#include "src/core/ext/filters/client_channel/lb_policy_factory.h"
 #include "src/core/ext/filters/client_channel/resolver/dns/c_ares/grpc_ares_wrapper.h"
+#include "src/core/ext/filters/client_channel/server_address.h"
 #include "src/core/ext/transport/chttp2/transport/chttp2_transport.h"
 #include "src/core/lib/channel/channel_args.h"
 #include "src/core/lib/gpr/env.h"
@@ -52,7 +52,7 @@ using grpc_core::testing::input_stream;
 bool squelch = true;
 bool leak_check = true;
 
-static void dont_log(gpr_log_func_args* args) {}
+static void dont_log(gpr_log_func_args* /*args*/) {}
 
 ////////////////////////////////////////////////////////////////////////////////
 // global state
@@ -325,7 +325,7 @@ typedef struct addr_req {
   char* addr;
   grpc_closure* on_done;
   grpc_resolved_addresses** addrs;
-  grpc_lb_addresses** lb_addrs;
+  std::unique_ptr<grpc_core::ServerAddressList>* addresses;
 } addr_req;
 
 static void finish_resolve(void* arg, grpc_error* error) {
@@ -340,32 +340,32 @@ static void finish_resolve(void* arg, grpc_error* error) {
           gpr_malloc(sizeof(*addrs->addrs)));
       addrs->addrs[0].len = 0;
       *r->addrs = addrs;
-    } else if (r->lb_addrs != nullptr) {
-      grpc_lb_addresses* lb_addrs = grpc_lb_addresses_create(1, nullptr);
-      grpc_lb_addresses_set_address(lb_addrs, 0, nullptr, 0, false, nullptr,
-                                    nullptr);
-      *r->lb_addrs = lb_addrs;
+    } else if (r->addresses != nullptr) {
+      *r->addresses = grpc_core::MakeUnique<grpc_core::ServerAddressList>();
+      grpc_resolved_address dummy_resolved_address;
+      memset(&dummy_resolved_address, 0, sizeof(dummy_resolved_address));
+      dummy_resolved_address.len = 0;
+      (*r->addresses)->emplace_back(dummy_resolved_address, nullptr);
     }
-    GRPC_CLOSURE_SCHED(r->on_done, GRPC_ERROR_NONE);
+    grpc_core::ExecCtx::Run(DEBUG_LOCATION, r->on_done, GRPC_ERROR_NONE);
   } else {
-    GRPC_CLOSURE_SCHED(r->on_done,
-                       GRPC_ERROR_CREATE_REFERENCING_FROM_STATIC_STRING(
-                           "Resolution failed", &error, 1));
+    grpc_core::ExecCtx::Run(DEBUG_LOCATION, r->on_done,
+                            GRPC_ERROR_CREATE_REFERENCING_FROM_STATIC_STRING(
+                                "Resolution failed", &error, 1));
   }
 
   gpr_free(r->addr);
-  gpr_free(r);
+  delete r;
 }
 
-void my_resolve_address(const char* addr, const char* default_port,
-                        grpc_pollset_set* interested_parties,
+void my_resolve_address(const char* addr, const char* /*default_port*/,
+                        grpc_pollset_set* /*interested_parties*/,
                         grpc_closure* on_done,
-                        grpc_resolved_addresses** addresses) {
-  addr_req* r = static_cast<addr_req*>(gpr_malloc(sizeof(*r)));
+                        grpc_resolved_addresses** addrs) {
+  addr_req* r = new addr_req();
   r->addr = gpr_strdup(addr);
   r->on_done = on_done;
-  r->addrs = addresses;
-  r->lb_addrs = nullptr;
+  r->addrs = addrs;
   grpc_timer_init(
       &r->timer, GPR_MS_PER_SEC + grpc_core::ExecCtx::Get()->Now(),
       GRPC_CLOSURE_CREATE(finish_resolve, r, grpc_schedule_on_exec_ctx));
@@ -375,15 +375,16 @@ static grpc_address_resolver_vtable fuzzer_resolver = {my_resolve_address,
                                                        nullptr};
 
 grpc_ares_request* my_dns_lookup_ares_locked(
-    const char* dns_server, const char* addr, const char* default_port,
-    grpc_pollset_set* interested_parties, grpc_closure* on_done,
-    grpc_lb_addresses** lb_addrs, bool check_grpclb, char** service_config_json,
-    int query_timeout, grpc_combiner* combiner) {
+    const char* /*dns_server*/, const char* addr, const char* /*default_port*/,
+    grpc_pollset_set* /*interested_parties*/, grpc_closure* on_done,
+    std::unique_ptr<grpc_core::ServerAddressList>* addresses,
+    bool /*check_grpclb*/, char** /*service_config_json*/,
+    int /*query_timeout*/, grpc_core::Combiner* /*combiner*/) {
   addr_req* r = static_cast<addr_req*>(gpr_malloc(sizeof(*r)));
   r->addr = gpr_strdup(addr);
   r->on_done = on_done;
   r->addrs = nullptr;
-  r->lb_addrs = lb_addrs;
+  r->addresses = addresses;
   grpc_timer_init(
       &r->timer, GPR_MS_PER_SEC + grpc_core::ExecCtx::Get()->Now(),
       GRPC_CLOSURE_CREATE(finish_resolve, r, grpc_schedule_on_exec_ctx));
@@ -411,7 +412,7 @@ static void do_connect(void* arg, grpc_error* error) {
   future_connect* fc = static_cast<future_connect*>(arg);
   if (error != GRPC_ERROR_NONE) {
     *fc->ep = nullptr;
-    GRPC_CLOSURE_SCHED(fc->closure, GRPC_ERROR_REF(error));
+    grpc_core::ExecCtx::Run(DEBUG_LOCATION, fc->closure, GRPC_ERROR_REF(error));
   } else if (g_server != nullptr) {
     grpc_endpoint* client;
     grpc_endpoint* server;
@@ -420,10 +421,10 @@ static void do_connect(void* arg, grpc_error* error) {
 
     grpc_transport* transport =
         grpc_create_chttp2_transport(nullptr, server, false);
-    grpc_server_setup_transport(g_server, transport, nullptr, nullptr, 0);
+    grpc_server_setup_transport(g_server, transport, nullptr, nullptr, nullptr);
     grpc_chttp2_transport_start_reading(transport, nullptr, nullptr);
 
-    GRPC_CLOSURE_SCHED(fc->closure, GRPC_ERROR_NONE);
+    grpc_core::ExecCtx::Run(DEBUG_LOCATION, fc->closure, GRPC_ERROR_NONE);
   } else {
     sched_connect(fc->closure, fc->ep, fc->deadline);
   }
@@ -434,8 +435,9 @@ static void sched_connect(grpc_closure* closure, grpc_endpoint** ep,
                           gpr_timespec deadline) {
   if (gpr_time_cmp(deadline, gpr_now(deadline.clock_type)) < 0) {
     *ep = nullptr;
-    GRPC_CLOSURE_SCHED(closure, GRPC_ERROR_CREATE_FROM_STATIC_STRING(
-                                    "Connect deadline exceeded"));
+    grpc_core::ExecCtx::Run(
+        DEBUG_LOCATION, closure,
+        GRPC_ERROR_CREATE_FROM_STATIC_STRING("Connect deadline exceeded"));
     return;
   }
 
@@ -449,9 +451,9 @@ static void sched_connect(grpc_closure* closure, grpc_endpoint** ep,
 }
 
 static void my_tcp_client_connect(grpc_closure* closure, grpc_endpoint** ep,
-                                  grpc_pollset_set* interested_parties,
-                                  const grpc_channel_args* channel_args,
-                                  const grpc_resolved_address* addr,
+                                  grpc_pollset_set* /*interested_parties*/,
+                                  const grpc_channel_args* /*channel_args*/,
+                                  const grpc_resolved_address* /*addr*/,
                                   grpc_millis deadline) {
   sched_connect(closure, ep,
                 grpc_millis_to_timespec(deadline, GPR_CLOCK_MONOTONIC));
@@ -480,7 +482,7 @@ static void assert_success_and_decrement(void* counter, bool success) {
   --*static_cast<int*>(counter);
 }
 
-static void decrement(void* counter, bool success) {
+static void decrement(void* counter, bool /*success*/) {
   --*static_cast<int*>(counter);
 }
 
@@ -661,7 +663,7 @@ typedef struct {
   uint8_t has_ops;
 } batch_info;
 
-static void finished_batch(void* p, bool success) {
+static void finished_batch(void* p, bool /*success*/) {
   batch_info* bi = static_cast<batch_info*>(p);
   --bi->cs->pending_ops;
   if ((bi->has_ops & (1u << GRPC_OP_RECV_MESSAGE)) &&
@@ -705,7 +707,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   grpc_timer_manager_set_threading(false);
   {
     grpc_core::ExecCtx exec_ctx;
-    grpc_executor_set_threading(false);
+    grpc_core::Executor::SetThreadingAll(false);
   }
   grpc_set_resolver_impl(&fuzzer_resolver);
   grpc_dns_lookup_ares_locked = my_dns_lookup_ares_locked;
@@ -1199,6 +1201,6 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
 
   grpc_resource_quota_unref(g_resource_quota);
 
-  grpc_shutdown();
+  grpc_shutdown_blocking();
   return 0;
 }

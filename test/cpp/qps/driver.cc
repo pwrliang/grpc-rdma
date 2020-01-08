@@ -31,7 +31,7 @@
 #include <grpcpp/create_channel.h>
 
 #include "src/core/lib/gpr/env.h"
-#include "src/core/lib/gpr/host_port.h"
+#include "src/core/lib/gprpp/host_port.h"
 #include "src/core/lib/profiling/timers.h"
 #include "src/proto/grpc/testing/worker_service.grpc.pb.h"
 #include "test/core/util/port.h"
@@ -52,15 +52,10 @@ using std::vector;
 namespace grpc {
 namespace testing {
 static std::string get_host(const std::string& worker) {
-  char* host;
-  char* port;
-
-  gpr_split_host_port(worker.c_str(), &host, &port);
-  const string s(host);
-
-  gpr_free(host);
-  gpr_free(port);
-  return s;
+  grpc_core::StringView host;
+  grpc_core::StringView port;
+  grpc_core::SplitHostPort(worker.c_str(), &host, &port);
+  return std::string(host.data(), host.size());
 }
 
 static deque<string> get_workers(const string& env_name) {
@@ -95,6 +90,17 @@ static deque<string> get_workers(const string& env_name) {
   return out;
 }
 
+std::string GetCredType(
+    const std::string& worker_addr,
+    const std::map<std::string, std::string>& per_worker_credential_types,
+    const std::string& credential_type) {
+  auto it = per_worker_credential_types.find(worker_addr);
+  if (it != per_worker_credential_types.end()) {
+    return it->second;
+  }
+  return credential_type;
+}
+
 // helpers for postprocess_scenario_result
 static double WallTime(const ClientStats& s) { return s.time_elapsed(); }
 static double SystemTime(const ClientStats& s) { return s.time_system(); }
@@ -112,38 +118,62 @@ static double ServerIdleCpuTime(const ServerStats& s) {
 }
 static int Cores(int n) { return n; }
 
+static bool IsSuccess(const Status& s) {
+  if (s.ok()) return true;
+  // Since we shutdown servers and clients at the same time, they both can
+  // observe cancellation.  Thus, we consider CANCELLED as good status.
+  if (static_cast<StatusCode>(s.error_code()) == StatusCode::CANCELLED) {
+    return true;
+  }
+  // Since we shutdown servers and clients at the same time, server can close
+  // the socket before the client attempts to do that, and vice versa.  Thus
+  // receiving a "Socket closed" error is fine.
+  if (s.error_message() == "Socket closed") return true;
+  return false;
+}
+
 // Postprocess ScenarioResult and populate result summary.
 static void postprocess_scenario_result(ScenarioResult* result) {
+  // Get latencies from ScenarioResult latencies histogram and populate to
+  // result summary.
   Histogram histogram;
   histogram.MergeProto(result->latencies());
-
-  auto time_estimate = average(result->client_stats(), WallTime);
-  auto qps = histogram.Count() / time_estimate;
-  auto qps_per_server_core = qps / sum(result->server_cores(), Cores);
-
-  result->mutable_summary()->set_qps(qps);
-  result->mutable_summary()->set_qps_per_server_core(qps_per_server_core);
   result->mutable_summary()->set_latency_50(histogram.Percentile(50));
   result->mutable_summary()->set_latency_90(histogram.Percentile(90));
   result->mutable_summary()->set_latency_95(histogram.Percentile(95));
   result->mutable_summary()->set_latency_99(histogram.Percentile(99));
   result->mutable_summary()->set_latency_999(histogram.Percentile(99.9));
 
-  auto server_system_time = 100.0 *
-                            sum(result->server_stats(), ServerSystemTime) /
-                            sum(result->server_stats(), ServerWallTime);
-  auto server_user_time = 100.0 * sum(result->server_stats(), ServerUserTime) /
-                          sum(result->server_stats(), ServerWallTime);
-
-  auto client_system_time = 100.0 * sum(result->client_stats(), SystemTime) /
-                            sum(result->client_stats(), WallTime);
-  auto client_user_time = 100.0 * sum(result->client_stats(), UserTime) /
-                          sum(result->client_stats(), WallTime);
-
-  result->mutable_summary()->set_server_system_time(server_system_time);
-  result->mutable_summary()->set_server_user_time(server_user_time);
-  result->mutable_summary()->set_client_system_time(client_system_time);
-  result->mutable_summary()->set_client_user_time(client_user_time);
+  // Calculate qps and cpu load for each client and then aggregate results for
+  // all clients
+  double qps = 0;
+  double client_system_cpu_load = 0, client_user_cpu_load = 0;
+  for (size_t i = 0; i < result->client_stats_size(); i++) {
+    auto client_stat = result->client_stats(i);
+    qps += client_stat.latencies().count() / client_stat.time_elapsed();
+    client_system_cpu_load +=
+        client_stat.time_system() / client_stat.time_elapsed();
+    client_user_cpu_load +=
+        client_stat.time_user() / client_stat.time_elapsed();
+  }
+  // Calculate cpu load for each server and then aggregate results for all
+  // servers
+  double server_system_cpu_load = 0, server_user_cpu_load = 0;
+  for (size_t i = 0; i < result->server_stats_size(); i++) {
+    auto server_stat = result->server_stats(i);
+    server_system_cpu_load +=
+        server_stat.time_system() / server_stat.time_elapsed();
+    server_user_cpu_load +=
+        server_stat.time_user() / server_stat.time_elapsed();
+  }
+  result->mutable_summary()->set_qps(qps);
+  // Populate the percentage of cpu load to result summary.
+  result->mutable_summary()->set_server_system_time(100 *
+                                                    server_system_cpu_load);
+  result->mutable_summary()->set_server_user_time(100 * server_user_cpu_load);
+  result->mutable_summary()->set_client_system_time(100 *
+                                                    client_system_cpu_load);
+  result->mutable_summary()->set_client_user_time(100 * client_user_cpu_load);
 
   // For Non-linux platform, get_cpu_usage() is not implemented. Thus,
   // ServerTotalCpuTime and ServerIdleCpuTime are both 0.
@@ -156,6 +186,9 @@ static void postprocess_scenario_result(ScenarioResult* result) {
     result->mutable_summary()->set_server_cpu_usage(server_cpu_usage);
   }
 
+  // Calculate and populate successful request per second and failed requests
+  // per seconds to result summary.
+  auto time_estimate = average(result->client_stats(), WallTime);
   if (result->request_results_size() > 0) {
     int64_t successes = 0;
     int64_t failures = 0;
@@ -173,6 +206,9 @@ static void postprocess_scenario_result(ScenarioResult* result) {
                                                               time_estimate);
   }
 
+  // Fill in data for other metrics required in result summary
+  auto qps_per_server_core = qps / sum(result->server_cores(), Cores);
+  result->mutable_summary()->set_qps_per_server_core(qps_per_server_core);
   result->mutable_summary()->set_client_polls_per_request(
       sum(result->client_stats(), CliPollCount) / histogram.Count());
   result->mutable_summary()->set_server_polls_per_request(
@@ -198,8 +234,9 @@ std::unique_ptr<ScenarioResult> RunScenario(
     const ServerConfig& initial_server_config, size_t num_servers,
     int warmup_seconds, int benchmark_seconds, int spawn_local_worker_count,
     const grpc::string& qps_server_target_override,
-    const grpc::string& credential_type, bool run_inproc,
-    int32_t median_latency_collection_interval_millis) {
+    const grpc::string& credential_type,
+    const std::map<std::string, std::string>& per_worker_credential_types,
+    bool run_inproc, int32_t median_latency_collection_interval_millis) {
   if (run_inproc) {
     g_inproc_servers = new std::vector<grpc::testing::Server*>;
   }
@@ -276,9 +313,11 @@ std::unique_ptr<ScenarioResult> RunScenario(
     gpr_log(GPR_INFO, "Starting server on %s (worker #%" PRIuPTR ")",
             workers[i].c_str(), i);
     if (!run_inproc) {
-      servers[i].stub = WorkerService::NewStub(CreateChannel(
+      servers[i].stub = WorkerService::NewStub(grpc::CreateChannel(
           workers[i], GetCredentialsProvider()->GetChannelCredentials(
-                          credential_type, &channel_args)));
+                          GetCredType(workers[i], per_worker_credential_types,
+                                      credential_type),
+                          &channel_args)));
     } else {
       servers[i].stub = WorkerService::NewStub(
           local_workers[i]->InProcessChannel(channel_args));
@@ -310,11 +349,10 @@ std::unique_ptr<ScenarioResult> RunScenario(
       client_config.add_server_targets(cli_target);
     } else {
       std::string host;
-      char* cli_target;
+      grpc_core::UniquePtr<char> cli_target;
       host = get_host(workers[i]);
-      gpr_join_host_port(&cli_target, host.c_str(), init_status.port());
-      client_config.add_server_targets(cli_target);
-      gpr_free(cli_target);
+      grpc_core::JoinHostPort(&cli_target, host.c_str(), init_status.port());
+      client_config.add_server_targets(cli_target.get());
     }
   }
 
@@ -335,9 +373,11 @@ std::unique_ptr<ScenarioResult> RunScenario(
     gpr_log(GPR_INFO, "Starting client on %s (worker #%" PRIuPTR ")",
             worker.c_str(), i + num_servers);
     if (!run_inproc) {
-      clients[i].stub = WorkerService::NewStub(
-          CreateChannel(worker, GetCredentialsProvider()->GetChannelCredentials(
-                                    credential_type, &channel_args)));
+      clients[i].stub = WorkerService::NewStub(grpc::CreateChannel(
+          worker,
+          GetCredentialsProvider()->GetChannelCredentials(
+              GetCredType(worker, per_worker_credential_types, credential_type),
+              &channel_args)));
     } else {
       clients[i].stub = WorkerService::NewStub(
           local_workers[i + num_servers]->InProcessChannel(channel_args));
@@ -453,6 +493,17 @@ std::unique_ptr<ScenarioResult> RunScenario(
       gpr_log(GPR_ERROR, "Failed WritesDone for client %zu", i);
     }
   }
+  gpr_log(GPR_INFO, "Finishing servers");
+  for (size_t i = 0; i < num_servers; i++) {
+    auto server = &servers[i];
+    if (!server->stream->Write(server_mark)) {
+      gpr_log(GPR_ERROR, "Couldn't write mark to server %zu", i);
+    }
+    if (!server->stream->WritesDone()) {
+      gpr_log(GPR_ERROR, "Failed WritesDone for server %zu", i);
+    }
+  }
+
   for (size_t i = 0; i < num_clients; i++) {
     auto client = &clients[i];
     // Read the client final status
@@ -474,8 +525,12 @@ std::unique_ptr<ScenarioResult> RunScenario(
   for (size_t i = 0; i < num_clients; i++) {
     auto client = &clients[i];
     Status s = client->stream->Finish();
-    result->add_client_success(s.ok());
-    if (!s.ok()) {
+    // Since we shutdown servers and clients at the same time, clients can
+    // observe cancellation.  Thus, we consider both OK and CANCELLED as good
+    // status.
+    const bool success = IsSuccess(s);
+    result->add_client_success(success);
+    if (!success) {
       gpr_log(GPR_ERROR, "Client %zu had an error %s", i,
               s.error_message().c_str());
     }
@@ -489,16 +544,6 @@ std::unique_ptr<ScenarioResult> RunScenario(
     rrc->set_count(it->second);
   }
 
-  gpr_log(GPR_INFO, "Finishing servers");
-  for (size_t i = 0; i < num_servers; i++) {
-    auto server = &servers[i];
-    if (!server->stream->Write(server_mark)) {
-      gpr_log(GPR_ERROR, "Couldn't write mark to server %zu", i);
-    }
-    if (!server->stream->WritesDone()) {
-      gpr_log(GPR_ERROR, "Failed WritesDone for server %zu", i);
-    }
-  }
   for (size_t i = 0; i < num_servers; i++) {
     auto server = &servers[i];
     // Read the server final status
@@ -515,8 +560,12 @@ std::unique_ptr<ScenarioResult> RunScenario(
   for (size_t i = 0; i < num_servers; i++) {
     auto server = &servers[i];
     Status s = server->stream->Finish();
-    result->add_server_success(s.ok());
-    if (!s.ok()) {
+    // Since we shutdown servers and clients at the same time, servers can
+    // observe cancellation.  Thus, we consider both OK and CANCELLED as good
+    // status.
+    const bool success = IsSuccess(s);
+    result->add_server_success(success);
+    if (!success) {
       gpr_log(GPR_ERROR, "Server %zu had an error %s", i,
               s.error_message().c_str());
     }
@@ -529,7 +578,9 @@ std::unique_ptr<ScenarioResult> RunScenario(
   return result;
 }
 
-bool RunQuit(const grpc::string& credential_type) {
+bool RunQuit(
+    const grpc::string& credential_type,
+    const std::map<std::string, std::string>& per_worker_credential_types) {
   // Get client, server lists
   bool result = true;
   auto workers = get_workers("QPS_WORKERS");
@@ -539,9 +590,11 @@ bool RunQuit(const grpc::string& credential_type) {
 
   ChannelArguments channel_args;
   for (size_t i = 0; i < workers.size(); i++) {
-    auto stub = WorkerService::NewStub(CreateChannel(
+    auto stub = WorkerService::NewStub(grpc::CreateChannel(
         workers[i], GetCredentialsProvider()->GetChannelCredentials(
-                        credential_type, &channel_args)));
+                        GetCredType(workers[i], per_worker_credential_types,
+                                    credential_type),
+                        &channel_args)));
     Void dummy;
     grpc::ClientContext ctx;
     ctx.set_wait_for_ready(true);

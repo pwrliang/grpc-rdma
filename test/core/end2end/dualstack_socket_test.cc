@@ -19,7 +19,7 @@
 #include "src/core/lib/iomgr/port.h"
 
 // This test won't work except with posix sockets enabled
-#ifdef GRPC_POSIX_SOCKET
+#ifdef GRPC_POSIX_SOCKET_EV
 
 #include <string.h>
 
@@ -28,8 +28,8 @@
 #include <grpc/support/log.h>
 #include <grpc/support/string_util.h>
 
-#include "src/core/lib/gpr/host_port.h"
 #include "src/core/lib/gpr/string.h"
+#include "src/core/lib/gprpp/host_port.h"
 #include "src/core/lib/iomgr/error.h"
 #include "src/core/lib/iomgr/resolve_address.h"
 #include "src/core/lib/iomgr/sockaddr_utils.h"
@@ -51,7 +51,7 @@ static void drain_cq(grpc_completion_queue* cq) {
   } while (ev.type != GRPC_QUEUE_SHUTDOWN);
 }
 
-static void do_nothing(void* ignored) {}
+static void do_nothing(void* /*ignored*/) {}
 
 static void log_resolved_addrs(const char* label, const char* hostname) {
   grpc_resolved_addresses* res = nullptr;
@@ -70,8 +70,6 @@ static void log_resolved_addrs(const char* label, const char* hostname) {
 
 void test_connect(const char* server_host, const char* client_host, int port,
                   int expect_ok) {
-  char* client_hostport;
-  char* server_hostport;
   grpc_channel* client;
   grpc_server* server;
   grpc_completion_queue* cq;
@@ -99,7 +97,8 @@ void test_connect(const char* server_host, const char* client_host, int port,
     picked_port = 1;
   }
 
-  gpr_join_host_port(&server_hostport, server_host, port);
+  grpc_core::UniquePtr<char> server_hostport;
+  grpc_core::JoinHostPort(&server_hostport, server_host, port);
 
   grpc_metadata_array_init(&initial_metadata_recv);
   grpc_metadata_array_init(&trailing_metadata_recv);
@@ -111,7 +110,7 @@ void test_connect(const char* server_host, const char* client_host, int port,
   server = grpc_server_create(nullptr, nullptr);
   grpc_server_register_completion_queue(server, cq, nullptr);
   GPR_ASSERT((got_port = grpc_server_add_insecure_http2_port(
-                  server, server_hostport)) > 0);
+                  server, server_hostport.get())) > 0);
   if (port == 0) {
     port = got_port;
   } else {
@@ -121,6 +120,7 @@ void test_connect(const char* server_host, const char* client_host, int port,
   cqv = cq_verifier_create(cq);
 
   /* Create client. */
+  grpc_core::UniquePtr<char> client_hostport;
   if (client_host[0] == 'i') {
     /* for ipv4:/ipv6: addresses, concatenate the port to each of the parts */
     size_t i;
@@ -139,8 +139,8 @@ void test_connect(const char* server_host, const char* client_host, int port,
       gpr_asprintf(&hosts_with_port[i], "%s:%d", uri_part_str, port);
       gpr_free(uri_part_str);
     }
-    client_hostport = gpr_strjoin_sep((const char**)hosts_with_port,
-                                      uri_parts.count, ",", nullptr);
+    client_hostport.reset(gpr_strjoin_sep((const char**)hosts_with_port,
+                                          uri_parts.count, ",", nullptr));
     for (i = 0; i < uri_parts.count; i++) {
       gpr_free(hosts_with_port[i]);
     }
@@ -148,17 +148,16 @@ void test_connect(const char* server_host, const char* client_host, int port,
     grpc_slice_buffer_destroy(&uri_parts);
     grpc_slice_unref(uri_slice);
   } else {
-    gpr_join_host_port(&client_hostport, client_host, port);
+    grpc_core::JoinHostPort(&client_hostport, client_host, port);
   }
-  client = grpc_insecure_channel_create(client_hostport, nullptr, nullptr);
+  client =
+      grpc_insecure_channel_create(client_hostport.get(), nullptr, nullptr);
 
   gpr_log(GPR_INFO, "Testing with server=%s client=%s (expecting %s)",
-          server_hostport, client_hostport, expect_ok ? "success" : "failure");
+          server_hostport.get(), client_hostport.get(),
+          expect_ok ? "success" : "failure");
   log_resolved_addrs("server resolved addr", server_host);
   log_resolved_addrs("client resolved addr", client_host);
-
-  gpr_free(client_hostport);
-  gpr_free(server_hostport);
 
   if (expect_ok) {
     /* Normal deadline, shouldn't be reached. */
@@ -303,7 +302,7 @@ int external_dns_works(const char* host) {
 int main(int argc, char** argv) {
   int do_ipv6 = 1;
 
-  grpc_test_init(argc, argv);
+  grpc::testing::TestEnvironment env(argc, argv);
   grpc_init();
 
   if (!grpc_ipv6_loopback_available()) {
@@ -371,8 +370,8 @@ int main(int argc, char** argv) {
   return 0;
 }
 
-#else /* GRPC_POSIX_SOCKET */
+#else /* GRPC_POSIX_SOCKET_EV */
 
 int main(int argc, char** argv) { return 1; }
 
-#endif /* GRPC_POSIX_SOCKET */
+#endif /* GRPC_POSIX_SOCKET_EV */

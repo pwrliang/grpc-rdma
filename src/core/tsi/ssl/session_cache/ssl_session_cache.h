@@ -53,6 +53,10 @@ class SslSessionLRUCache : public grpc_core::RefCounted<SslSessionLRUCache> {
     return grpc_core::MakeRefCounted<SslSessionLRUCache>(capacity);
   }
 
+  // Use Create function instead of using this directly.
+  explicit SslSessionLRUCache(size_t capacity);
+  ~SslSessionLRUCache();
+
   // Not copyable nor movable.
   SslSessionLRUCache(const SslSessionLRUCache&) = delete;
   SslSessionLRUCache& operator=(const SslSessionLRUCache&) = delete;
@@ -67,18 +71,7 @@ class SslSessionLRUCache : public grpc_core::RefCounted<SslSessionLRUCache> {
   SslSessionPtr Get(const char* key);
 
  private:
-  // So New() can call our private ctor.
-  template <typename T, typename... Args>
-  friend T* grpc_core::New(Args&&... args);
-
-  // So Delete() can call our private dtor.
-  template <typename T>
-  friend void grpc_core::Delete(T*);
-
   class Node;
-
-  explicit SslSessionLRUCache(size_t capacity);
-  ~SslSessionLRUCache();
 
   Node* FindLocked(const grpc_slice& key);
   void Remove(Node* node);

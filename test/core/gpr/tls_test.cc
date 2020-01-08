@@ -33,7 +33,7 @@
 
 GPR_TLS_DECL(test_var);
 
-static void thd_body(void* arg) {
+static void thd_body(void* /*arg*/) {
   intptr_t i;
 
   GPR_ASSERT(gpr_tls_get(&test_var) == 0);
@@ -50,7 +50,7 @@ static void thd_body(void* arg) {
 int main(int argc, char* argv[]) {
   grpc_core::Thread threads[NUM_THREADS];
 
-  grpc_test_init(argc, argv);
+  grpc::testing::TestEnvironment env(argc, argv);
 
   gpr_tls_init(&test_var);
 

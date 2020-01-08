@@ -12,8 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-FROM debian:jessie
-
+FROM debian:stretch
+  
 # Install Git and basic packages.
 RUN apt-get update && apt-get install -y \
   autoconf \
@@ -53,20 +53,16 @@ RUN apt-get update && apt-get install -y time && apt-get clean
 RUN apt-get update && apt-get install -y python-pip && apt-get clean
 RUN pip install --upgrade google-api-python-client oauth2client
 
-#====================
-# Python dependencies
+# Install Python 2.7
+RUN apt-get update && apt-get install -y python2.7 python-all-dev
+RUN curl https://bootstrap.pypa.io/get-pip.py | python2.7
 
-# Install dependencies
+# Add Debian 'buster' repository, we will need it for installing newer versions of python
+RUN echo 'deb http://ftp.de.debian.org/debian buster main' >> /etc/apt/sources.list
+RUN echo 'APT::Default-Release "stretch";' | tee -a /etc/apt/apt.conf.d/00local
 
-RUN apt-get update && apt-get install -y \
-    python-all-dev \
-    python3-all-dev \
-    python-pip
+RUN mkdir /var/local/jenkins
 
-# Install Python packages from PyPI
-RUN pip install --upgrade pip==10.0.1
-RUN pip install virtualenv
-RUN pip install futures==2.2.0 enum34==1.0.4 protobuf==3.5.2.post1 six==1.10.0 twisted==17.5.0
 
 #=================
 # C++ dependencies
@@ -74,16 +70,18 @@ RUN apt-get update && apt-get -y install libgflags-dev libgtest-dev libc++-dev c
 
 #========================
 # Sanity test dependencies
+RUN apt-get update && apt-get -t buster install -y python3.7 python3-all-dev
+RUN curl https://bootstrap.pypa.io/get-pip.py | python3.7
+# Make Python 3.7 the default Python 3 version
+RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.7 1
 RUN apt-get update && apt-get install -y \
-      python-pip \
       autoconf \
       automake \
       libtool \
       curl \
-      python-virtualenv \
-      python-lxml \
       shellcheck
-RUN pip install simplejson mako
+RUN python2 -m pip install simplejson mako virtualenv lxml
+RUN python3 -m pip install simplejson mako virtualenv lxml
 
 RUN apt-get update && apt-get -y install wget xz-utils
 RUN wget http://releases.llvm.org/5.0.0/clang+llvm-5.0.0-linux-x86_64-ubuntu14.04.tar.xz
@@ -93,8 +91,24 @@ ENV CLANG_FORMAT=clang-format
 RUN ln -s /clang+llvm-5.0.0-linux-x86_64-ubuntu14.04/bin/clang-tidy /usr/local/bin/clang-tidy
 ENV CLANG_TIDY=clang-tidy
 
+#========================
+# Bazel installation
 
-RUN mkdir /var/local/jenkins
+# Must be in sync with tools/bazel
+ENV BAZEL_VERSION 1.0.0
+
+# The correct bazel version is already preinstalled, no need to use //tools/bazel wrapper.
+ENV DISABLE_BAZEL_WRAPPER 1
+
+RUN apt-get update && apt-get install -y wget && apt-get clean
+RUN wget "https://github.com/bazelbuild/bazel/releases/download/$BAZEL_VERSION/bazel-$BAZEL_VERSION-installer-linux-x86_64.sh" && \
+  bash ./bazel-$BAZEL_VERSION-installer-linux-x86_64.sh && \
+  rm bazel-$BAZEL_VERSION-installer-linux-x86_64.sh
+
+# Install buildifier v0.29.0
+RUN wget https://github.com/bazelbuild/buildtools/releases/download/0.29.0/buildifier
+RUN chmod +x buildifier
+RUN mv buildifier /usr/local/bin
 
 
 # Define the default command.

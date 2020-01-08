@@ -92,9 +92,9 @@
 
 static void* tag(intptr_t t) { return (void*)t; }
 
-static void server_verifier_sends_too_much_metadata(grpc_server* server,
-                                                    grpc_completion_queue* cq,
-                                                    void* registered_method) {
+static void server_verifier_sends_too_much_metadata(
+    grpc_server* server, grpc_completion_queue* cq,
+    void* /*registered_method*/) {
   grpc_call_error error;
   grpc_call* s;
   grpc_call_details call_details;
@@ -140,8 +140,8 @@ static void server_verifier_sends_too_much_metadata(grpc_server* server,
 
 int main(int argc, char** argv) {
   int i;
-
-  grpc_test_init(argc, argv);
+  grpc_init();
+  grpc::testing::TestEnvironment env(argc, argv);
 
   // Test sending more metadata than the server will accept.
   gpr_strvec headers;
@@ -173,5 +173,6 @@ int main(int argc, char** argv) {
   GRPC_RUN_BAD_CLIENT_TEST(server_verifier_sends_too_much_metadata,
                            rst_stream_client_validator,
                            PFX_TOO_MUCH_METADATA_FROM_SERVER_STR, 0);
+  grpc_shutdown();
   return 0;
 }

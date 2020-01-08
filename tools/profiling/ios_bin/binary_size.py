@@ -26,7 +26,7 @@ from parse_link_map import parse_link_map
 sys.path.append(
     os.path.join(
         os.path.dirname(sys.argv[0]), '..', '..', 'run_tests', 'python_utils'))
-import comment_on_pr
+import check_on_pr
 
 # Only show diff 1KB or greater
 diff_threshold = 1000
@@ -100,14 +100,14 @@ for frameworks in [False, True]:
             ['git', 'rev-parse', '--abbrev-ref', 'HEAD']).strip()
         subprocess.check_call(['git', 'checkout', '--', '.'])
         subprocess.check_call(['git', 'checkout', args.diff_base])
-        subprocess.check_call(['git', 'submodule', 'update'])
+        subprocess.check_call(['git', 'submodule', 'update', '--force'])
         try:
             build('old', frameworks)
             old_size = get_size('old', frameworks)
         finally:
             subprocess.check_call(['git', 'checkout', '--', '.'])
             subprocess.check_call(['git', 'checkout', where_am_i])
-            subprocess.check_call(['git', 'submodule', 'update'])
+            subprocess.check_call(['git', 'submodule', 'update', '--force'])
 
     text += ('***************FRAMEWORKS****************\n'
              if frameworks else '*****************STATIC******************\n')
@@ -147,4 +147,4 @@ for frameworks in [False, True]:
 
 print text
 
-comment_on_pr.comment_on_pr('```\n%s\n```' % text)
+check_on_pr.check_on_pr('Binary Size', '```\n%s\n```' % text)

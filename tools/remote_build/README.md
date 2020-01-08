@@ -12,7 +12,7 @@ and tests run by Kokoro CI.
 
 - See [Installing Bazel](https://docs.bazel.build/versions/master/install.html) for instructions how to install bazel on your system.
 
-- Setup application default credentials for running remote builds by following [RBE Credentials Setup](https://cloud.google.com/remote-build-execution/docs/getting-started#set_credentials)
+- Setup application default credentials for running remote builds by following the ["Set credentials" section](https://cloud.google.com/remote-build-execution/docs/results-ui/getting-started-results-ui). (Note: for the ResultStore UI upload to work, you'll need a special kind of application default credentials, so if the build event upload doesn't work, doublecheck the instructions)
 
 
 ## Running remote build manually from dev workstation
@@ -27,6 +27,19 @@ Sanitizer runs (asan, msan, tsan, ubsan):
 ```
 # manual run of bazel tests remotely on Foundry with given sanitizer
 bazel --bazelrc=tools/remote_build/manual.bazelrc test --config=asan //test/...
+```
+
+Run on Windows MSVC:
+```
+# manual run of bazel tests remotely on RBE Windows (must be run from Windows machine)
+bazel --bazelrc=tools/remote_build/windows.bazelrc test --config=windows_opt //test/...
+```
+
+Run on MacOS (experimental for now):
+```
+# manual run of bazel tests on Mac (must be run from Mac machine)
+# NOTE: it's not really a "remote execution", but uploads results to ResultStore
+bazel --bazelrc=tools/remote_build/mac.bazelrc test --config=opt //test/...
 ```
 
 Available command line options can be found in

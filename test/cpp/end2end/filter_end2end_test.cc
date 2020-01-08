@@ -99,8 +99,8 @@ int GetCallCounterValue() {
 
 class ChannelDataImpl : public ChannelData {
  public:
-  grpc_error* Init(grpc_channel_element* elem,
-                   grpc_channel_element_args* args) {
+  grpc_error* Init(grpc_channel_element* /*elem*/,
+                   grpc_channel_element_args* /*args*/) {
     IncrementConnectionCounter();
     return GRPC_ERROR_NONE;
   }
@@ -120,6 +120,17 @@ class CallDataImpl : public CallData {
 class FilterEnd2endTest : public ::testing::Test {
  protected:
   FilterEnd2endTest() : server_host_("localhost") {}
+
+  static void SetUpTestCase() {
+    // Workaround for
+    // https://github.com/google/google-toolbox-for-mac/issues/242
+    static bool setup_done = false;
+    if (!setup_done) {
+      setup_done = true;
+      grpc::RegisterChannelFilter<ChannelDataImpl, CallDataImpl>(
+          "test-filter", GRPC_SERVER_CHANNEL, INT_MAX, nullptr);
+    }
+  }
 
   void SetUp() override {
     int port = grpc_pick_unused_port_or_die();
@@ -146,8 +157,8 @@ class FilterEnd2endTest : public ::testing::Test {
   }
 
   void ResetStub() {
-    std::shared_ptr<Channel> channel =
-        CreateChannel(server_address_.str(), InsecureChannelCredentials());
+    std::shared_ptr<Channel> channel = grpc::CreateChannel(
+        server_address_.str(), InsecureChannelCredentials());
     generic_stub_.reset(new GenericStub(channel));
     ResetConnectionCounter();
     ResetCallCounter();
@@ -321,18 +332,12 @@ TEST_F(FilterEnd2endTest, SimpleBidiStreaming) {
   EXPECT_EQ(1, GetConnectionCounterValue());
 }
 
-void RegisterFilter() {
-  grpc::RegisterChannelFilter<ChannelDataImpl, CallDataImpl>(
-      "test-filter", GRPC_SERVER_CHANNEL, INT_MAX, nullptr);
-}
-
 }  // namespace
 }  // namespace testing
 }  // namespace grpc
 
 int main(int argc, char** argv) {
-  grpc_test_init(argc, argv);
+  grpc::testing::TestEnvironment env(argc, argv);
   ::testing::InitGoogleTest(&argc, argv);
-  grpc::testing::RegisterFilter();
   return RUN_ALL_TESTS();
 }

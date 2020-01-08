@@ -21,17 +21,17 @@ gRPC PHP installation instructions for Google Cloud Platform is in
 For PHP5:
 
 ```sh
-$ sudo apt-get install php5 php5-dev php-pear phpunit
+$ sudo apt-get install php5 php5-dev php-pear
 ```
 
 For PHP7:
 
 ```sh
-$ sudo apt-get install php7.0 php7.0-dev php-pear phpunit
+$ sudo apt-get install php7.0 php7.0-dev php-pear
 ```
 or
 ```sh
-$ sudo apt-get install php php-dev php-pear phpunit
+$ sudo apt-get install php php-dev php-pear
 ```
 
 **Install PHP and PECL on CentOS/RHEL 7:**
@@ -43,7 +43,6 @@ $ sudo yum install php56w php56w-devel php-pear phpunit gcc zlib-devel
 
 **Install PHP and PECL on Mac:**
 ```sh
-$ brew install homebrew/php/php56-grpc
 $ curl -O http://pear.php.net/go-pear.phar
 $ sudo php -d detect_unicode=0 go-pear.phar
 ```
@@ -55,10 +54,13 @@ $ sudo mv composer.phar /usr/local/bin/composer
 ```
 
 **Install PHPUnit (Linux or Mac):**
+
+PHP tests currently require using an older version of PHPUnit
+
 ```sh
-$ wget https://phar.phpunit.de/phpunit-old.phar
-$ chmod +x phpunit-old.phar
-$ sudo mv phpunit-old.phar /usr/bin/phpunit
+$ wget https://phar.phpunit.de/phpunit-5.7.27.phar
+$ chmod +x phpunit-5.7.27.phar
+$ sudo mv phpunit-5.7.27.phar /usr/local/bin/phpunit
 ```
 
 ## Install the gRPC PHP extension
@@ -174,6 +176,16 @@ v1.4.0 | 3.3.0
 v1.6.0 | 3.4.0
 v1.8.0 | 3.5.0
 v1.12.0 | 3.5.2
+v1.13.1 | 3.5.2
+v1.14.2 | 3.5.2
+v1.15.1 | 3.6.1
+v1.16.1 | 3.6.1
+v1.17.2 | 3.6.1
+v1.18.0 | 3.6.1
+v1.19.1 | 3.6.1
+v1.20.1 | 3.7.0
+v1.21.3 | 3.7.0
+v1.22.0 | 3.8.0
 
 If `protoc` hasn't been installed, you can download the `protoc` binaries from
 [the protocol buffers Github repository](https://github.com/google/protobuf/releases).
@@ -294,9 +306,9 @@ Run a local server serving the math services. Please see [Node][] for how to
 run an example server.
 
 ```sh
-$ cd grpc
+$ cd grpc/src/php/tests/generated_code
 $ npm install
-$ node src/node/test/math/math_server.js
+$ node math_server.js
 ```
 
 ### Run test client

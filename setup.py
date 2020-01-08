@@ -29,15 +29,16 @@ import sysconfig
 import setuptools
 from setuptools.command import egg_info
 
+import subprocess
+from subprocess import PIPE
+
 # Redirect the manifest template from MANIFEST.in to PYTHON-MANIFEST.in.
 egg_info.manifest_maker.template = 'PYTHON-MANIFEST.in'
 
 PY3 = sys.version_info.major == 3
 PYTHON_STEM = os.path.join('src', 'python', 'grpcio')
 CORE_INCLUDE = ('include', '.',)
-SSL_INCLUDE = (os.path.join('third_party', 'boringssl', 'include'),)
-ZLIB_INCLUDE = (os.path.join('third_party', 'zlib'),)
-NANOPB_INCLUDE = (os.path.join('third_party', 'nanopb'),)
+ADDRESS_SORTING_INCLUDE = (os.path.join('third_party', 'address_sorting', 'include'),)
 CARES_INCLUDE = (
     os.path.join('third_party', 'cares'),
     os.path.join('third_party', 'cares', 'cares'),)
@@ -49,7 +50,10 @@ if 'linux' in sys.platform:
   CARES_INCLUDE += (os.path.join('third_party', 'cares', 'config_linux'),)
 if 'openbsd' in sys.platform:
   CARES_INCLUDE += (os.path.join('third_party', 'cares', 'config_openbsd'),)
-ADDRESS_SORTING_INCLUDE = (os.path.join('third_party', 'address_sorting', 'include'),)
+SSL_INCLUDE = (os.path.join('third_party', 'boringssl', 'include'),)
+UPB_INCLUDE = (os.path.join('third_party', 'upb'),)
+UPB_GRPC_GENERATED_INCLUDE = (os.path.join('src', 'core', 'ext', 'upb-generated'),)
+ZLIB_INCLUDE = (os.path.join('third_party', 'zlib'),)
 README = os.path.join(PYTHON_STEM, 'README.rst')
 
 # Ensure we're in the proper directory whether or not we're being used by pip.
@@ -77,6 +81,8 @@ CLASSIFIERS = [
     'Programming Language :: Python :: 3.4',
     'Programming Language :: Python :: 3.5',
     'Programming Language :: Python :: 3.6',
+    'Programming Language :: Python :: 3.7',
+    'Programming Language :: Python :: 3.8',
     'License :: OSI Approved :: Apache Software License',
 ]
 
@@ -86,6 +92,7 @@ CLASSIFIERS = [
 # is set to false, if the script detects that the generated `.c` file isn't
 # present, then it will still attempt to use Cython.
 BUILD_WITH_CYTHON = os.environ.get('GRPC_PYTHON_BUILD_WITH_CYTHON', False)
+
 
 # Export this variable to use the system installation of openssl. You need to
 # have the header files installed (in /usr/include/openssl) and during
@@ -105,6 +112,21 @@ BUILD_WITH_SYSTEM_ZLIB = os.environ.get('GRPC_PYTHON_BUILD_SYSTEM_ZLIB',
 BUILD_WITH_SYSTEM_CARES = os.environ.get('GRPC_PYTHON_BUILD_SYSTEM_CARES',
                                          False)
 
+# For local development use only: This skips building gRPC Core and its
+# dependencies, including protobuf and boringssl. This allows "incremental"
+# compilation by first building gRPC Core using make, then building only the
+# Python/Cython layers here.
+#
+# Note that this requires libboringssl.a in the libs/{dbg,opt}/ directory, which
+# may require configuring make to not use the system openssl implementation:
+#
+#    make HAS_SYSTEM_OPENSSL_ALPN=0
+#
+# TODO(ericgribkoff) Respect the BUILD_WITH_SYSTEM_* flags alongside this option
+USE_PREBUILT_GRPC_CORE = os.environ.get(
+    'GRPC_PYTHON_USE_PREBUILT_GRPC_CORE', False)
+
+
 # If this environmental variable is set, GRPC will not try to be compatible with
 # libc versions old than the one it was compiled against.
 DISABLE_LIBC_COMPATIBILITY = os.environ.get('GRPC_PYTHON_DISABLE_LIBC_COMPATIBILITY', False)
@@ -119,6 +141,17 @@ ENABLE_CYTHON_TRACING = os.environ.get(
 ENABLE_DOCUMENTATION_BUILD = os.environ.get(
     'GRPC_PYTHON_ENABLE_DOCUMENTATION_BUILD', False)
 
+def check_linker_need_libatomic():
+  """Test if linker on system needs libatomic."""
+  code_test = (b'#include <atomic>\n' +
+               b'int main() { return std::atomic<int64_t>{}; }')
+  cc_test = subprocess.Popen(['cc', '-x', 'c++', '-std=c++11', '-'],
+                             stdin=PIPE,
+                             stdout=PIPE,
+                             stderr=PIPE)
+  cc_test.communicate(input=code_test)
+  return cc_test.returncode != 0
+
 # There are some situations (like on Windows) where CC, CFLAGS, and LDFLAGS are
 # entirely ignored/dropped/forgotten by distutils and its Cygwin/MinGW support.
 # We use these environment variables to thus get around that without locking
@@ -130,35 +163,41 @@ EXTRA_ENV_COMPILE_ARGS = os.environ.get('GRPC_PYTHON_CFLAGS', None)
 EXTRA_ENV_LINK_ARGS = os.environ.get('GRPC_PYTHON_LDFLAGS', None)
 if EXTRA_ENV_COMPILE_ARGS is None:
   EXTRA_ENV_COMPILE_ARGS = ' -std=c++11'
-  if 'win32' in sys.platform and sys.version_info < (3, 5):
-    EXTRA_ENV_COMPILE_ARGS += ' -D_hypot=hypot'
-    # We use define flags here and don't directly add to DEFINE_MACROS below to
-    # ensure that the expert user/builder has a way of turning it off (via the
-    # envvars) without adding yet more GRPC-specific envvars.
-    # See https://sourceforge.net/p/mingw-w64/bugs/363/
-    if '32' in platform.architecture()[0]:
-      EXTRA_ENV_COMPILE_ARGS += ' -D_ftime=_ftime32 -D_timeb=__timeb32 -D_ftime_s=_ftime32_s'
+  if 'win32' in sys.platform:
+    if sys.version_info < (3, 5):
+      EXTRA_ENV_COMPILE_ARGS += ' -D_hypot=hypot'
+      # We use define flags here and don't directly add to DEFINE_MACROS below to
+      # ensure that the expert user/builder has a way of turning it off (via the
+      # envvars) without adding yet more GRPC-specific envvars.
+      # See https://sourceforge.net/p/mingw-w64/bugs/363/
+      if '32' in platform.architecture()[0]:
+        EXTRA_ENV_COMPILE_ARGS += ' -D_ftime=_ftime32 -D_timeb=__timeb32 -D_ftime_s=_ftime32_s'
+      else:
+        EXTRA_ENV_COMPILE_ARGS += ' -D_ftime=_ftime64 -D_timeb=__timeb64'
     else:
-      EXTRA_ENV_COMPILE_ARGS += ' -D_ftime=_ftime64 -D_timeb=__timeb64'
+      # We need to statically link the C++ Runtime, only the C runtime is
+      # available dynamically
+      EXTRA_ENV_COMPILE_ARGS += ' /MT'
   elif "linux" in sys.platform:
     EXTRA_ENV_COMPILE_ARGS += ' -std=gnu99 -fvisibility=hidden -fno-wrapv -fno-exceptions'
   elif "darwin" in sys.platform:
-    EXTRA_ENV_COMPILE_ARGS += ' -fvisibility=hidden -fno-wrapv -fno-exceptions'
-EXTRA_ENV_COMPILE_ARGS += ' -DPB_FIELD_16BIT'
+    EXTRA_ENV_COMPILE_ARGS += ' -stdlib=libc++ -fvisibility=hidden -fno-wrapv -fno-exceptions'
 
 if EXTRA_ENV_LINK_ARGS is None:
   EXTRA_ENV_LINK_ARGS = ''
   if "linux" in sys.platform or "darwin" in sys.platform:
     EXTRA_ENV_LINK_ARGS += ' -lpthread'
+    if check_linker_need_libatomic():
+      EXTRA_ENV_LINK_ARGS += ' -latomic'
   elif "win32" in sys.platform and sys.version_info < (3, 5):
     msvcr = cygwinccompiler.get_msvcr()[0]
     # TODO(atash) sift through the GCC specs to see if libstdc++ can have any
     # influence on the linkage outcome on MinGW for non-C++ programs.
     EXTRA_ENV_LINK_ARGS += (
-        ' -static-libgcc -static-libstdc++ -mcrtdll={msvcr} '
-        '-static'.format(msvcr=msvcr))
+        ' -static-libgcc -static-libstdc++ -mcrtdll={msvcr}'
+        ' -static'.format(msvcr=msvcr))
   if "linux" in sys.platform:
-    EXTRA_ENV_LINK_ARGS += ' -Wl,-wrap,memcpy  -static-libgcc'
+    EXTRA_ENV_LINK_ARGS += ' -Wl,-wrap,memcpy -static-libgcc'
 
 EXTRA_COMPILE_ARGS = shlex.split(EXTRA_ENV_COMPILE_ARGS)
 EXTRA_LINK_ARGS = shlex.split(EXTRA_ENV_LINK_ARGS)
@@ -187,8 +226,14 @@ if BUILD_WITH_SYSTEM_CARES:
   CARES_INCLUDE = (os.path.join('/usr', 'include'),)
 
 EXTENSION_INCLUDE_DIRECTORIES = (
-    (PYTHON_STEM,) + CORE_INCLUDE + SSL_INCLUDE + ZLIB_INCLUDE +
-    NANOPB_INCLUDE + CARES_INCLUDE + ADDRESS_SORTING_INCLUDE)
+    (PYTHON_STEM,) +
+    CORE_INCLUDE +
+    ADDRESS_SORTING_INCLUDE +
+    CARES_INCLUDE +
+    SSL_INCLUDE +
+    UPB_INCLUDE +
+    UPB_GRPC_GENERATED_INCLUDE +
+    ZLIB_INCLUDE)
 
 EXTENSION_LIBRARIES = ()
 if "linux" in sys.platform:
@@ -243,13 +288,14 @@ if 'darwin' in sys.platform and PY3:
         r'macosx-10.7-\1',
         util.get_platform())
 
+
 def cython_extensions_and_necessity():
   cython_module_files = [os.path.join(PYTHON_STEM,
                                name.replace('.', '/') + '.pyx')
                   for name in CYTHON_EXTENSION_MODULE_NAMES]
   config = os.environ.get('CONFIG', 'opt')
   prefix = 'libs/' + config + '/'
-  if "darwin" in sys.platform:
+  if USE_PREBUILT_GRPC_CORE:
     extra_objects = [prefix + 'libares.a',
                      prefix + 'libboringssl.a',
                      prefix + 'libgpr.a',
@@ -273,6 +319,8 @@ def cython_extensions_and_necessity():
   need_cython = BUILD_WITH_CYTHON
   if not BUILD_WITH_CYTHON:
     need_cython = need_cython or not commands.check_and_update_cythonization(extensions)
+  # TODO: the strategy for conditional compiling and exposing the aio Cython
+  # dependencies will be revisited by https://github.com/grpc/grpc/issues/19728
   return commands.try_cythonize(extensions, linetracing=ENABLE_CYTHON_TRACING, mandatory=BUILD_WITH_CYTHON), need_cython
 
 CYTHON_EXTENSION_MODULES, need_cython = cython_extensions_and_necessity()
@@ -282,11 +330,10 @@ PACKAGE_DIRECTORIES = {
 }
 
 INSTALL_REQUIRES = (
-    'six>=1.5.2',
+    "six>=1.5.2",
+    "futures>=2.2.0; python_version<'3.2'",
+    "enum34>=1.0.4; python_version<'3.4'",
 )
-
-if not PY3:
-  INSTALL_REQUIRES += ('futures>=2.2.0', 'enum34>=1.0.4')
 
 SETUP_REQUIRES = INSTALL_REQUIRES + (
     'Sphinx~=1.8.1',
