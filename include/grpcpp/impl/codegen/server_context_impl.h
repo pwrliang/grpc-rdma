@@ -20,12 +20,15 @@
 #define GRPCPP_IMPL_CODEGEN_SERVER_CONTEXT_IMPL_H
 
 #include <atomic>
+#include <cassert>
 #include <map>
 #include <memory>
+#include <type_traits>
 #include <vector>
 
-#include <grpc/impl/codegen/compression_types.h>
+#include <grpc/impl/codegen/port_platform.h>
 
+#include <grpc/impl/codegen/compression_types.h>
 #include <grpcpp/impl/codegen/call.h>
 #include <grpcpp/impl/codegen/call_op_set.h>
 #include <grpcpp/impl/codegen/callback_common.h>
@@ -95,10 +98,13 @@ namespace grpc {
 class GenericServerContext;
 class ServerInterface;
 
+#ifndef GRPC_CALLBACK_API_NONEXPERIMENTAL
 namespace experimental {
+#endif
 class GenericCallbackServerContext;
+#ifndef GRPC_CALLBACK_API_NONEXPERIMENTAL
 }  // namespace experimental
-
+#endif
 namespace internal {
 class Call;
 }  // namespace internal
@@ -297,9 +303,20 @@ class ServerContextBase {
   ///
   /// WARNING: This is experimental API and could be changed or removed.
   ::grpc_impl::ServerUnaryReactor* DefaultReactor() {
-    auto reactor = &default_reactor_;
+    // Short-circuit the case where a default reactor was already set up by
+    // the TestPeer.
+    if (test_unary_ != nullptr) {
+      return reinterpret_cast<Reactor*>(&default_reactor_);
+    }
+    new (&default_reactor_) Reactor;
+#ifndef NDEBUG
+    bool old = false;
+    assert(default_reactor_used_.compare_exchange_strong(
+        old, true, std::memory_order_relaxed));
+#else
     default_reactor_used_.store(true, std::memory_order_relaxed);
-    return reactor;
+#endif
+    return reinterpret_cast<Reactor*>(&default_reactor_);
   }
 
   /// Constructors for use by derived classes
@@ -348,7 +365,11 @@ class ServerContextBase {
   friend class ::grpc_impl::internal::FinishOnlyReactor;
   friend class ::grpc_impl::ClientContext;
   friend class ::grpc::GenericServerContext;
+#ifdef GRPC_CALLBACK_API_NONEXPERIMENTAL
+  friend class ::grpc::GenericCallbackServerContext;
+#else
   friend class ::grpc::experimental::GenericCallbackServerContext;
+#endif
 
   /// Prevent copying.
   ServerContextBase(const ServerContextBase&);
@@ -437,7 +458,7 @@ class ServerContextBase {
    public:
     TestServerCallbackUnary(ServerContextBase* ctx,
                             std::function<void(::grpc::Status)> func)
-        : reactor_(&ctx->default_reactor_), func_(std::move(func)) {
+        : reactor_(ctx->DefaultReactor()), func_(std::move(func)) {
       this->BindReactor(reactor_);
     }
     void Finish(::grpc::Status s) override {
@@ -453,7 +474,7 @@ class ServerContextBase {
     ::grpc::Status status() const { return status_; }
 
    private:
-    void MaybeDone() override {}
+    void CallOnDone() override {}
     ::grpc_impl::internal::ServerReactor* reactor() override {
       return reactor_;
     }
@@ -464,7 +485,8 @@ class ServerContextBase {
     const std::function<void(::grpc::Status s)> func_;
   };
 
-  Reactor default_reactor_;
+  typename std::aligned_storage<sizeof(Reactor), alignof(Reactor)>::type
+      default_reactor_;
   std::atomic_bool default_reactor_used_{false};
   std::unique_ptr<TestServerCallbackUnary> test_unary_;
 };
@@ -491,9 +513,6 @@ class ServerContext : public ServerContextBase {
 
   using ServerContextBase::AddInitialMetadata;
   using ServerContextBase::AddTrailingMetadata;
-  using ServerContextBase::IsCancelled;
-  using ServerContextBase::SetLoadReportingCosts;
-  using ServerContextBase::TryCancel;
   using ServerContextBase::auth_context;
   using ServerContextBase::c_call;
   using ServerContextBase::census_context;
@@ -502,10 +521,13 @@ class ServerContext : public ServerContextBase {
   using ServerContextBase::compression_level;
   using ServerContextBase::compression_level_set;
   using ServerContextBase::deadline;
+  using ServerContextBase::IsCancelled;
   using ServerContextBase::peer;
   using ServerContextBase::raw_deadline;
   using ServerContextBase::set_compression_algorithm;
   using ServerContextBase::set_compression_level;
+  using ServerContextBase::SetLoadReportingCosts;
+  using ServerContextBase::TryCancel;
 
   // Sync/CQ-based Async ServerContext only
   using ServerContextBase::AsyncNotifyWhenDone;
@@ -533,9 +555,6 @@ class CallbackServerContext : public ServerContextBase {
 
   using ServerContextBase::AddInitialMetadata;
   using ServerContextBase::AddTrailingMetadata;
-  using ServerContextBase::IsCancelled;
-  using ServerContextBase::SetLoadReportingCosts;
-  using ServerContextBase::TryCancel;
   using ServerContextBase::auth_context;
   using ServerContextBase::c_call;
   using ServerContextBase::census_context;
@@ -544,10 +563,13 @@ class CallbackServerContext : public ServerContextBase {
   using ServerContextBase::compression_level;
   using ServerContextBase::compression_level_set;
   using ServerContextBase::deadline;
+  using ServerContextBase::IsCancelled;
   using ServerContextBase::peer;
   using ServerContextBase::raw_deadline;
   using ServerContextBase::set_compression_algorithm;
   using ServerContextBase::set_compression_level;
+  using ServerContextBase::SetLoadReportingCosts;
+  using ServerContextBase::TryCancel;
 
   // CallbackServerContext only
   using ServerContextBase::DefaultReactor;

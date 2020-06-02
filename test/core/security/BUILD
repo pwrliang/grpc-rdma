@@ -37,6 +37,11 @@ grpc_fuzzer(
     name = "ssl_server_fuzzer",
     srcs = ["ssl_server_fuzzer.cc"],
     corpus = "corpus/ssl_server_corpus",
+    data = [
+        "//src/core/tsi/test_creds:ca.pem",
+        "//src/core/tsi/test_creds:server1.key",
+        "//src/core/tsi/test_creds:server1.pem",
+    ],
     language = "C++",
     tags = ["no_windows"],
     deps = [
@@ -75,19 +80,6 @@ grpc_cc_test(
     deps = [
         "//:gpr",
         "//:grpc",
-        "//test/core/util:grpc_test_util",
-    ],
-)
-
-grpc_cc_test(
-    name = "control_plane_credentials_test",
-    srcs = ["control_plane_credentials_test.cc"],
-    language = "C++",
-    deps = [
-        "//:gpr",
-        "//:grpc",
-        "//test/core/end2end:cq_verifier",
-        "//test/core/end2end:ssl_test_data",
         "//test/core/util:grpc_test_util",
     ],
 )
@@ -259,11 +251,37 @@ grpc_cc_test(
 )
 
 grpc_cc_test(
-    name = "spiffe_security_connector_test",
-    srcs = ["spiffe_security_connector_test.cc"],
+    name = "tls_security_connector_test",
+    srcs = ["tls_security_connector_test.cc"],
+    data = [
+        "//src/core/tsi/test_creds:ca.pem",
+        "//src/core/tsi/test_creds:server1.key",
+        "//src/core/tsi/test_creds:server1.pem",
+    ],
     external_deps = [
         "gtest",
     ],
+    language = "C++",
+    deps = [
+        "//:gpr",
+        "//:grpc",
+        "//:grpc_secure",
+        "//:tsi",
+        "//:tsi_interface",
+        "//test/core/end2end:ssl_test_data",
+        "//test/core/util:grpc_test_util",
+    ],
+)
+
+grpc_cc_test(
+    name = "grpc_tls_credentials_options_test",
+    srcs = ["grpc_tls_credentials_options_test.cc"],
+    data = [
+        "//src/core/tsi/test_creds:ca.pem",
+        "//src/core/tsi/test_creds:server1.key",
+        "//src/core/tsi/test_creds:server1.pem",
+    ],
+    external_deps = ["gtest"],
     language = "C++",
     deps = [
         "//:gpr",

@@ -27,8 +27,10 @@ os.chdir(ROOT)
 
 # parse command line
 argp = argparse.ArgumentParser(description='copyright checker')
-argp.add_argument(
-    '-o', '--output', default='details', choices=['list', 'details'])
+argp.add_argument('-o',
+                  '--output',
+                  default='details',
+                  choices=['list', 'details'])
 argp.add_argument('-s', '--skips', default=0, action='store_const', const=1)
 argp.add_argument('-a', '--ancient', default=0, action='store_const', const=1)
 argp.add_argument('--precommit', default=False, action='store_true')
@@ -90,6 +92,10 @@ _EXEMPT = frozenset((
     # Designer-generated source
     'examples/csharp/HelloworldXamarin/Droid/Resources/Resource.designer.cs',
     'examples/csharp/HelloworldXamarin/iOS/ViewController.designer.cs',
+
+    # BoringSSL generated header. It has commit version information at the head
+    # of the file so we cannot check the license info.
+    'src/boringssl/boringssl_prefix_symbols.h',
 ))
 
 RE_YEAR = r'Copyright (?P<first_year>[0-9]+\-)?(?P<last_year>[0-9]+) ([Tt]he )?gRPC [Aa]uthors(\.|)'
@@ -132,8 +138,8 @@ def log(cond, why, filename):
 ok = True
 filename_list = []
 try:
-    filename_list = subprocess.check_output(
-        FILE_LIST_COMMAND, shell=True).splitlines()
+    filename_list = subprocess.check_output(FILE_LIST_COMMAND,
+                                            shell=True).splitlines()
 except subprocess.CalledProcessError:
     sys.exit(0)
 
@@ -159,9 +165,7 @@ for filename in filename_list:
     m = re.search(re_license, text)
     if m:
         pass
-    elif 'DO NOT EDIT' not in text and filename not in [
-            'src/boringssl/err_data.c', 'src/boringssl/crypto_test_data.cc'
-    ]:
+    elif 'DO NOT EDIT' not in text:
         log(1, 'copyright missing', filename)
         ok = False
 

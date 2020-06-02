@@ -21,7 +21,6 @@
 #include <fcntl.h>
 #include <gmock/gmock.h>
 #include <netinet/in.h>
-#include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
@@ -106,8 +105,8 @@ class FakeHandshakeServer {
     int port = grpc_pick_unused_port_or_die();
     grpc_core::JoinHostPort(&address_, "localhost", port);
     if (check_num_concurrent_rpcs) {
-      service_ = grpc::gcp::CreateFakeHandshakerService(
-          kFakeHandshakeServerMaxConcurrentStreams /* expected max concurrent rpcs */);
+      service_ = grpc::gcp::
+          CreateFakeHandshakerService(kFakeHandshakeServerMaxConcurrentStreams /* expected max concurrent rpcs */);
     } else {
       service_ = grpc::gcp::CreateFakeHandshakerService(
           0 /* expected max concurrent rpcs unset */);
@@ -591,9 +590,9 @@ TEST(AltsConcurrentConnectivityTest,
 }  // namespace
 
 int main(int argc, char** argv) {
-  grpc_init();
-  grpc::testing::TestEnvironment env(argc, argv);
   ::testing::InitGoogleTest(&argc, argv);
+  grpc::testing::TestEnvironment env(argc, argv);
+  grpc_init();
   auto result = RUN_ALL_TESTS();
   grpc_shutdown();
   return result;
