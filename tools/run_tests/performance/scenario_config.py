@@ -1453,7 +1453,7 @@ class RustLanguage:
         client_type='ASYNC_CLIENT',
         server_type='ASYNC_SERVER',
         unconstrained_client='async',
-        messages_per_stream=100
+        messages_per_stream=100,
         categories=[SCALABLE])
 
     yield _ping_pong_scenario(
@@ -1462,7 +1462,7 @@ class RustLanguage:
         client_type='ASYNC_CLIENT',
         server_type='ASYNC_SERVER',
         unconstrained_client='async',
-        messages_per_stream=10
+        messages_per_stream=10,
         categories=[SCALABLE])
 
     yield _ping_pong_scenario(
