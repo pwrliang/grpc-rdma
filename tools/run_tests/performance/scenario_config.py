@@ -1448,21 +1448,11 @@ class RustLanguage:
         categories=[SCALABLE])
 
     yield _ping_pong_scenario(
-        'rust_protobuf_async_streaming_from_client_100mps_unconstrained',
+        'rust_protobuf_async_streaming_from_client_unconstrained',
         rpc_type='STREAMING_FROM_CLIENT',
         client_type='ASYNC_CLIENT',
         server_type='ASYNC_SERVER',
         unconstrained_client='async',
-        messages_per_stream=100,
-        categories=[SCALABLE])
-
-    yield _ping_pong_scenario(
-        'rust_protobuf_async_streaming_from_client_10mps_unconstrained',
-        rpc_type='STREAMING_FROM_CLIENT',
-        client_type='ASYNC_CLIENT',
-        server_type='ASYNC_SERVER',
-        unconstrained_client='async',
-        messages_per_stream=10,
         categories=[SCALABLE])
 
     yield _ping_pong_scenario(
