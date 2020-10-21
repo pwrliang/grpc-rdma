@@ -73,7 +73,7 @@ some configuration as environment variables that can be set.
     completion queue
   - pick_first - traces the pick first load balancing policy
   - plugin_credentials - traces plugin credentials
-  - pollable_refcount - traces reference counting of 'pollable' objects (only 
+  - pollable_refcount - traces reference counting of 'pollable' objects (only
     in DEBUG)
   - priority_lb - traces priority LB policy
   - resource_quota - trace resource quota objects internals
@@ -90,6 +90,7 @@ some configuration as environment variables that can be set.
   - tsi - traces tsi transport security
   - weighted_target_lb - traces weighted_target LB policy
   - xds_client - traces xds client
+  - xds_cluster_manager_lb - traces cluster manager LB policy
   - xds_resolver - traces xds resolver
 
   The following tracers will only run in binaries built in DEBUG mode. This is

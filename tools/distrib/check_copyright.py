@@ -14,6 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import print_function
 import argparse
 import datetime
 import os
@@ -78,6 +79,9 @@ _EXEMPT = frozenset((
     'examples/python/route_guide/route_guide_pb2.py',
     'examples/python/route_guide/route_guide_pb2_grpc.py',
 
+    # Generated doxygen config file
+    'tools/doxygen/Doxyfile.php',
+
     # An older file originally from outside gRPC.
     'src/php/tests/bootstrap.php',
     # census.proto copied from github
@@ -129,9 +133,9 @@ assert (re.search(RE_LICENSE['Makefile'], load('Makefile')))
 def log(cond, why, filename):
     if not cond: return
     if args.output == 'details':
-        print '%s: %s' % (why, filename)
+        print('%s: %s' % (why, filename))
     else:
-        print filename
+        print(filename)
 
 
 # scan files, validate the text
@@ -147,7 +151,8 @@ for filename in filename_list:
     if filename in _EXEMPT:
         continue
     # Skip check for upb generated code.
-    if filename.endswith('.upb.h') or filename.endswith('.upb.c'):
+    if (filename.endswith('.upb.h') or filename.endswith('.upb.c') or
+            filename.endswith('.upbdefs.h') or filename.endswith('.upbdefs.c')):
         continue
     ext = os.path.splitext(filename)[1]
     base = os.path.basename(filename)

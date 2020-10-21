@@ -21,6 +21,8 @@
 
 #include <grpc/support/port_platform.h>
 
+#include <limits>
+
 #include <grpc/impl/codegen/grpc_types.h>
 #include <grpc/support/atm.h>
 #include <grpc/support/cpu.h>
@@ -132,7 +134,12 @@ class ExecCtx {
   ExecCtx(const ExecCtx&) = delete;
   ExecCtx& operator=(const ExecCtx&) = delete;
 
-  unsigned starting_cpu() const { return starting_cpu_; }
+  unsigned starting_cpu() {
+    if (starting_cpu_ == std::numeric_limits<unsigned>::max()) {
+      starting_cpu_ = gpr_cpu_current_cpu();
+    }
+    return starting_cpu_;
+  }
 
   struct CombinerData {
     /* currently active combiner: updated only via combiner.c */
@@ -239,7 +246,7 @@ class ExecCtx {
   CombinerData combiner_data_ = {nullptr, nullptr};
   uintptr_t flags_;
 
-  unsigned starting_cpu_ = gpr_cpu_current_cpu();
+  unsigned starting_cpu_ = std::numeric_limits<unsigned>::max();
 
   bool now_is_valid_ = false;
   grpc_millis now_ = 0;
@@ -324,9 +331,15 @@ class ApplicationCallbackExecCtx {
     }
   }
 
+  uintptr_t Flags() { return flags_; }
+
+  static ApplicationCallbackExecCtx* Get() {
+    return reinterpret_cast<ApplicationCallbackExecCtx*>(
+        gpr_tls_get(&callback_exec_ctx_));
+  }
+
   static void Set(ApplicationCallbackExecCtx* exec_ctx, uintptr_t flags) {
-    if (reinterpret_cast<ApplicationCallbackExecCtx*>(
-            gpr_tls_get(&callback_exec_ctx_)) == nullptr) {
+    if (Get() == nullptr) {
       if (!(GRPC_APP_CALLBACK_EXEC_CTX_FLAG_IS_INTERNAL_THREAD & flags)) {
         grpc_core::Fork::IncExecCtxCount();
       }
@@ -339,8 +352,7 @@ class ApplicationCallbackExecCtx {
     functor->internal_success = is_success;
     functor->internal_next = nullptr;
 
-    auto* ctx = reinterpret_cast<ApplicationCallbackExecCtx*>(
-        gpr_tls_get(&callback_exec_ctx_));
+    ApplicationCallbackExecCtx* ctx = Get();
 
     if (ctx->head_ == nullptr) {
       ctx->head_ = functor;
@@ -356,6 +368,8 @@ class ApplicationCallbackExecCtx {
 
   /** Global shutdown for ApplicationCallbackExecCtx. Called by init. */
   static void GlobalShutdown(void) { gpr_tls_destroy(&callback_exec_ctx_); }
+
+  static bool Available() { return Get() != nullptr; }
 
  private:
   uintptr_t flags_{0u};

@@ -38,6 +38,8 @@ grpc_cc_library(
     name = "grpc_test_util_base",
     srcs = [
         "cmdline.cc",
+        "eval_args_mock_endpoint.cc",
+        "examine_stack.cc",
         "fuzzer_util.cc",
         "grpc_profiler.cc",
         "histogram.cc",
@@ -59,6 +61,8 @@ grpc_cc_library(
     ],
     hdrs = [
         "cmdline.h",
+        "eval_args_mock_endpoint.h",
+        "examine_stack.h",
         "fuzzer_util.h",
         "grpc_profiler.h",
         "histogram.h",
@@ -80,6 +84,11 @@ grpc_cc_library(
         "lsan_suppressions.txt",
         "tsan_suppressions.txt",
         "ubsan_suppressions.txt",
+    ],
+    external_deps = [
+        "absl/debugging:failure_signal_handler",
+        "absl/debugging:stacktrace",
+        "absl/debugging:symbolize",
     ],
     language = "C++",
     deps = [

@@ -468,6 +468,12 @@ def _filter_cc_tests(tests):
             lambda test: not test.startswith(
                 'test/core/tsi:ssl_session_cache_test'), tests))
 
+    # the binary of this test does not get built with cmake
+    tests = list(
+        filter(
+            lambda test: not test.startswith(
+                'test/cpp/util:channelz_sampler_test'), tests))
+
     return tests
 
 
@@ -589,6 +595,7 @@ _BUILD_EXTRA_METADATA = {
         'build': 'all',
         'baselib': True,
         'secure': True,
+        'deps_linkage': 'static',
         'dll': True,
         'generate_plugin_registry': True
     },
@@ -622,6 +629,7 @@ _BUILD_EXTRA_METADATA = {
     'grpc_csharp_ext': {
         'language': 'c',
         'build': 'all',
+        'deps_linkage': 'static',
         'dll': 'only'
     },
     'grpc_unsecure': {
@@ -629,6 +637,7 @@ _BUILD_EXTRA_METADATA = {
         'build': 'all',
         'baselib': True,
         'secure': False,
+        'deps_linkage': 'static',
         'dll': True,
         'generate_plugin_registry': True
     },
@@ -907,10 +916,10 @@ _BUILD_EXTRA_METADATA = {
         '_TYPE': 'target',
         '_RENAME': 'ssl_server_fuzzer'
     },
-    'test/core/client_channel:uri_fuzzer_test': {
+    'test/core/uri:uri_fuzzer_test': {
         'language': 'c++',
         'build': 'fuzzer',
-        'corpus_dirs': ['test/core/client_channel/uri_corpus'],
+        'corpus_dirs': ['test/core/uri/uri_corpus'],
         'maxlen': 128,
         '_TYPE': 'target',
         '_RENAME': 'uri_fuzzer_test'
