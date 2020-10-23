@@ -49,13 +49,12 @@ RUN apt-get update && apt-get install -y \
 # Build profiling
 RUN apt-get update && apt-get install -y time && apt-get clean
 
-# Google Cloud platform API libraries
-RUN apt-get update && apt-get install -y python-pip && apt-get clean
-RUN pip install --upgrade google-api-python-client oauth2client
-
 # Install Python 2.7
 RUN apt-get update && apt-get install -y python2.7 python-all-dev
 RUN curl https://bootstrap.pypa.io/get-pip.py | python2.7
+
+# Google Cloud platform API libraries
+RUN pip install --upgrade google-api-python-client oauth2client
 
 
 RUN mkdir /var/local/jenkins
@@ -97,7 +96,7 @@ ENV CLANG_TIDY=clang-tidy-6.0
 # Bazel installation
 
 # Must be in sync with tools/bazel
-ENV BAZEL_VERSION 1.0.0
+ENV BAZEL_VERSION 2.2.0
 
 # The correct bazel version is already preinstalled, no need to use //tools/bazel wrapper.
 ENV DISABLE_BAZEL_WRAPPER 1

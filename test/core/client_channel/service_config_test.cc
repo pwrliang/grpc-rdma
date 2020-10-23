@@ -25,6 +25,7 @@
 #include <grpc/grpc.h>
 #include "src/core/ext/filters/client_channel/resolver_result_parsing.h"
 #include "src/core/ext/filters/client_channel/service_config.h"
+#include "src/core/ext/filters/client_channel/service_config_parser.h"
 #include "src/core/ext/filters/message_size/message_size_filter.h"
 #include "src/core/lib/gpr/string.h"
 #include "test/core/util/port.h"
@@ -33,7 +34,10 @@
 namespace grpc_core {
 namespace testing {
 
-class TestParsedConfig1 : public ServiceConfig::ParsedConfig {
+// Set this channel arg to true to disable parsing.
+#define GRPC_ARG_DISABLE_PARSING "disable_parsing"
+
+class TestParsedConfig1 : public ServiceConfigParser::ParsedConfig {
  public:
   TestParsedConfig1(int value) : value_(value) {}
 
@@ -43,11 +47,15 @@ class TestParsedConfig1 : public ServiceConfig::ParsedConfig {
   int value_;
 };
 
-class TestParser1 : public ServiceConfig::Parser {
+class TestParser1 : public ServiceConfigParser::Parser {
  public:
-  std::unique_ptr<ServiceConfig::ParsedConfig> ParseGlobalParams(
-      const Json& json, grpc_error** error) override {
+  std::unique_ptr<ServiceConfigParser::ParsedConfig> ParseGlobalParams(
+      const grpc_channel_args* args, const Json& json,
+      grpc_error** error) override {
     GPR_DEBUG_ASSERT(error != nullptr);
+    if (grpc_channel_args_find_bool(args, GRPC_ARG_DISABLE_PARSING, false)) {
+      return nullptr;
+    }
     auto it = json.object_value().find("global_param");
     if (it != json.object_value().end()) {
       if (it->second.type() != Json::Type::NUMBER) {
@@ -75,11 +83,15 @@ class TestParser1 : public ServiceConfig::Parser {
   }
 };
 
-class TestParser2 : public ServiceConfig::Parser {
+class TestParser2 : public ServiceConfigParser::Parser {
  public:
-  std::unique_ptr<ServiceConfig::ParsedConfig> ParsePerMethodParams(
-      const Json& json, grpc_error** error) override {
+  std::unique_ptr<ServiceConfigParser::ParsedConfig> ParsePerMethodParams(
+      const grpc_channel_args* args, const Json& json,
+      grpc_error** error) override {
     GPR_DEBUG_ASSERT(error != nullptr);
+    if (grpc_channel_args_find_bool(args, GRPC_ARG_DISABLE_PARSING, false)) {
+      return nullptr;
+    }
     auto it = json.object_value().find("method_param");
     if (it != json.object_value().end()) {
       if (it->second.type() != Json::Type::NUMBER) {
@@ -108,17 +120,19 @@ class TestParser2 : public ServiceConfig::Parser {
 };
 
 // This parser always adds errors
-class ErrorParser : public ServiceConfig::Parser {
+class ErrorParser : public ServiceConfigParser::Parser {
  public:
-  std::unique_ptr<ServiceConfig::ParsedConfig> ParsePerMethodParams(
-      const Json& /*json*/, grpc_error** error) override {
+  std::unique_ptr<ServiceConfigParser::ParsedConfig> ParsePerMethodParams(
+      const grpc_channel_args* /*arg*/, const Json& /*json*/,
+      grpc_error** error) override {
     GPR_DEBUG_ASSERT(error != nullptr);
     *error = GRPC_ERROR_CREATE_FROM_STATIC_STRING(MethodError());
     return nullptr;
   }
 
-  std::unique_ptr<ServiceConfig::ParsedConfig> ParseGlobalParams(
-      const Json& /*json*/, grpc_error** error) override {
+  std::unique_ptr<ServiceConfigParser::ParsedConfig> ParseGlobalParams(
+      const grpc_channel_args* /*arg*/, const Json& /*json*/,
+      grpc_error** error) override {
     GPR_DEBUG_ASSERT(error != nullptr);
     *error = GRPC_ERROR_CREATE_FROM_STATIC_STRING(GlobalError());
     return nullptr;
@@ -139,19 +153,21 @@ void VerifyRegexMatch(grpc_error* error, const std::regex& regex) {
 class ServiceConfigTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    ServiceConfig::Shutdown();
-    ServiceConfig::Init();
-    EXPECT_EQ(ServiceConfig::RegisterParser(absl::make_unique<TestParser1>()),
-              0);
-    EXPECT_EQ(ServiceConfig::RegisterParser(absl::make_unique<TestParser2>()),
-              1);
+    ServiceConfigParser::Shutdown();
+    ServiceConfigParser::Init();
+    EXPECT_EQ(
+        ServiceConfigParser::RegisterParser(absl::make_unique<TestParser1>()),
+        0);
+    EXPECT_EQ(
+        ServiceConfigParser::RegisterParser(absl::make_unique<TestParser2>()),
+        1);
   }
 };
 
 TEST_F(ServiceConfigTest, ErrorCheck1) {
   const char* test_json = "";
   grpc_error* error = GRPC_ERROR_NONE;
-  auto svc_cfg = ServiceConfig::Create(test_json, &error);
+  auto svc_cfg = ServiceConfig::Create(nullptr, test_json, &error);
   std::regex regex(std::string("JSON parse error"));
   VerifyRegexMatch(error, regex);
 }
@@ -159,7 +175,7 @@ TEST_F(ServiceConfigTest, ErrorCheck1) {
 TEST_F(ServiceConfigTest, BasicTest1) {
   const char* test_json = "{}";
   grpc_error* error = GRPC_ERROR_NONE;
-  auto svc_cfg = ServiceConfig::Create(test_json, &error);
+  auto svc_cfg = ServiceConfig::Create(nullptr, test_json, &error);
   EXPECT_EQ(error, GRPC_ERROR_NONE) << grpc_error_string(error);
 }
 
@@ -171,7 +187,7 @@ TEST_F(ServiceConfigTest, SkipMethodConfigWithNoNameOrEmptyName) {
       "  {\"name\":[{\"service\":\"TestServ\"}], \"method_param\":2}"
       "]}";
   grpc_error* error = GRPC_ERROR_NONE;
-  auto svc_cfg = ServiceConfig::Create(test_json, &error);
+  auto svc_cfg = ServiceConfig::Create(nullptr, test_json, &error);
   ASSERT_EQ(error, GRPC_ERROR_NONE) << grpc_error_string(error);
   const auto* vector_ptr = svc_cfg->GetMethodParsedConfigVector(
       grpc_slice_from_static_string("/TestServ/TestMethod"));
@@ -187,7 +203,7 @@ TEST_F(ServiceConfigTest, ErrorDuplicateMethodConfigNames) {
       "  {\"name\":[{\"service\":\"TestServ\"}]}"
       "]}";
   grpc_error* error = GRPC_ERROR_NONE;
-  auto svc_cfg = ServiceConfig::Create(test_json, &error);
+  auto svc_cfg = ServiceConfig::Create(nullptr, test_json, &error);
   std::regex regex(
       std::string("Service config parsing error.*referenced_errors"
                   ".*Method Params.*referenced_errors"
@@ -203,7 +219,7 @@ TEST_F(ServiceConfigTest, ErrorDuplicateMethodConfigNamesWithNullMethod) {
       "  {\"name\":[{\"service\":\"TestServ\"}]}"
       "]}";
   grpc_error* error = GRPC_ERROR_NONE;
-  auto svc_cfg = ServiceConfig::Create(test_json, &error);
+  auto svc_cfg = ServiceConfig::Create(nullptr, test_json, &error);
   std::regex regex(
       std::string("Service config parsing error.*referenced_errors"
                   ".*Method Params.*referenced_errors"
@@ -219,7 +235,7 @@ TEST_F(ServiceConfigTest, ErrorDuplicateMethodConfigNamesWithEmptyMethod) {
       "  {\"name\":[{\"service\":\"TestServ\"}]}"
       "]}";
   grpc_error* error = GRPC_ERROR_NONE;
-  auto svc_cfg = ServiceConfig::Create(test_json, &error);
+  auto svc_cfg = ServiceConfig::Create(nullptr, test_json, &error);
   std::regex regex(
       std::string("Service config parsing error.*referenced_errors"
                   ".*Method Params.*referenced_errors"
@@ -235,7 +251,7 @@ TEST_F(ServiceConfigTest, ErrorDuplicateDefaultMethodConfigs) {
       "  {\"name\":[{}]}"
       "]}";
   grpc_error* error = GRPC_ERROR_NONE;
-  auto svc_cfg = ServiceConfig::Create(test_json, &error);
+  auto svc_cfg = ServiceConfig::Create(nullptr, test_json, &error);
   std::regex regex(
       std::string("Service config parsing error.*referenced_errors"
                   ".*Method Params.*referenced_errors"
@@ -251,7 +267,7 @@ TEST_F(ServiceConfigTest, ErrorDuplicateDefaultMethodConfigsWithNullService) {
       "  {\"name\":[{}]}"
       "]}";
   grpc_error* error = GRPC_ERROR_NONE;
-  auto svc_cfg = ServiceConfig::Create(test_json, &error);
+  auto svc_cfg = ServiceConfig::Create(nullptr, test_json, &error);
   std::regex regex(
       std::string("Service config parsing error.*referenced_errors"
                   ".*Method Params.*referenced_errors"
@@ -267,7 +283,7 @@ TEST_F(ServiceConfigTest, ErrorDuplicateDefaultMethodConfigsWithEmptyService) {
       "  {\"name\":[{}]}"
       "]}";
   grpc_error* error = GRPC_ERROR_NONE;
-  auto svc_cfg = ServiceConfig::Create(test_json, &error);
+  auto svc_cfg = ServiceConfig::Create(nullptr, test_json, &error);
   std::regex regex(
       std::string("Service config parsing error.*referenced_errors"
                   ".*Method Params.*referenced_errors"
@@ -280,14 +296,14 @@ TEST_F(ServiceConfigTest, ValidMethodConfig) {
   const char* test_json =
       "{\"methodConfig\": [{\"name\":[{\"service\":\"TestServ\"}]}]}";
   grpc_error* error = GRPC_ERROR_NONE;
-  auto svc_cfg = ServiceConfig::Create(test_json, &error);
+  auto svc_cfg = ServiceConfig::Create(nullptr, test_json, &error);
   EXPECT_EQ(error, GRPC_ERROR_NONE) << grpc_error_string(error);
 }
 
 TEST_F(ServiceConfigTest, Parser1BasicTest1) {
   const char* test_json = "{\"global_param\":5}";
   grpc_error* error = GRPC_ERROR_NONE;
-  auto svc_cfg = ServiceConfig::Create(test_json, &error);
+  auto svc_cfg = ServiceConfig::Create(nullptr, test_json, &error);
   ASSERT_EQ(error, GRPC_ERROR_NONE) << grpc_error_string(error);
   EXPECT_EQ((static_cast<TestParsedConfig1*>(svc_cfg->GetGlobalParsedConfig(0)))
                 ->value(),
@@ -300,17 +316,28 @@ TEST_F(ServiceConfigTest, Parser1BasicTest1) {
 TEST_F(ServiceConfigTest, Parser1BasicTest2) {
   const char* test_json = "{\"global_param\":1000}";
   grpc_error* error = GRPC_ERROR_NONE;
-  auto svc_cfg = ServiceConfig::Create(test_json, &error);
+  auto svc_cfg = ServiceConfig::Create(nullptr, test_json, &error);
   ASSERT_EQ(error, GRPC_ERROR_NONE) << grpc_error_string(error);
   EXPECT_EQ((static_cast<TestParsedConfig1*>(svc_cfg->GetGlobalParsedConfig(0)))
                 ->value(),
             1000);
 }
 
+TEST_F(ServiceConfigTest, Parser1DisabledViaChannelArg) {
+  grpc_arg arg = grpc_channel_arg_integer_create(
+      const_cast<char*>(GRPC_ARG_DISABLE_PARSING), 1);
+  grpc_channel_args args = {1, &arg};
+  const char* test_json = "{\"global_param\":5}";
+  grpc_error* error = GRPC_ERROR_NONE;
+  auto svc_cfg = ServiceConfig::Create(&args, test_json, &error);
+  ASSERT_EQ(error, GRPC_ERROR_NONE) << grpc_error_string(error);
+  EXPECT_EQ(svc_cfg->GetGlobalParsedConfig(0), nullptr);
+}
+
 TEST_F(ServiceConfigTest, Parser1ErrorInvalidType) {
   const char* test_json = "{\"global_param\":\"5\"}";
   grpc_error* error = GRPC_ERROR_NONE;
-  auto svc_cfg = ServiceConfig::Create(test_json, &error);
+  auto svc_cfg = ServiceConfig::Create(nullptr, test_json, &error);
   std::regex regex(
       absl::StrCat("Service config parsing error.*referenced_errors.*"
                    "Global Params.*referenced_errors.*",
@@ -321,7 +348,7 @@ TEST_F(ServiceConfigTest, Parser1ErrorInvalidType) {
 TEST_F(ServiceConfigTest, Parser1ErrorInvalidValue) {
   const char* test_json = "{\"global_param\":-5}";
   grpc_error* error = GRPC_ERROR_NONE;
-  auto svc_cfg = ServiceConfig::Create(test_json, &error);
+  auto svc_cfg = ServiceConfig::Create(nullptr, test_json, &error);
   std::regex regex(
       absl::StrCat("Service config parsing error.*referenced_errors.*"
                    "Global Params.*referenced_errors.*",
@@ -334,7 +361,7 @@ TEST_F(ServiceConfigTest, Parser2BasicTest) {
       "{\"methodConfig\": [{\"name\":[{\"service\":\"TestServ\"}], "
       "\"method_param\":5}]}";
   grpc_error* error = GRPC_ERROR_NONE;
-  auto svc_cfg = ServiceConfig::Create(test_json, &error);
+  auto svc_cfg = ServiceConfig::Create(nullptr, test_json, &error);
   ASSERT_EQ(error, GRPC_ERROR_NONE) << grpc_error_string(error);
   const auto* vector_ptr = svc_cfg->GetMethodParsedConfigVector(
       grpc_slice_from_static_string("/TestServ/TestMethod"));
@@ -343,12 +370,29 @@ TEST_F(ServiceConfigTest, Parser2BasicTest) {
   EXPECT_EQ(static_cast<TestParsedConfig1*>(parsed_config)->value(), 5);
 }
 
+TEST_F(ServiceConfigTest, Parser2DisabledViaChannelArg) {
+  grpc_arg arg = grpc_channel_arg_integer_create(
+      const_cast<char*>(GRPC_ARG_DISABLE_PARSING), 1);
+  grpc_channel_args args = {1, &arg};
+  const char* test_json =
+      "{\"methodConfig\": [{\"name\":[{\"service\":\"TestServ\"}], "
+      "\"method_param\":5}]}";
+  grpc_error* error = GRPC_ERROR_NONE;
+  auto svc_cfg = ServiceConfig::Create(&args, test_json, &error);
+  ASSERT_EQ(error, GRPC_ERROR_NONE) << grpc_error_string(error);
+  const auto* vector_ptr = svc_cfg->GetMethodParsedConfigVector(
+      grpc_slice_from_static_string("/TestServ/TestMethod"));
+  ASSERT_NE(vector_ptr, nullptr);
+  auto parsed_config = ((*vector_ptr)[1]).get();
+  EXPECT_EQ(parsed_config, nullptr);
+}
+
 TEST_F(ServiceConfigTest, Parser2ErrorInvalidType) {
   const char* test_json =
       "{\"methodConfig\": [{\"name\":[{\"service\":\"TestServ\"}], "
       "\"method_param\":\"5\"}]}";
   grpc_error* error = GRPC_ERROR_NONE;
-  auto svc_cfg = ServiceConfig::Create(test_json, &error);
+  auto svc_cfg = ServiceConfig::Create(nullptr, test_json, &error);
   std::regex regex(
       absl::StrCat("Service config parsing error.*referenced_errors\":\\[.*"
                    "Method Params.*referenced_errors.*methodConfig.*"
@@ -362,7 +406,7 @@ TEST_F(ServiceConfigTest, Parser2ErrorInvalidValue) {
       "{\"methodConfig\": [{\"name\":[{\"service\":\"TestServ\"}], "
       "\"method_param\":-5}]}";
   grpc_error* error = GRPC_ERROR_NONE;
-  auto svc_cfg = ServiceConfig::Create(test_json, &error);
+  auto svc_cfg = ServiceConfig::Create(nullptr, test_json, &error);
   std::regex regex(
       absl::StrCat("Service config parsing error.*referenced_errors\":\\[.*"
                    "Method Params.*referenced_errors.*methodConfig.*"
@@ -375,19 +419,21 @@ TEST_F(ServiceConfigTest, Parser2ErrorInvalidValue) {
 class ErroredParsersScopingTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    ServiceConfig::Shutdown();
-    ServiceConfig::Init();
-    EXPECT_EQ(ServiceConfig::RegisterParser(absl::make_unique<ErrorParser>()),
-              0);
-    EXPECT_EQ(ServiceConfig::RegisterParser(absl::make_unique<ErrorParser>()),
-              1);
+    ServiceConfigParser::Shutdown();
+    ServiceConfigParser::Init();
+    EXPECT_EQ(
+        ServiceConfigParser::RegisterParser(absl::make_unique<ErrorParser>()),
+        0);
+    EXPECT_EQ(
+        ServiceConfigParser::RegisterParser(absl::make_unique<ErrorParser>()),
+        1);
   }
 };
 
 TEST_F(ErroredParsersScopingTest, GlobalParams) {
   const char* test_json = "{}";
   grpc_error* error = GRPC_ERROR_NONE;
-  auto svc_cfg = ServiceConfig::Create(test_json, &error);
+  auto svc_cfg = ServiceConfig::Create(nullptr, test_json, &error);
   std::regex regex(absl::StrCat(
       "Service config parsing error.*referenced_errors\":\\[.*"
       "Global Params.*referenced_errors.*",
@@ -398,7 +444,7 @@ TEST_F(ErroredParsersScopingTest, GlobalParams) {
 TEST_F(ErroredParsersScopingTest, MethodParams) {
   const char* test_json = "{\"methodConfig\": [{}]}";
   grpc_error* error = GRPC_ERROR_NONE;
-  auto svc_cfg = ServiceConfig::Create(test_json, &error);
+  auto svc_cfg = ServiceConfig::Create(nullptr, test_json, &error);
   std::regex regex(absl::StrCat(
       "Service config parsing error.*referenced_errors\":\\[.*"
       "Global Params.*referenced_errors.*",
@@ -411,10 +457,10 @@ TEST_F(ErroredParsersScopingTest, MethodParams) {
 class ClientChannelParserTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    ServiceConfig::Shutdown();
-    ServiceConfig::Init();
+    ServiceConfigParser::Shutdown();
+    ServiceConfigParser::Init();
     EXPECT_EQ(
-        ServiceConfig::RegisterParser(
+        ServiceConfigParser::RegisterParser(
             absl::make_unique<internal::ClientChannelServiceConfigParser>()),
         0);
   }
@@ -423,7 +469,7 @@ class ClientChannelParserTest : public ::testing::Test {
 TEST_F(ClientChannelParserTest, ValidLoadBalancingConfigPickFirst) {
   const char* test_json = "{\"loadBalancingConfig\": [{\"pick_first\":{}}]}";
   grpc_error* error = GRPC_ERROR_NONE;
-  auto svc_cfg = ServiceConfig::Create(test_json, &error);
+  auto svc_cfg = ServiceConfig::Create(nullptr, test_json, &error);
   ASSERT_EQ(error, GRPC_ERROR_NONE) << grpc_error_string(error);
   const auto* parsed_config =
       static_cast<grpc_core::internal::ClientChannelGlobalParsedConfig*>(
@@ -436,7 +482,7 @@ TEST_F(ClientChannelParserTest, ValidLoadBalancingConfigRoundRobin) {
   const char* test_json =
       "{\"loadBalancingConfig\": [{\"round_robin\":{}}, {}]}";
   grpc_error* error = GRPC_ERROR_NONE;
-  auto svc_cfg = ServiceConfig::Create(test_json, &error);
+  auto svc_cfg = ServiceConfig::Create(nullptr, test_json, &error);
   ASSERT_EQ(error, GRPC_ERROR_NONE) << grpc_error_string(error);
   auto parsed_config =
       static_cast<grpc_core::internal::ClientChannelGlobalParsedConfig*>(
@@ -450,7 +496,7 @@ TEST_F(ClientChannelParserTest, ValidLoadBalancingConfigGrpclb) {
       "{\"loadBalancingConfig\": "
       "[{\"grpclb\":{\"childPolicy\":[{\"pick_first\":{}}]}}]}";
   grpc_error* error = GRPC_ERROR_NONE;
-  auto svc_cfg = ServiceConfig::Create(test_json, &error);
+  auto svc_cfg = ServiceConfig::Create(nullptr, test_json, &error);
   ASSERT_EQ(error, GRPC_ERROR_NONE) << grpc_error_string(error);
   const auto* parsed_config =
       static_cast<grpc_core::internal::ClientChannelGlobalParsedConfig*>(
@@ -468,7 +514,7 @@ TEST_F(ClientChannelParserTest, ValidLoadBalancingConfigXds) {
       "  ]\n"
       "}";
   grpc_error* error = GRPC_ERROR_NONE;
-  auto svc_cfg = ServiceConfig::Create(test_json, &error);
+  auto svc_cfg = ServiceConfig::Create(nullptr, test_json, &error);
   ASSERT_EQ(error, GRPC_ERROR_NONE) << grpc_error_string(error);
   const auto* parsed_config =
       static_cast<grpc_core::internal::ClientChannelGlobalParsedConfig*>(
@@ -480,13 +526,13 @@ TEST_F(ClientChannelParserTest, ValidLoadBalancingConfigXds) {
 TEST_F(ClientChannelParserTest, UnknownLoadBalancingConfig) {
   const char* test_json = "{\"loadBalancingConfig\": [{\"unknown\":{}}]}";
   grpc_error* error = GRPC_ERROR_NONE;
-  auto svc_cfg = ServiceConfig::Create(test_json, &error);
+  auto svc_cfg = ServiceConfig::Create(nullptr, test_json, &error);
   std::regex regex(
       "Service config parsing error.*referenced_errors.*"
       "Global Params.*referenced_errors.*"
       "Client channel global parser.*referenced_errors.*"
       "field:loadBalancingConfig.*referenced_errors.*"
-      "No known policy");
+      "No known policies in list: unknown");
   VerifyRegexMatch(error, regex);
 }
 
@@ -497,7 +543,7 @@ TEST_F(ClientChannelParserTest, InvalidGrpclbLoadBalancingConfig) {
       "  {\"round_robin\":{}}"
       "]}";
   grpc_error* error = GRPC_ERROR_NONE;
-  auto svc_cfg = ServiceConfig::Create(test_json, &error);
+  auto svc_cfg = ServiceConfig::Create(nullptr, test_json, &error);
   std::regex regex(
       "Service config parsing error.*referenced_errors.*"
       "Global Params.*referenced_errors.*"
@@ -512,7 +558,7 @@ TEST_F(ClientChannelParserTest, InvalidGrpclbLoadBalancingConfig) {
 TEST_F(ClientChannelParserTest, ValidLoadBalancingPolicy) {
   const char* test_json = "{\"loadBalancingPolicy\":\"pick_first\"}";
   grpc_error* error = GRPC_ERROR_NONE;
-  auto svc_cfg = ServiceConfig::Create(test_json, &error);
+  auto svc_cfg = ServiceConfig::Create(nullptr, test_json, &error);
   ASSERT_EQ(error, GRPC_ERROR_NONE) << grpc_error_string(error);
   const auto* parsed_config =
       static_cast<grpc_core::internal::ClientChannelGlobalParsedConfig*>(
@@ -523,7 +569,7 @@ TEST_F(ClientChannelParserTest, ValidLoadBalancingPolicy) {
 TEST_F(ClientChannelParserTest, ValidLoadBalancingPolicyAllCaps) {
   const char* test_json = "{\"loadBalancingPolicy\":\"PICK_FIRST\"}";
   grpc_error* error = GRPC_ERROR_NONE;
-  auto svc_cfg = ServiceConfig::Create(test_json, &error);
+  auto svc_cfg = ServiceConfig::Create(nullptr, test_json, &error);
   ASSERT_EQ(error, GRPC_ERROR_NONE) << grpc_error_string(error);
   const auto* parsed_config =
       static_cast<grpc_core::internal::ClientChannelGlobalParsedConfig*>(
@@ -534,7 +580,7 @@ TEST_F(ClientChannelParserTest, ValidLoadBalancingPolicyAllCaps) {
 TEST_F(ClientChannelParserTest, UnknownLoadBalancingPolicy) {
   const char* test_json = "{\"loadBalancingPolicy\":\"unknown\"}";
   grpc_error* error = GRPC_ERROR_NONE;
-  auto svc_cfg = ServiceConfig::Create(test_json, &error);
+  auto svc_cfg = ServiceConfig::Create(nullptr, test_json, &error);
   std::regex regex(
       "Service config parsing error.*referenced_errors.*"
       "Global Params.*referenced_errors.*"
@@ -546,7 +592,7 @@ TEST_F(ClientChannelParserTest, UnknownLoadBalancingPolicy) {
 TEST_F(ClientChannelParserTest, LoadBalancingPolicyXdsNotAllowed) {
   const char* test_json = "{\"loadBalancingPolicy\":\"eds_experimental\"}";
   grpc_error* error = GRPC_ERROR_NONE;
-  auto svc_cfg = ServiceConfig::Create(test_json, &error);
+  auto svc_cfg = ServiceConfig::Create(nullptr, test_json, &error);
   std::regex regex(
       "Service config parsing error.*referenced_errors.*"
       "Global Params.*referenced_errors.*"
@@ -565,7 +611,7 @@ TEST_F(ClientChannelParserTest, ValidRetryThrottling) {
       "  }\n"
       "}";
   grpc_error* error = GRPC_ERROR_NONE;
-  auto svc_cfg = ServiceConfig::Create(test_json, &error);
+  auto svc_cfg = ServiceConfig::Create(nullptr, test_json, &error);
   ASSERT_EQ(error, GRPC_ERROR_NONE) << grpc_error_string(error);
   const auto* parsed_config =
       static_cast<grpc_core::internal::ClientChannelGlobalParsedConfig*>(
@@ -583,7 +629,7 @@ TEST_F(ClientChannelParserTest, RetryThrottlingMissingFields) {
       "  }\n"
       "}";
   grpc_error* error = GRPC_ERROR_NONE;
-  auto svc_cfg = ServiceConfig::Create(test_json, &error);
+  auto svc_cfg = ServiceConfig::Create(nullptr, test_json, &error);
   std::regex regex(
       "Service config parsing error.*referenced_errors.*"
       "Global Params.*referenced_errors.*"
@@ -602,7 +648,7 @@ TEST_F(ClientChannelParserTest, InvalidRetryThrottlingNegativeMaxTokens) {
       "  }\n"
       "}";
   grpc_error* error = GRPC_ERROR_NONE;
-  auto svc_cfg = ServiceConfig::Create(test_json, &error);
+  auto svc_cfg = ServiceConfig::Create(nullptr, test_json, &error);
   std::regex regex(
       "Service config parsing error.*referenced_errors.*"
       "Global Params.*referenced_errors.*"
@@ -621,7 +667,7 @@ TEST_F(ClientChannelParserTest, InvalidRetryThrottlingInvalidTokenRatio) {
       "  }\n"
       "}";
   grpc_error* error = GRPC_ERROR_NONE;
-  auto svc_cfg = ServiceConfig::Create(test_json, &error);
+  auto svc_cfg = ServiceConfig::Create(nullptr, test_json, &error);
   std::regex regex(
       "Service config parsing error.*referenced_errors.*"
       "Global Params.*referenced_errors.*"
@@ -642,7 +688,7 @@ TEST_F(ClientChannelParserTest, ValidTimeout) {
       "  } ]\n"
       "}";
   grpc_error* error = GRPC_ERROR_NONE;
-  auto svc_cfg = ServiceConfig::Create(test_json, &error);
+  auto svc_cfg = ServiceConfig::Create(nullptr, test_json, &error);
   ASSERT_EQ(error, GRPC_ERROR_NONE) << grpc_error_string(error);
   const auto* vector_ptr = svc_cfg->GetMethodParsedConfigVector(
       grpc_slice_from_static_string("/TestServ/TestMethod"));
@@ -665,7 +711,7 @@ TEST_F(ClientChannelParserTest, InvalidTimeout) {
       "  } ]\n"
       "}";
   grpc_error* error = GRPC_ERROR_NONE;
-  auto svc_cfg = ServiceConfig::Create(test_json, &error);
+  auto svc_cfg = ServiceConfig::Create(nullptr, test_json, &error);
   std::regex regex(
       "Service config parsing error.*referenced_errors.*"
       "Method Params.*referenced_errors.*"
@@ -686,7 +732,7 @@ TEST_F(ClientChannelParserTest, ValidWaitForReady) {
       "  } ]\n"
       "}";
   grpc_error* error = GRPC_ERROR_NONE;
-  auto svc_cfg = ServiceConfig::Create(test_json, &error);
+  auto svc_cfg = ServiceConfig::Create(nullptr, test_json, &error);
   ASSERT_EQ(error, GRPC_ERROR_NONE) << grpc_error_string(error);
   const auto* vector_ptr = svc_cfg->GetMethodParsedConfigVector(
       grpc_slice_from_static_string("/TestServ/TestMethod"));
@@ -715,7 +761,7 @@ TEST_F(ClientChannelParserTest, InvalidWaitForReady) {
       "  } ]\n"
       "}";
   grpc_error* error = GRPC_ERROR_NONE;
-  auto svc_cfg = ServiceConfig::Create(test_json, &error);
+  auto svc_cfg = ServiceConfig::Create(nullptr, test_json, &error);
   std::regex regex(
       "Service config parsing error.*referenced_errors.*"
       "Method Params.*referenced_errors.*"
@@ -742,7 +788,7 @@ TEST_F(ClientChannelParserTest, ValidRetryPolicy) {
       "  } ]\n"
       "}";
   grpc_error* error = GRPC_ERROR_NONE;
-  auto svc_cfg = ServiceConfig::Create(test_json, &error);
+  auto svc_cfg = ServiceConfig::Create(nullptr, test_json, &error);
   ASSERT_EQ(error, GRPC_ERROR_NONE) << grpc_error_string(error);
   const auto* vector_ptr = svc_cfg->GetMethodParsedConfigVector(
       grpc_slice_from_static_string("/TestServ/TestMethod"));
@@ -776,7 +822,7 @@ TEST_F(ClientChannelParserTest, InvalidRetryPolicyMaxAttempts) {
       "  } ]\n"
       "}";
   grpc_error* error = GRPC_ERROR_NONE;
-  auto svc_cfg = ServiceConfig::Create(test_json, &error);
+  auto svc_cfg = ServiceConfig::Create(nullptr, test_json, &error);
   std::regex regex(
       "Service config parsing error.*referenced_errors.*"
       "Method Params.*referenced_errors.*"
@@ -804,7 +850,7 @@ TEST_F(ClientChannelParserTest, InvalidRetryPolicyInitialBackoff) {
       "  } ]\n"
       "}";
   grpc_error* error = GRPC_ERROR_NONE;
-  auto svc_cfg = ServiceConfig::Create(test_json, &error);
+  auto svc_cfg = ServiceConfig::Create(nullptr, test_json, &error);
   std::regex regex(
       "Service config parsing error.*referenced_errors.*"
       "Method Params.*referenced_errors.*"
@@ -832,7 +878,7 @@ TEST_F(ClientChannelParserTest, InvalidRetryPolicyMaxBackoff) {
       "  } ]\n"
       "}";
   grpc_error* error = GRPC_ERROR_NONE;
-  auto svc_cfg = ServiceConfig::Create(test_json, &error);
+  auto svc_cfg = ServiceConfig::Create(nullptr, test_json, &error);
   std::regex regex(
       "Service config parsing error.*referenced_errors.*"
       "Method Params.*referenced_errors.*"
@@ -860,7 +906,7 @@ TEST_F(ClientChannelParserTest, InvalidRetryPolicyBackoffMultiplier) {
       "  } ]\n"
       "}";
   grpc_error* error = GRPC_ERROR_NONE;
-  auto svc_cfg = ServiceConfig::Create(test_json, &error);
+  auto svc_cfg = ServiceConfig::Create(nullptr, test_json, &error);
   std::regex regex(
       "Service config parsing error.*referenced_errors.*"
       "Method Params.*referenced_errors.*"
@@ -888,7 +934,7 @@ TEST_F(ClientChannelParserTest, InvalidRetryPolicyRetryableStatusCodes) {
       "  } ]\n"
       "}";
   grpc_error* error = GRPC_ERROR_NONE;
-  auto svc_cfg = ServiceConfig::Create(test_json, &error);
+  auto svc_cfg = ServiceConfig::Create(nullptr, test_json, &error);
   std::regex regex(
       "Service config parsing error.*referenced_errors.*"
       "Method Params.*referenced_errors.*"
@@ -907,7 +953,7 @@ TEST_F(ClientChannelParserTest, ValidHealthCheck) {
       "    }\n"
       "}";
   grpc_error* error = GRPC_ERROR_NONE;
-  auto svc_cfg = ServiceConfig::Create(test_json, &error);
+  auto svc_cfg = ServiceConfig::Create(nullptr, test_json, &error);
   ASSERT_EQ(error, GRPC_ERROR_NONE) << grpc_error_string(error);
   const auto* parsed_config =
       static_cast<grpc_core::internal::ClientChannelGlobalParsedConfig*>(
@@ -928,7 +974,7 @@ TEST_F(ClientChannelParserTest, InvalidHealthCheckMultipleEntries) {
       "    }\n"
       "}";
   grpc_error* error = GRPC_ERROR_NONE;
-  auto svc_cfg = ServiceConfig::Create(test_json, &error);
+  auto svc_cfg = ServiceConfig::Create(nullptr, test_json, &error);
   std::regex regex(
       "JSON parsing failed.*referenced_errors.*"
       "duplicate key \"healthCheckConfig\" at index 104");
@@ -938,11 +984,11 @@ TEST_F(ClientChannelParserTest, InvalidHealthCheckMultipleEntries) {
 class MessageSizeParserTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    ServiceConfig::Shutdown();
-    ServiceConfig::Init();
-    EXPECT_EQ(
-        ServiceConfig::RegisterParser(absl::make_unique<MessageSizeParser>()),
-        0);
+    ServiceConfigParser::Shutdown();
+    ServiceConfigParser::Init();
+    EXPECT_EQ(ServiceConfigParser::RegisterParser(
+                  absl::make_unique<MessageSizeParser>()),
+              0);
   }
 };
 
@@ -958,7 +1004,7 @@ TEST_F(MessageSizeParserTest, Valid) {
       "  } ]\n"
       "}";
   grpc_error* error = GRPC_ERROR_NONE;
-  auto svc_cfg = ServiceConfig::Create(test_json, &error);
+  auto svc_cfg = ServiceConfig::Create(nullptr, test_json, &error);
   ASSERT_EQ(error, GRPC_ERROR_NONE) << grpc_error_string(error);
   const auto* vector_ptr = svc_cfg->GetMethodParsedConfigVector(
       grpc_slice_from_static_string("/TestServ/TestMethod"));
@@ -981,7 +1027,7 @@ TEST_F(MessageSizeParserTest, InvalidMaxRequestMessageBytes) {
       "  } ]\n"
       "}";
   grpc_error* error = GRPC_ERROR_NONE;
-  auto svc_cfg = ServiceConfig::Create(test_json, &error);
+  auto svc_cfg = ServiceConfig::Create(nullptr, test_json, &error);
   std::regex regex(
       "Service config parsing error.*referenced_errors.*"
       "Method Params.*referenced_errors.*"
@@ -1002,7 +1048,7 @@ TEST_F(MessageSizeParserTest, InvalidMaxResponseMessageBytes) {
       "  } ]\n"
       "}";
   grpc_error* error = GRPC_ERROR_NONE;
-  auto svc_cfg = ServiceConfig::Create(test_json, &error);
+  auto svc_cfg = ServiceConfig::Create(nullptr, test_json, &error);
   std::regex regex(
       "Service config parsing error.*referenced_errors.*"
       "Method Params.*referenced_errors.*"

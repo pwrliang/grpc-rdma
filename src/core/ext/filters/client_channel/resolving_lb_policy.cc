@@ -26,6 +26,9 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "absl/strings/str_cat.h"
+#include "absl/strings/str_join.h"
+
 #include <grpc/support/alloc.h>
 #include <grpc/support/log.h>
 #include <grpc/support/string_util.h>
@@ -47,10 +50,8 @@
 #include "src/core/lib/channel/connected_channel.h"
 #include "src/core/lib/channel/status_util.h"
 #include "src/core/lib/gpr/string.h"
-#include "src/core/lib/gprpp/inlined_vector.h"
 #include "src/core/lib/gprpp/manual_constructor.h"
 #include "src/core/lib/gprpp/sync.h"
-#include "src/core/lib/iomgr/combiner.h"
 #include "src/core/lib/iomgr/iomgr.h"
 #include "src/core/lib/iomgr/polling_entity.h"
 #include "src/core/lib/profiling/timers.h"
@@ -108,15 +109,17 @@ class ResolvingLoadBalancingPolicy::ResolvingControlHelper
       : parent_(std::move(parent)) {}
 
   RefCountedPtr<SubchannelInterface> CreateSubchannel(
-      const grpc_channel_args& args) override {
+      ServerAddress address, const grpc_channel_args& args) override {
     if (parent_->resolver_ == nullptr) return nullptr;  // Shutting down.
-    return parent_->channel_control_helper()->CreateSubchannel(args);
+    return parent_->channel_control_helper()->CreateSubchannel(
+        std::move(address), args);
   }
 
-  void UpdateState(grpc_connectivity_state state,
+  void UpdateState(grpc_connectivity_state state, const absl::Status& status,
                    std::unique_ptr<SubchannelPicker> picker) override {
     if (parent_->resolver_ == nullptr) return;  // Shutting down.
-    parent_->channel_control_helper()->UpdateState(state, std::move(picker));
+    parent_->channel_control_helper()->UpdateState(state, status,
+                                                   std::move(picker));
   }
 
   void RequestReresolution() override {
@@ -128,7 +131,8 @@ class ResolvingLoadBalancingPolicy::ResolvingControlHelper
     parent_->resolver_->RequestReresolutionLocked();
   }
 
-  void AddTraceEvent(TraceSeverity severity, StringView message) override {
+  void AddTraceEvent(TraceSeverity severity,
+                     absl::string_view message) override {
     if (parent_->resolver_ == nullptr) return;  // Shutting down.
     parent_->channel_control_helper()->AddTraceEvent(severity, message);
   }
@@ -143,16 +147,14 @@ class ResolvingLoadBalancingPolicy::ResolvingControlHelper
 
 ResolvingLoadBalancingPolicy::ResolvingLoadBalancingPolicy(
     Args args, TraceFlag* tracer, grpc_core::UniquePtr<char> target_uri,
-    ProcessResolverResultCallback process_resolver_result,
-    void* process_resolver_result_user_data)
+    ChannelConfigHelper* helper)
     : LoadBalancingPolicy(std::move(args)),
       tracer_(tracer),
       target_uri_(std::move(target_uri)),
-      process_resolver_result_(process_resolver_result),
-      process_resolver_result_user_data_(process_resolver_result_user_data) {
-  GPR_ASSERT(process_resolver_result != nullptr);
+      helper_(helper) {
+  GPR_ASSERT(helper_ != nullptr);
   resolver_ = ResolverRegistry::CreateResolver(
-      target_uri_.get(), args.args, interested_parties(), combiner(),
+      target_uri_.get(), args.args, interested_parties(), work_serializer(),
       absl::make_unique<ResolverResultHandler>(Ref()));
   // Since the validity of args has been checked when create the channel,
   // CreateResolver() must return a non-null result.
@@ -160,7 +162,7 @@ ResolvingLoadBalancingPolicy::ResolvingLoadBalancingPolicy(
   if (GRPC_TRACE_FLAG_ENABLED(*tracer_)) {
     gpr_log(GPR_INFO, "resolving_lb=%p: starting name resolution", this);
   }
-  channel_control_helper()->UpdateState(GRPC_CHANNEL_CONNECTING,
+  channel_control_helper()->UpdateState(GRPC_CHANNEL_CONNECTING, absl::Status(),
                                         absl::make_unique<QueuePicker>(Ref()));
   resolver_->StartLocked();
 }
@@ -172,6 +174,10 @@ ResolvingLoadBalancingPolicy::~ResolvingLoadBalancingPolicy() {
 
 void ResolvingLoadBalancingPolicy::ShutdownLocked() {
   if (resolver_ != nullptr) {
+    if (GRPC_TRACE_FLAG_ENABLED(*tracer_)) {
+      gpr_log(GPR_INFO, "resolving_lb=%p: shutting down resolver=%p", this,
+              resolver_.get());
+    }
     resolver_.reset();
     if (lb_policy_ != nullptr) {
       if (GRPC_TRACE_FLAG_ENABLED(*tracer_)) {
@@ -212,8 +218,9 @@ void ResolvingLoadBalancingPolicy::OnResolverError(grpc_error* error) {
   if (lb_policy_ == nullptr) {
     grpc_error* state_error = GRPC_ERROR_CREATE_REFERENCING_FROM_STATIC_STRING(
         "Resolver transient failure", &error, 1);
+    helper_->ResolverTransientFailure(GRPC_ERROR_REF(state_error));
     channel_control_helper()->UpdateState(
-        GRPC_CHANNEL_TRANSIENT_FAILURE,
+        GRPC_CHANNEL_TRANSIENT_FAILURE, grpc_error_to_absl_status(state_error),
         absl::make_unique<TransientFailurePicker>(state_error));
   }
   GRPC_ERROR_UNREF(error);
@@ -226,9 +233,12 @@ void ResolvingLoadBalancingPolicy::CreateOrUpdateLbPolicyLocked(
   UpdateArgs update_args;
   update_args.addresses = std::move(result.addresses);
   update_args.config = std::move(lb_policy_config);
-  // TODO(roth): Once channel args is converted to C++, use std::move() here.
-  update_args.args = result.args;
-  result.args = nullptr;
+  // Remove the config selector from channel args so that we're not holding
+  // unnecessary refs that cause it to be destroyed somewhere other than in the
+  // WorkSerializer.
+  const char* arg_name = GRPC_ARG_CONFIG_SELECTOR;
+  update_args.args =
+      grpc_channel_args_copy_and_remove(result.args, &arg_name, 1);
   // Create policy if needed.
   if (lb_policy_ == nullptr) {
     lb_policy_ = CreateLbPolicyLocked(*update_args.args);
@@ -242,12 +252,11 @@ void ResolvingLoadBalancingPolicy::CreateOrUpdateLbPolicyLocked(
 }
 
 // Creates a new LB policy.
-// Updates trace_strings to indicate what was done.
 OrphanablePtr<LoadBalancingPolicy>
 ResolvingLoadBalancingPolicy::CreateLbPolicyLocked(
     const grpc_channel_args& args) {
   LoadBalancingPolicy::Args lb_policy_args;
-  lb_policy_args.combiner = combiner();
+  lb_policy_args.work_serializer = work_serializer();
   lb_policy_args.channel_control_helper =
       absl::make_unique<ResolvingControlHelper>(Ref());
   lb_policy_args.args = &args;
@@ -266,31 +275,21 @@ void ResolvingLoadBalancingPolicy::MaybeAddTraceMessagesForAddressChangesLocked(
     bool resolution_contains_addresses, TraceStringVector* trace_strings) {
   if (!resolution_contains_addresses &&
       previous_resolution_contained_addresses_) {
-    trace_strings->push_back(gpr_strdup("Address list became empty"));
+    trace_strings->push_back("Address list became empty");
   } else if (resolution_contains_addresses &&
              !previous_resolution_contained_addresses_) {
-    trace_strings->push_back(gpr_strdup("Address list became non-empty"));
+    trace_strings->push_back("Address list became non-empty");
   }
   previous_resolution_contained_addresses_ = resolution_contains_addresses;
 }
 
 void ResolvingLoadBalancingPolicy::ConcatenateAndAddChannelTraceLocked(
-    TraceStringVector* trace_strings) const {
-  if (!trace_strings->empty()) {
-    gpr_strvec v;
-    gpr_strvec_init(&v);
-    gpr_strvec_add(&v, gpr_strdup("Resolution event: "));
-    bool is_first = 1;
-    for (size_t i = 0; i < trace_strings->size(); ++i) {
-      if (!is_first) gpr_strvec_add(&v, gpr_strdup(", "));
-      is_first = false;
-      gpr_strvec_add(&v, (*trace_strings)[i]);
-    }
-    size_t len = 0;
-    grpc_core::UniquePtr<char> message(gpr_strvec_flatten(&v, &len));
+    const TraceStringVector& trace_strings) const {
+  if (!trace_strings.empty()) {
+    std::string message =
+        absl::StrCat("Resolution event: ", absl::StrJoin(trace_strings, ", "));
     channel_control_helper()->AddTraceEvent(ChannelControlHelper::TRACE_INFO,
-                                            StringView(message.get()));
-    gpr_strvec_destroy(&v);
+                                            message);
   }
 }
 
@@ -311,49 +310,46 @@ void ResolvingLoadBalancingPolicy::OnResolverResultChangedLocked(
   //
   // We track a list of strings to eventually be concatenated and traced.
   TraceStringVector trace_strings;
-  const bool resolution_contains_addresses = result.addresses.size() > 0;
-  // Process the resolver result.
-  RefCountedPtr<LoadBalancingPolicy::Config> lb_policy_config;
-  bool service_config_changed = false;
-  char* service_config_error_string = nullptr;
-  if (process_resolver_result_ != nullptr) {
-    grpc_error* service_config_error = GRPC_ERROR_NONE;
-    bool no_valid_service_config = false;
-    service_config_changed = process_resolver_result_(
-        process_resolver_result_user_data_, result, &lb_policy_config,
-        &service_config_error, &no_valid_service_config);
-    if (service_config_error != GRPC_ERROR_NONE) {
-      service_config_error_string =
-          gpr_strdup(grpc_error_string(service_config_error));
-      if (no_valid_service_config) {
-        // We received an invalid service config and we don't have a
-        // fallback service config.
-        OnResolverError(service_config_error);
-      } else {
-        GRPC_ERROR_UNREF(service_config_error);
-      }
-    }
-  } else {
-    lb_policy_config = child_lb_config_;
+  MaybeAddTraceMessagesForAddressChangesLocked(!result.addresses.empty(),
+                                               &trace_strings);
+  // The result of grpc_error_string() is owned by the error itself.
+  // We're storing that string in trace_strings, so we need to make sure
+  // that the error lives until we're done with the string.
+  grpc_error* service_config_error =
+      GRPC_ERROR_REF(result.service_config_error);
+  if (service_config_error != GRPC_ERROR_NONE) {
+    trace_strings.push_back(grpc_error_string(service_config_error));
   }
-  if (lb_policy_config != nullptr) {
+  // Choose the service config.
+  ChannelConfigHelper::ChooseServiceConfigResult service_config_result;
+  if (helper_ != nullptr) {
+    service_config_result = helper_->ChooseServiceConfig(result);
+  } else {
+    service_config_result.lb_policy_config = child_lb_config_;
+  }
+  if (service_config_result.no_valid_service_config) {
+    // We received an invalid service config and we don't have a
+    // previous service config to fall back to.
+    OnResolverError(GRPC_ERROR_REF(service_config_error));
+    trace_strings.push_back("no valid service config");
+  } else {
     // Create or update LB policy, as needed.
-    CreateOrUpdateLbPolicyLocked(std::move(lb_policy_config),
-                                 std::move(result));
+    CreateOrUpdateLbPolicyLocked(
+        std::move(service_config_result.lb_policy_config), std::move(result));
+    if (service_config_result.service_config_changed) {
+      // Tell channel to start using new service config for calls.
+      // This needs to happen after the LB policy has been updated, since
+      // the ConfigSelector may need the LB policy to know about new
+      // destinations before it can send RPCs to those destinations.
+      if (helper_ != nullptr) helper_->StartUsingServiceConfigForCalls();
+      // TODO(ncteisen): might be worth somehow including a snippet of the
+      // config in the trace, at the risk of bloating the trace logs.
+      trace_strings.push_back("Service config changed");
+    }
   }
   // Add channel trace event.
-  if (service_config_changed) {
-    // TODO(ncteisen): might be worth somehow including a snippet of the
-    // config in the trace, at the risk of bloating the trace logs.
-    trace_strings.push_back(gpr_strdup("Service config changed"));
-  }
-  if (service_config_error_string != nullptr) {
-    trace_strings.push_back(service_config_error_string);
-    service_config_error_string = nullptr;
-  }
-  MaybeAddTraceMessagesForAddressChangesLocked(resolution_contains_addresses,
-                                               &trace_strings);
-  ConcatenateAndAddChannelTraceLocked(&trace_strings);
+  ConcatenateAndAddChannelTraceLocked(trace_strings);
+  GRPC_ERROR_UNREF(service_config_error);
 }
 
 }  // namespace grpc_core

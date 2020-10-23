@@ -48,11 +48,11 @@ namespace testing {
 class CallCountingHelperPeer {
  public:
   explicit CallCountingHelperPeer(CallCountingHelper* node) : node_(node) {}
-  grpc_millis last_call_started_millis() const {
+
+  gpr_timespec last_call_started_time() const {
     CallCountingHelper::CounterData data;
     node_->CollectData(&data);
-    gpr_timespec ts = gpr_cycle_counter_to_time(data.last_call_started_cycle);
-    return grpc_timespec_to_millis_round_up(ts);
+    return gpr_cycle_counter_to_time(data.last_call_started_cycle);
   }
 
  private:
@@ -243,9 +243,9 @@ void ValidateServer(ServerNode* server, const ValidateChannelDataArgs& args) {
   gpr_free(core_api_json_str);
 }
 
-grpc_millis GetLastCallStartedMillis(CallCountingHelper* channel) {
+gpr_timespec GetLastCallStartedTime(CallCountingHelper* channel) {
   CallCountingHelperPeer peer(channel);
-  return peer.last_call_started_millis();
+  return peer.last_call_started_time();
 }
 
 void ChannelzSleep(int64_t sleep_us) {
@@ -301,28 +301,28 @@ TEST_P(ChannelzChannelTest, BasicChannelAPIFunctionality) {
   ValidateChannel(channelz_channel, {3, 3, 3});
 }
 
-TEST_P(ChannelzChannelTest, LastCallStartedMillis) {
+TEST_P(ChannelzChannelTest, LastCallStartedTime) {
   grpc_core::ExecCtx exec_ctx;
   CallCountingHelper counter;
   // start a call to set the last call started timestamp
   counter.RecordCallStarted();
-  grpc_millis millis1 = GetLastCallStartedMillis(&counter);
+  gpr_timespec time1 = GetLastCallStartedTime(&counter);
   // time gone by should not affect the timestamp
   ChannelzSleep(100);
-  grpc_millis millis2 = GetLastCallStartedMillis(&counter);
-  EXPECT_EQ(millis1, millis2);
+  gpr_timespec time2 = GetLastCallStartedTime(&counter);
+  EXPECT_EQ(gpr_time_cmp(time1, time2), 0);
   // calls succeeded or failed should not affect the timestamp
   ChannelzSleep(100);
   counter.RecordCallFailed();
   counter.RecordCallSucceeded();
-  grpc_millis millis3 = GetLastCallStartedMillis(&counter);
-  EXPECT_EQ(millis1, millis3);
+  gpr_timespec time3 = GetLastCallStartedTime(&counter);
+  EXPECT_EQ(gpr_time_cmp(time1, time3), 0);
   // another call started should affect the timestamp
   // sleep for extra long to avoid flakes (since we cache Now())
   ChannelzSleep(5000);
   counter.RecordCallStarted();
-  grpc_millis millis4 = GetLastCallStartedMillis(&counter);
-  EXPECT_NE(millis1, millis4);
+  gpr_timespec time4 = GetLastCallStartedTime(&counter);
+  EXPECT_NE(gpr_time_cmp(time1, time4), 0);
 }
 
 class ChannelzRegistryBasedTest : public ::testing::TestWithParam<size_t> {
@@ -504,10 +504,12 @@ TEST_F(ChannelzRegistryBasedTest, InternalChannelTest) {
   ChannelFixture channels[10];
   (void)channels;  // suppress unused variable error
   // create an internal channel
-  grpc_arg client_a[2];
-  client_a[0] = grpc_core::channelz::MakeParentUuidArg(1);
-  client_a[1] = grpc_channel_arg_integer_create(
-      const_cast<char*>(GRPC_ARG_ENABLE_CHANNELZ), true);
+  grpc_arg client_a[] = {
+      grpc_channel_arg_integer_create(
+          const_cast<char*>(GRPC_ARG_CHANNELZ_IS_INTERNAL_CHANNEL), 1),
+      grpc_channel_arg_integer_create(
+          const_cast<char*>(GRPC_ARG_ENABLE_CHANNELZ), true),
+  };
   grpc_channel_args client_args = {GPR_ARRAY_SIZE(client_a), client_a};
   grpc_channel* internal_channel =
       grpc_insecure_channel_create("fake_target", &client_args, nullptr);
@@ -519,7 +521,7 @@ TEST_F(ChannelzRegistryBasedTest, InternalChannelTest) {
 TEST(ChannelzServerTest, BasicServerAPIFunctionality) {
   grpc_core::ExecCtx exec_ctx;
   ServerFixture server(10);
-  ServerNode* channelz_server = grpc_server_get_channelz_node(server.server());
+  ServerNode* channelz_server = server.server()->core_server->channelz_node();
   channelz_server->RecordCallStarted();
   channelz_server->RecordCallFailed();
   channelz_server->RecordCallSucceeded();
