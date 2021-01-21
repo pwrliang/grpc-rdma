@@ -28,11 +28,14 @@
 #include <grpc/support/string_util.h>
 #include <grpc/support/sync.h>
 
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wmodule-import-in-extern-c"
 extern "C" {
 #include <openssl/bn.h>
 #include <openssl/pem.h>
 #include <openssl/rsa.h>
 }
+#pragma clang diagnostic pop
 
 #include "src/core/lib/gpr/string.h"
 #include "src/core/lib/gprpp/manual_constructor.h"
@@ -149,7 +152,8 @@ static jose_header* jose_header_from_json(Json json) {
      https://auth0.com/blog/2015/03/31/critical-vulnerabilities-in-json-web-token-libraries/
    */
   alg_value = it->second.string_value().c_str();
-  if (it->second.type() != Json::Type::STRING || strncmp(alg_value, "RS", 2) ||
+  if (it->second.type() != Json::Type::STRING ||
+      strncmp(alg_value, "RS", 2) != 0 ||
       evp_md_from_alg(alg_value) == nullptr) {
     gpr_log(GPR_ERROR, "Invalid alg field");
     goto error;
@@ -692,7 +696,7 @@ static void on_openid_config_retrieved(void* user_data, grpc_error* /*error*/) {
   req.host = gpr_strdup(jwks_uri);
   req.http.path = const_cast<char*>(strchr(jwks_uri, '/'));
   if (req.http.path == nullptr) {
-    req.http.path = (char*)"";
+    req.http.path = const_cast<char*>("");
   } else {
     *(req.host + (req.http.path - jwks_uri)) = '\0';
   }
@@ -753,8 +757,8 @@ const char* grpc_jwt_issuer_email_domain(const char* issuer) {
   if (dot == nullptr || dot == email_domain) return email_domain;
   GPR_ASSERT(dot > email_domain);
   /* There may be a subdomain, we just want the domain. */
-  dot = static_cast<const char*>(gpr_memrchr(
-      (void*)email_domain, '.', static_cast<size_t>(dot - email_domain)));
+  dot = static_cast<const char*>(
+      gpr_memrchr(email_domain, '.', static_cast<size_t>(dot - email_domain)));
   if (dot == nullptr) return email_domain;
   return dot + 1;
 }

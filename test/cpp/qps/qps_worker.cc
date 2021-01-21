@@ -34,6 +34,8 @@
 #include <grpcpp/server.h>
 #include <grpcpp/server_builder.h>
 
+#include "absl/memory/memory.h"
+
 #include "src/core/lib/gprpp/host_port.h"
 #include "src/proto/grpc/testing/worker_service.grpc.pb.h"
 #include "test/core/util/grpc_profiler.h"
@@ -155,7 +157,7 @@ class WorkerServiceImpl final : public WorkerService::Service {
   // Protect against multiple clients using this worker at once.
   class InstanceGuard {
    public:
-    InstanceGuard(WorkerServiceImpl* impl)
+    explicit InstanceGuard(WorkerServiceImpl* impl)
         : impl_(impl), acquired_(impl->TryAcquireInstance()) {}
     ~InstanceGuard() {
       if (acquired_) {
@@ -232,7 +234,7 @@ class WorkerServiceImpl final : public WorkerService::Service {
     if (!args.has_setup()) {
       return Status(StatusCode::INVALID_ARGUMENT, "Bad server creation args");
     }
-    if (server_port_ > 0) {
+    if (server_port_ > 0 && args.setup().port() == 0) {
       args.mutable_setup()->set_port(server_port_);
     }
     gpr_log(GPR_INFO, "RunServerBody: about to create server");
@@ -276,7 +278,7 @@ class WorkerServiceImpl final : public WorkerService::Service {
 
 QpsWorker::QpsWorker(int driver_port, int server_port,
                      const std::string& credential_type) {
-  impl_.reset(new WorkerServiceImpl(server_port, this));
+  impl_ = absl::make_unique<WorkerServiceImpl>(server_port, this);
   gpr_atm_rel_store(&done_, static_cast<gpr_atm>(0));
 
   std::unique_ptr<ServerBuilder> builder = CreateQpsServerBuilder();

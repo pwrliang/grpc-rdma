@@ -69,7 +69,6 @@
 #define DEFAULT_KEEPALIVE_PERMIT_WITHOUT_CALLS false
 #define KEEPALIVE_TIME_BACKOFF_MULTIPLIER 2
 
-#define DEFAULT_MIN_SENT_PING_INTERVAL_WITHOUT_DATA_MS 300000 /* 5 minutes */
 #define DEFAULT_MIN_RECV_PING_INTERVAL_WITHOUT_DATA_MS 300000 /* 5 minutes */
 #define DEFAULT_MAX_PINGS_BETWEEN_DATA 2
 #define DEFAULT_MAX_PING_STRIKES 2
@@ -89,8 +88,6 @@ static bool g_default_client_keepalive_permit_without_calls =
 static bool g_default_server_keepalive_permit_without_calls =
     DEFAULT_KEEPALIVE_PERMIT_WITHOUT_CALLS;
 
-static int g_default_min_sent_ping_interval_without_data_ms =
-    DEFAULT_MIN_SENT_PING_INTERVAL_WITHOUT_DATA_MS;
 static int g_default_min_recv_ping_interval_without_data_ms =
     DEFAULT_MIN_RECV_PING_INTERVAL_WITHOUT_DATA_MS;
 static int g_default_max_pings_without_data = DEFAULT_MAX_PINGS_BETWEEN_DATA;
@@ -129,10 +126,10 @@ static void connectivity_state_set(grpc_chttp2_transport* t,
                                    const absl::Status& status,
                                    const char* reason);
 
-static void benign_reclaimer(void* t, grpc_error* error);
-static void destructive_reclaimer(void* t, grpc_error* error);
-static void benign_reclaimer_locked(void* t, grpc_error* error);
-static void destructive_reclaimer_locked(void* t, grpc_error* error);
+static void benign_reclaimer(void* arg, grpc_error* error);
+static void destructive_reclaimer(void* arg, grpc_error* error);
+static void benign_reclaimer_locked(void* arg, grpc_error* error);
+static void destructive_reclaimer_locked(void* arg, grpc_error* error);
 
 static void post_benign_reclaimer(grpc_chttp2_transport* t);
 static void post_destructive_reclaimer(grpc_chttp2_transport* t);
@@ -149,8 +146,7 @@ static void next_bdp_ping_timer_expired_locked(void* tp, grpc_error* error);
 
 static void cancel_pings(grpc_chttp2_transport* t, grpc_error* error);
 static void send_ping_locked(grpc_chttp2_transport* t,
-                             grpc_closure* on_initiate,
-                             grpc_closure* on_complete);
+                             grpc_closure* on_initiate, grpc_closure* on_ack);
 static void retry_initiate_ping_locked(void* tp, grpc_error* error);
 
 // keepalive-relevant functions
@@ -271,15 +267,6 @@ static bool read_channel_args(grpc_chttp2_transport* t,
                            GRPC_ARG_HTTP2_MAX_PING_STRIKES)) {
       t->ping_policy.max_ping_strikes = grpc_channel_arg_get_integer(
           &channel_args->args[i], {g_default_max_ping_strikes, 0, INT_MAX});
-    } else if (0 ==
-               strcmp(channel_args->args[i].key,
-                      GRPC_ARG_HTTP2_MIN_SENT_PING_INTERVAL_WITHOUT_DATA_MS)) {
-      t->ping_policy.min_sent_ping_interval_without_data =
-          grpc_channel_arg_get_integer(
-              &channel_args->args[i],
-              grpc_integer_options{
-                  g_default_min_sent_ping_interval_without_data_ms, 0,
-                  INT_MAX});
     } else if (0 ==
                strcmp(channel_args->args[i].key,
                       GRPC_ARG_HTTP2_MIN_RECV_PING_INTERVAL_WITHOUT_DATA_MS)) {
@@ -408,8 +395,6 @@ static void init_transport_keepalive_settings(grpc_chttp2_transport* t) {
 
 static void configure_transport_ping_policy(grpc_chttp2_transport* t) {
   t->ping_policy.max_pings_without_data = g_default_max_pings_without_data;
-  t->ping_policy.min_sent_ping_interval_without_data =
-      g_default_min_sent_ping_interval_without_data_ms;
   t->ping_policy.max_ping_strikes = g_default_max_ping_strikes;
   t->ping_policy.min_recv_ping_interval_without_data =
       g_default_min_recv_ping_interval_without_data_ms;
@@ -434,7 +419,9 @@ static void init_keepalive_pings_if_enabled(grpc_chttp2_transport* t) {
 grpc_chttp2_transport::grpc_chttp2_transport(
     const grpc_channel_args* channel_args, grpc_endpoint* ep, bool is_client,
     grpc_resource_user* resource_user)
-    : refs(1, &grpc_trace_chttp2_refcount),
+    : refs(1, GRPC_TRACE_FLAG_ENABLED(grpc_trace_chttp2_refcount)
+                  ? "chttp2_refcount"
+                  : nullptr),
       ep(ep),
       peer_string(grpc_endpoint_get_peer(ep)),
       resource_user(resource_user),
@@ -629,7 +616,7 @@ grpc_chttp2_stream::grpc_chttp2_stream(grpc_chttp2_transport* t,
       metadata_buffer{grpc_chttp2_incoming_metadata_buffer(arena),
                       grpc_chttp2_incoming_metadata_buffer(arena)} {
   if (server_data) {
-    id = static_cast<uint32_t>((uintptr_t)server_data);
+    id = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(server_data));
     *t->accepting_stream = this;
     grpc_chttp2_stream_map_add(&t->stream_map, id, this);
     post_destructive_reclaimer(t);
@@ -762,7 +749,7 @@ grpc_chttp2_stream* grpc_chttp2_parsing_accept_stream(grpc_chttp2_transport* t,
   GPR_ASSERT(t->accepting_stream == nullptr);
   t->accepting_stream = &accepting;
   t->accept_stream_cb(t->accept_stream_cb_user_data, &t->base,
-                      (void*)static_cast<uintptr_t>(id));
+                      reinterpret_cast<void*>(id));
   t->accepting_stream = nullptr;
   return accepting;
 }
@@ -1053,7 +1040,7 @@ static void queue_setting_update(grpc_chttp2_transport* t,
   }
   if (use_value != t->settings[GRPC_LOCAL_SETTINGS][id]) {
     t->settings[GRPC_LOCAL_SETTINGS][id] = use_value;
-    t->dirtied_local_settings = 1;
+    t->dirtied_local_settings = true;
   }
 }
 
@@ -2719,14 +2706,6 @@ void grpc_chttp2_config_default_keepalive_args(grpc_channel_args* args,
                              GRPC_ARG_HTTP2_MAX_PINGS_WITHOUT_DATA)) {
         g_default_max_pings_without_data = grpc_channel_arg_get_integer(
             &args->args[i], {g_default_max_pings_without_data, 0, INT_MAX});
-      } else if (0 ==
-                 strcmp(
-                     args->args[i].key,
-                     GRPC_ARG_HTTP2_MIN_SENT_PING_INTERVAL_WITHOUT_DATA_MS)) {
-        g_default_min_sent_ping_interval_without_data_ms =
-            grpc_channel_arg_get_integer(
-                &args->args[i],
-                {g_default_min_sent_ping_interval_without_data_ms, 0, INT_MAX});
       } else if (0 ==
                  strcmp(
                      args->args[i].key,

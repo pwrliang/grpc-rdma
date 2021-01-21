@@ -32,7 +32,6 @@
 #include "src/core/lib/gpr/time_precise.h"
 #include "src/core/lib/gprpp/atomic.h"
 #include "src/core/lib/gprpp/manual_constructor.h"
-#include "src/core/lib/gprpp/map.h"
 #include "src/core/lib/gprpp/ref_counted.h"
 #include "src/core/lib/gprpp/ref_counted_ptr.h"
 #include "src/core/lib/gprpp/sync.h"
@@ -55,7 +54,7 @@
  * events per channel trace node. If
  * GRPC_ARG_MAX_CHANNEL_TRACE_EVENT_MEMORY_PER_NODE is set, it will override
  * this default value. */
-#define GRPC_MAX_CHANNEL_TRACE_EVENT_MEMORY_PER_NODE_DEFAULT 1024 * 4
+#define GRPC_MAX_CHANNEL_TRACE_EVENT_MEMORY_PER_NODE_DEFAULT (1024 * 4)
 
 namespace grpc_core {
 
@@ -87,7 +86,7 @@ class BaseNode : public RefCounted<BaseNode> {
   BaseNode(EntityType type, std::string name);
 
  public:
-  virtual ~BaseNode();
+  ~BaseNode() override;
 
   // All children must implement this function.
   virtual Json RenderJson() = 0;

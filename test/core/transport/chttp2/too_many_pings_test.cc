@@ -59,7 +59,7 @@
 
 namespace {
 
-void* tag(int i) { return (void*)static_cast<intptr_t>(i); }
+void* tag(intptr_t t) { return reinterpret_cast<void*>(t); }
 
 // Perform a simple RPC where the server cancels the request with
 // grpc_call_cancel_with_status
@@ -171,8 +171,8 @@ TEST(TooManyPings, TestLotsOfServerCancelledRpcsDoesntGiveTooManyPings) {
   grpc_completion_queue_shutdown(cq);
   while (grpc_completion_queue_next(cq, gpr_inf_future(GPR_CLOCK_REALTIME),
                                     nullptr)
-             .type != GRPC_QUEUE_SHUTDOWN)
-    ;
+             .type != GRPC_QUEUE_SHUTDOWN) {
+  }
   grpc_server_destroy(server);
   grpc_completion_queue_destroy(cq);
 }
@@ -249,11 +249,11 @@ grpc_status_code PerformWaitingCall(grpc_channel* channel, grpc_server* server,
 // Shuts down and destroys the server.
 void ServerShutdownAndDestroy(grpc_server* server, grpc_completion_queue* cq) {
   // Shutdown and destroy server
-  grpc_server_shutdown_and_notify(server, cq, (void*)(1000));
+  grpc_server_shutdown_and_notify(server, cq, reinterpret_cast<void*>(1000));
   while (grpc_completion_queue_next(cq, gpr_inf_future(GPR_CLOCK_REALTIME),
                                     nullptr)
-             .tag != (void*)(1000))
-    ;
+             .tag != reinterpret_cast<void*>(1000)) {
+  }
   grpc_server_destroy(server);
 }
 
@@ -273,11 +273,11 @@ void VerifyChannelDisconnected(grpc_channel* channel,
                                grpc_completion_queue* cq) {
   // Verify channel gets disconnected. Use a ping to make sure that clients
   // tries sending/receiving bytes if the channel is connected.
-  grpc_channel_ping(channel, cq, (void*)(2000), nullptr);
+  grpc_channel_ping(channel, cq, reinterpret_cast<void*>(2000), nullptr);
   grpc_event ev = grpc_completion_queue_next(
       cq, grpc_timeout_seconds_to_deadline(5), nullptr);
   GPR_ASSERT(ev.type == GRPC_OP_COMPLETE);
-  GPR_ASSERT(ev.tag == (void*)(2000));
+  GPR_ASSERT(ev.tag == reinterpret_cast<void*>(2000));
   GPR_ASSERT(ev.success == 0);
   GPR_ASSERT(grpc_channel_check_connectivity_state(channel, 0) !=
              GRPC_CHANNEL_READY);
@@ -317,10 +317,6 @@ TEST_F(KeepaliveThrottlingTest, KeepaliveThrottlingMultipleChannels) {
       grpc_channel_arg_integer_create(
           const_cast<char*>(GRPC_ARG_HTTP2_MAX_PINGS_WITHOUT_DATA), 0),
       grpc_channel_arg_integer_create(
-          const_cast<char*>(
-              GRPC_ARG_HTTP2_MIN_SENT_PING_INTERVAL_WITHOUT_DATA_MS),
-          0),
-      grpc_channel_arg_integer_create(
           const_cast<char*>(GRPC_ARG_KEEPALIVE_TIME_MS), 1 * 1000),
       grpc_channel_arg_integer_create(
           const_cast<char*>(GRPC_ARG_HTTP2_BDP_PROBE), 0)};
@@ -357,8 +353,8 @@ TEST_F(KeepaliveThrottlingTest, KeepaliveThrottlingMultipleChannels) {
   grpc_completion_queue_shutdown(cq);
   while (grpc_completion_queue_next(cq, gpr_inf_future(GPR_CLOCK_REALTIME),
                                     nullptr)
-             .type != GRPC_QUEUE_SHUTDOWN)
-    ;
+             .type != GRPC_QUEUE_SHUTDOWN) {
+  }
   grpc_completion_queue_destroy(cq);
 }
 
@@ -366,15 +362,15 @@ grpc_core::Resolver::Result BuildResolverResult(
     const std::vector<std::string>& addresses) {
   grpc_core::Resolver::Result result;
   for (const auto& address_str : addresses) {
-    grpc_uri* uri = grpc_uri_parse(address_str.c_str(), true);
-    if (uri == nullptr) {
-      gpr_log(GPR_ERROR, "Failed to parse uri:%s", address_str.c_str());
-      GPR_ASSERT(0);
+    absl::StatusOr<grpc_core::URI> uri = grpc_core::URI::Parse(address_str);
+    if (!uri.ok()) {
+      gpr_log(GPR_ERROR, "Failed to parse uri. Error: %s",
+              uri.status().ToString().c_str());
+      GPR_ASSERT(uri.ok());
     }
     grpc_resolved_address address;
-    GPR_ASSERT(grpc_parse_uri(uri, &address));
+    GPR_ASSERT(grpc_parse_uri(*uri, &address));
     result.addresses.emplace_back(address.addr, address.len, nullptr);
-    grpc_uri_destroy(uri);
   }
   return result;
 }
@@ -399,10 +395,6 @@ TEST_F(KeepaliveThrottlingTest, NewSubchannelsUseUpdatedKeepaliveTime) {
   grpc_arg client_args[] = {
       grpc_channel_arg_integer_create(
           const_cast<char*>(GRPC_ARG_HTTP2_MAX_PINGS_WITHOUT_DATA), 0),
-      grpc_channel_arg_integer_create(
-          const_cast<char*>(
-              GRPC_ARG_HTTP2_MIN_SENT_PING_INTERVAL_WITHOUT_DATA_MS),
-          0),
       grpc_channel_arg_integer_create(
           const_cast<char*>(GRPC_ARG_KEEPALIVE_PERMIT_WITHOUT_CALLS), 0),
       grpc_channel_arg_integer_create(
@@ -451,8 +443,8 @@ TEST_F(KeepaliveThrottlingTest, NewSubchannelsUseUpdatedKeepaliveTime) {
   grpc_completion_queue_shutdown(cq);
   while (grpc_completion_queue_next(cq, gpr_inf_future(GPR_CLOCK_REALTIME),
                                     nullptr)
-             .type != GRPC_QUEUE_SHUTDOWN)
-    ;
+             .type != GRPC_QUEUE_SHUTDOWN) {
+  }
   grpc_completion_queue_destroy(cq);
 }
 
@@ -472,10 +464,6 @@ TEST_F(KeepaliveThrottlingTest,
   grpc_arg client_args[] = {
       grpc_channel_arg_integer_create(
           const_cast<char*>(GRPC_ARG_HTTP2_MAX_PINGS_WITHOUT_DATA), 0),
-      grpc_channel_arg_integer_create(
-          const_cast<char*>(
-              GRPC_ARG_HTTP2_MIN_SENT_PING_INTERVAL_WITHOUT_DATA_MS),
-          0),
       grpc_channel_arg_integer_create(
           const_cast<char*>(GRPC_ARG_KEEPALIVE_PERMIT_WITHOUT_CALLS), 0),
       grpc_channel_arg_integer_create(
@@ -522,8 +510,8 @@ TEST_F(KeepaliveThrottlingTest,
   grpc_completion_queue_shutdown(cq);
   while (grpc_completion_queue_next(cq, gpr_inf_future(GPR_CLOCK_REALTIME),
                                     nullptr)
-             .type != GRPC_QUEUE_SHUTDOWN)
-    ;
+             .type != GRPC_QUEUE_SHUTDOWN) {
+  }
   grpc_completion_queue_destroy(cq);
 }
 
@@ -687,10 +675,6 @@ TEST(TooManyPings, BdpPingNotSentWithoutReceiveSideActivity) {
       grpc_channel_arg_integer_create(
           const_cast<char*>(GRPC_ARG_HTTP2_MAX_PINGS_WITHOUT_DATA), 0),
       grpc_channel_arg_integer_create(
-          const_cast<char*>(
-              GRPC_ARG_HTTP2_MIN_SENT_PING_INTERVAL_WITHOUT_DATA_MS),
-          0),
-      grpc_channel_arg_integer_create(
           const_cast<char*>(GRPC_ARG_KEEPALIVE_PERMIT_WITHOUT_CALLS), 1)};
   grpc_channel_args client_channel_args = {GPR_ARRAY_SIZE(client_args),
                                            client_args};
@@ -723,9 +707,9 @@ TEST(TooManyPings, BdpPingNotSentWithoutReceiveSideActivity) {
   grpc_channel_ping(channel, cq, tag(4), nullptr);
   CQ_EXPECT_COMPLETION(cqv, tag(4), 1);
   cq_verify(cqv, 5);
-  cq_verify_empty_timeout(cqv, 1);
-  ASSERT_NE(grpc_channel_check_connectivity_state(channel, 0),
-            GRPC_CHANNEL_READY);
+  // Give some time for the server to disconnect if it hasn't already.
+  cq_verify_empty_timeout(cqv, 3);
+  VerifyChannelDisconnected(channel, cq);
   cq_verifier_destroy(cqv);
   // shutdown and destroy the client and server
   ServerShutdownAndDestroy(server, cq);
@@ -733,8 +717,8 @@ TEST(TooManyPings, BdpPingNotSentWithoutReceiveSideActivity) {
   grpc_completion_queue_shutdown(cq);
   while (grpc_completion_queue_next(cq, gpr_inf_future(GPR_CLOCK_REALTIME),
                                     nullptr)
-             .type != GRPC_QUEUE_SHUTDOWN)
-    ;
+             .type != GRPC_QUEUE_SHUTDOWN) {
+  }
   grpc_completion_queue_destroy(cq);
 }
 

@@ -124,7 +124,7 @@ class ServerBuilder {
   /// connections.  Valid values include dns:///localhost:1234, /
   /// 192.168.1.1:31416, dns:///[::1]:27182, etc.).
   /// \param creds The credentials associated with the server.
-  /// \param selected_port[out] If not `nullptr`, gets populated with the port
+  /// \param[out] selected_port If not `nullptr`, gets populated with the port
   /// number bound to the \a grpc::Server for the corresponding endpoint after
   /// it is successfully bound by BuildAndStart(), 0 otherwise. AddListeningPort
   /// does not modify this pointer.
@@ -347,6 +347,11 @@ class ServerBuilder {
     return option_refs;
   }
 
+  /// Experimental API, subject to change.
+  void set_fetcher(grpc_server_config_fetcher* server_config_fetcher) {
+    server_config_fetcher_ = server_config_fetcher;
+  }
+
  private:
   friend class ::grpc::testing::ServerBuilderPluginTest;
 
@@ -405,6 +410,7 @@ class ServerBuilder {
       interceptor_creators_;
   std::vector<std::shared_ptr<grpc::internal::ExternalConnectionAcceptorImpl>>
       acceptors_;
+  grpc_server_config_fetcher* server_config_fetcher_ = nullptr;
 };
 
 }  // namespace grpc

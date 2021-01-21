@@ -162,7 +162,7 @@ class AsyncQpsServerTest final : public grpc::testing::Server {
       threads_.emplace_back(&AsyncQpsServerTest::ThreadFunc, this, i);
     }
   }
-  ~AsyncQpsServerTest() {
+  ~AsyncQpsServerTest() override {
     for (auto ss = shutdown_state_.begin(); ss != shutdown_state_.end(); ++ss) {
       std::lock_guard<std::mutex> lock((*ss)->mutex);
       (*ss)->shutdown = true;
@@ -180,8 +180,8 @@ class AsyncQpsServerTest final : public grpc::testing::Server {
     for (auto cq = srv_cqs_.begin(); cq != srv_cqs_.end(); ++cq) {
       bool ok;
       void* got_tag;
-      while ((*cq)->Next(&got_tag, &ok))
-        ;
+      while ((*cq)->Next(&got_tag, &ok)) {
+      }
     }
   }
 

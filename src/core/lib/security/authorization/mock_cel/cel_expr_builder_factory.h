@@ -19,6 +19,8 @@
 
 #include <memory>
 
+#include "absl/memory/memory.h"
+
 #include "src/core/lib/security/authorization/mock_cel/flat_expr_builder.h"
 
 namespace grpc_core {
@@ -31,7 +33,7 @@ struct InterpreterOptions {
   bool short_circuiting = true;
 };
 
-std::unique_ptr<CelExpressionBuilder> CreateCelExpressionBuilder(
+inline std::unique_ptr<CelExpressionBuilder> CreateCelExpressionBuilder(
     const InterpreterOptions& options) {
   return absl::make_unique<FlatExprBuilder>();
 }

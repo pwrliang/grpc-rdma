@@ -47,7 +47,7 @@ RUN apt-get update && apt-get install -y \
 RUN curl https://bootstrap.pypa.io/get-pip.py | python2.7
 RUN pip install --upgrade pip==19.3.1
 RUN pip install virtualenv==16.7.9
-RUN pip install futures==2.2.0 enum34==1.0.4 protobuf==3.5.2.post1 six==1.10.0 twisted==17.5.0
+RUN pip install futures==2.2.0 enum34==1.0.4 protobuf==3.5.2.post1 six==1.15.0 twisted==17.5.0
 
 
 #=================
@@ -75,7 +75,7 @@ RUN python3.6 -m ensurepip && \
 # Bazel installation
 
 # Must be in sync with tools/bazel
-ENV BAZEL_VERSION 2.2.0
+ENV BAZEL_VERSION 3.7.1
 
 # The correct bazel version is already preinstalled, no need to use //tools/bazel wrapper.
 ENV DISABLE_BAZEL_WRAPPER 1

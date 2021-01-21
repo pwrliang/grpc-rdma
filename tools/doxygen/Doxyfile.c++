@@ -40,7 +40,7 @@ PROJECT_NAME           = "GRPC C++"
 # could be handy for archiving the generated documentation or if some version
 # control system is used.
 
-PROJECT_NUMBER         = 1.33.1
+PROJECT_NUMBER         = 1.35.0
 
 # Using the PROJECT_BRIEF tag one can provide an optional one line description
 # for a project that appears at the top of each page and should give viewer a
@@ -1010,6 +1010,7 @@ include/grpcpp/security/auth_context.h \
 include/grpcpp/security/auth_metadata_processor.h \
 include/grpcpp/security/credentials.h \
 include/grpcpp/security/server_credentials.h \
+include/grpcpp/security/tls_certificate_provider.h \
 include/grpcpp/security/tls_credentials_options.h \
 include/grpcpp/server.h \
 include/grpcpp/server_builder.h \
@@ -1036,7 +1037,8 @@ include/grpcpp/support/string_ref.h \
 include/grpcpp/support/stub_options.h \
 include/grpcpp/support/sync_stream.h \
 include/grpcpp/support/time.h \
-include/grpcpp/support/validate_service_config.h
+include/grpcpp/support/validate_service_config.h \
+include/grpcpp/xds_server_builder.h
 
 # This tag can be used to specify the character encoding of the source files
 # that doxygen parses. Internally doxygen uses the UTF-8 encoding. Doxygen uses

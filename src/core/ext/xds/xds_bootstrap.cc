@@ -28,16 +28,58 @@
 #include "absl/strings/str_join.h"
 #include "absl/strings/string_view.h"
 
+#include "src/core/ext/xds/certificate_provider_registry.h"
+#include "src/core/ext/xds/xds_api.h"
 #include "src/core/lib/gpr/env.h"
 #include "src/core/lib/gpr/string.h"
 #include "src/core/lib/iomgr/load_file.h"
+#include "src/core/lib/security/credentials/credentials.h"
+#include "src/core/lib/security/credentials/fake/fake_credentials.h"
 #include "src/core/lib/slice/slice_internal.h"
 
 namespace grpc_core {
 
+//
+// XdsChannelCredsRegistry
+//
+
+bool XdsChannelCredsRegistry::IsSupported(const std::string& creds_type) {
+  return creds_type == "google_default" || creds_type == "insecure" ||
+         creds_type == "fake";
+}
+
+bool XdsChannelCredsRegistry::IsValidConfig(const std::string& creds_type,
+                                            const Json& config) {
+  // Currently, none of the creds types actually take a config, but we
+  // ignore whatever might be specified in the bootstrap file for
+  // forward compatibility reasons.
+  return true;
+}
+
+RefCountedPtr<grpc_channel_credentials>
+XdsChannelCredsRegistry::MakeChannelCreds(const std::string& creds_type,
+                                          const Json& config) {
+  if (creds_type == "google_default") {
+    return grpc_google_default_credentials_create(nullptr);
+  } else if (creds_type == "insecure") {
+    return grpc_insecure_credentials_create();
+  } else if (creds_type == "fake") {
+    return grpc_fake_transport_security_credentials_create();
+  }
+  return nullptr;
+}
+
+//
+// XdsBootstrap::XdsServer
+//
+
 bool XdsBootstrap::XdsServer::ShouldUseV3() const {
   return server_features.find("xds_v3") != server_features.end();
 }
+
+//
+// XdsBootstrap
+//
 
 namespace {
 
@@ -59,23 +101,34 @@ std::string BootstrapString(const XdsBootstrap& bootstrap) {
         bootstrap.node()->locality_region, bootstrap.node()->locality_zone,
         bootstrap.node()->locality_subzone, bootstrap.node()->metadata.Dump()));
   }
-  parts.push_back(
-      absl::StrFormat("servers=[\n"
-                      "  {\n"
-                      "    uri=\"%s\",\n"
-                      "    creds=[\n",
-                      bootstrap.server().server_uri));
-  for (const auto& creds : bootstrap.server().channel_creds) {
-    parts.push_back(absl::StrFormat("      {type=\"%s\", config=%s},\n",
-                                    creds.type, creds.config.Dump()));
+  parts.push_back(absl::StrFormat(
+      "servers=[\n"
+      "  {\n"
+      "    uri=\"%s\",\n"
+      "    creds_type=%s,\n",
+      bootstrap.server().server_uri, bootstrap.server().channel_creds_type));
+  if (bootstrap.server().channel_creds_config.type() != Json::Type::JSON_NULL) {
+    parts.push_back(
+        absl::StrFormat("    creds_config=%s,",
+                        bootstrap.server().channel_creds_config.Dump()));
   }
-  parts.push_back("    ],\n");
   if (!bootstrap.server().server_features.empty()) {
     parts.push_back(absl::StrCat(
         "    server_features=[",
         absl::StrJoin(bootstrap.server().server_features, ", "), "],\n"));
   }
-  parts.push_back("  }\n]");
+  parts.push_back("  }\n],\n");
+  parts.push_back("certificate_providers={\n");
+  for (const auto& entry : bootstrap.certificate_providers()) {
+    parts.push_back(
+        absl::StrFormat("  %s={\n"
+                        "    plugin_name=%s\n"
+                        "    config=%s\n"
+                        "  },\n",
+                        entry.first, entry.second.plugin_name,
+                        entry.second.config->ToString()));
+  }
+  parts.push_back("}");
   return absl::StrJoin(parts, "");
 }
 
@@ -152,6 +205,18 @@ XdsBootstrap::XdsBootstrap(Json json, grpc_error** error) {
       if (parse_error != GRPC_ERROR_NONE) error_list.push_back(parse_error);
     }
   }
+  if (XdsSecurityEnabled()) {
+    it = json.mutable_object()->find("certificate_providers");
+    if (it != json.mutable_object()->end()) {
+      if (it->second.type() != Json::Type::OBJECT) {
+        error_list.push_back(GRPC_ERROR_CREATE_FROM_STATIC_STRING(
+            "\"certificate_providers\" field is not an object"));
+      } else {
+        grpc_error* parse_error = ParseCertificateProviders(&it->second);
+        if (parse_error != GRPC_ERROR_NONE) error_list.push_back(parse_error);
+      }
+    }
+  }
   *error = GRPC_ERROR_CREATE_FROM_VECTOR("errors parsing xds bootstrap file",
                                          &error_list);
 }
@@ -187,14 +252,15 @@ grpc_error* XdsBootstrap::ParseXdsServer(Json* json, size_t idx) {
     server.server_uri = std::move(*it->second.mutable_string_value());
   }
   it = json->mutable_object()->find("channel_creds");
-  if (it != json->mutable_object()->end()) {
-    if (it->second.type() != Json::Type::ARRAY) {
-      error_list.push_back(GRPC_ERROR_CREATE_FROM_STATIC_STRING(
-          "\"channel_creds\" field is not an array"));
-    } else {
-      grpc_error* parse_error = ParseChannelCredsArray(&it->second, &server);
-      if (parse_error != GRPC_ERROR_NONE) error_list.push_back(parse_error);
-    }
+  if (it == json->mutable_object()->end()) {
+    error_list.push_back(GRPC_ERROR_CREATE_FROM_STATIC_STRING(
+        "\"channel_creds\" field not present"));
+  } else if (it->second.type() != Json::Type::ARRAY) {
+    error_list.push_back(GRPC_ERROR_CREATE_FROM_STATIC_STRING(
+        "\"channel_creds\" field is not an array"));
+  } else {
+    grpc_error* parse_error = ParseChannelCredsArray(&it->second, &server);
+    if (parse_error != GRPC_ERROR_NONE) error_list.push_back(parse_error);
   }
   it = json->mutable_object()->find("server_features");
   if (it != json->mutable_object()->end()) {
@@ -230,6 +296,10 @@ grpc_error* XdsBootstrap::ParseChannelCredsArray(Json* json,
       if (parse_error != GRPC_ERROR_NONE) error_list.push_back(parse_error);
     }
   }
+  if (server->channel_creds_type.empty()) {
+    error_list.push_back(GRPC_ERROR_CREATE_FROM_STATIC_STRING(
+        "no known creds type found in \"channel_creds\""));
+  }
   return GRPC_ERROR_CREATE_FROM_VECTOR("errors parsing \"channel_creds\" array",
                                        &error_list);
 }
@@ -237,7 +307,7 @@ grpc_error* XdsBootstrap::ParseChannelCredsArray(Json* json,
 grpc_error* XdsBootstrap::ParseChannelCreds(Json* json, size_t idx,
                                             XdsServer* server) {
   std::vector<grpc_error*> error_list;
-  ChannelCreds channel_creds;
+  std::string type;
   auto it = json->mutable_object()->find("type");
   if (it == json->mutable_object()->end()) {
     error_list.push_back(
@@ -246,19 +316,28 @@ grpc_error* XdsBootstrap::ParseChannelCreds(Json* json, size_t idx,
     error_list.push_back(
         GRPC_ERROR_CREATE_FROM_STATIC_STRING("\"type\" field is not a string"));
   } else {
-    channel_creds.type = std::move(*it->second.mutable_string_value());
+    type = std::move(*it->second.mutable_string_value());
   }
+  Json config;
   it = json->mutable_object()->find("config");
   if (it != json->mutable_object()->end()) {
     if (it->second.type() != Json::Type::OBJECT) {
       error_list.push_back(GRPC_ERROR_CREATE_FROM_STATIC_STRING(
           "\"config\" field is not an object"));
     } else {
-      channel_creds.config = std::move(it->second);
+      config = std::move(it->second);
     }
   }
-  if (!channel_creds.type.empty()) {
-    server->channel_creds.emplace_back(std::move(channel_creds));
+  // Select the first channel creds type that we support.
+  if (server->channel_creds_type.empty() &&
+      XdsChannelCredsRegistry::IsSupported(type)) {
+    if (!XdsChannelCredsRegistry::IsValidConfig(type, config)) {
+      error_list.push_back(GRPC_ERROR_CREATE_FROM_COPIED_STRING(
+          absl::StrCat("invalid config for channel creds type \"", type, "\"")
+              .c_str()));
+    }
+    server->channel_creds_type = std::move(type);
+    server->channel_creds_config = std::move(config);
   }
   // Can't use GRPC_ERROR_CREATE_FROM_VECTOR() here, because the error
   // string is not static in this case.
@@ -368,6 +447,74 @@ grpc_error* XdsBootstrap::ParseLocality(Json* json) {
   }
   return GRPC_ERROR_CREATE_FROM_VECTOR("errors parsing \"locality\" object",
                                        &error_list);
+}
+
+grpc_error* XdsBootstrap::ParseCertificateProviders(Json* json) {
+  std::vector<grpc_error*> error_list;
+  for (auto& certificate_provider : *(json->mutable_object())) {
+    if (certificate_provider.second.type() != Json::Type::OBJECT) {
+      error_list.push_back(GRPC_ERROR_CREATE_FROM_COPIED_STRING(
+          absl::StrCat("element \"", certificate_provider.first,
+                       "\" is not an object")
+              .c_str()));
+    } else {
+      grpc_error* parse_error = ParseCertificateProvider(
+          certificate_provider.first, &certificate_provider.second);
+      if (parse_error != GRPC_ERROR_NONE) error_list.push_back(parse_error);
+    }
+  }
+  return GRPC_ERROR_CREATE_FROM_VECTOR(
+      "errors parsing \"certificate_providers\" object", &error_list);
+}
+
+grpc_error* XdsBootstrap::ParseCertificateProvider(
+    const std::string& instance_name, Json* certificate_provider_json) {
+  std::vector<grpc_error*> error_list;
+  auto it = certificate_provider_json->mutable_object()->find("plugin_name");
+  if (it == certificate_provider_json->mutable_object()->end()) {
+    error_list.push_back(GRPC_ERROR_CREATE_FROM_STATIC_STRING(
+        "\"plugin_name\" field not present"));
+  } else if (it->second.type() != Json::Type::STRING) {
+    error_list.push_back(GRPC_ERROR_CREATE_FROM_STATIC_STRING(
+        "\"plugin_name\" field is not a string"));
+  } else {
+    std::string plugin_name = std::move(*(it->second.mutable_string_value()));
+    CertificateProviderFactory* factory =
+        CertificateProviderRegistry::LookupCertificateProviderFactory(
+            plugin_name);
+    if (factory != nullptr) {
+      RefCountedPtr<CertificateProviderFactory::Config> config;
+      it = certificate_provider_json->mutable_object()->find("config");
+      if (it != certificate_provider_json->mutable_object()->end()) {
+        if (it->second.type() != Json::Type::OBJECT) {
+          error_list.push_back(GRPC_ERROR_CREATE_FROM_STATIC_STRING(
+              "\"config\" field is not an object"));
+        } else {
+          grpc_error* parse_error = GRPC_ERROR_NONE;
+          config = factory->CreateCertificateProviderConfig(it->second,
+                                                            &parse_error);
+          if (parse_error != GRPC_ERROR_NONE) error_list.push_back(parse_error);
+        }
+      } else {
+        // "config" is an optional field, so create an empty JSON object.
+        grpc_error* parse_error = GRPC_ERROR_NONE;
+        config = factory->CreateCertificateProviderConfig(Json::Object(),
+                                                          &parse_error);
+        if (parse_error != GRPC_ERROR_NONE) error_list.push_back(parse_error);
+      }
+      certificate_providers_.insert(
+          {instance_name, {std::move(plugin_name), std::move(config)}});
+    }
+  }
+  // Can't use GRPC_ERROR_CREATE_FROM_VECTOR() here, because the error
+  // string is not static in this case.
+  if (error_list.empty()) return GRPC_ERROR_NONE;
+  grpc_error* error = GRPC_ERROR_CREATE_FROM_COPIED_STRING(
+      absl::StrCat("errors parsing element \"", instance_name, "\"").c_str());
+  for (size_t i = 0; i < error_list.size(); ++i) {
+    error = grpc_error_add_child(error, error_list[i]);
+  }
+  return error;
 }
 
 }  // namespace grpc_core

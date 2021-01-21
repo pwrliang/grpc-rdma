@@ -77,8 +77,8 @@ struct TestCall {
     grpc_completion_queue_shutdown(cq);
     while (grpc_completion_queue_next(cq, gpr_inf_future(GPR_CLOCK_REALTIME),
                                       nullptr)
-               .type != GRPC_QUEUE_SHUTDOWN)
-      ;
+               .type != GRPC_QUEUE_SHUTDOWN) {
+    }
     grpc_completion_queue_destroy(cq);
   }
 
@@ -236,8 +236,8 @@ class TestServer {
     grpc_completion_queue_shutdown(cq_);
     while (grpc_completion_queue_next(cq_, gpr_inf_future(GPR_CLOCK_REALTIME),
                                       nullptr)
-               .type != GRPC_QUEUE_SHUTDOWN)
-      ;
+               .type != GRPC_QUEUE_SHUTDOWN) {
+    }
     grpc_completion_queue_destroy(cq_);
   }
 
@@ -296,15 +296,15 @@ grpc_core::Resolver::Result BuildResolverResponse(
     const std::vector<std::string>& addresses) {
   grpc_core::Resolver::Result result;
   for (const auto& address_str : addresses) {
-    grpc_uri* uri = grpc_uri_parse(address_str.c_str(), true);
-    if (uri == nullptr) {
-      gpr_log(GPR_ERROR, "Failed to parse uri:%s", address_str.c_str());
-      GPR_ASSERT(0);
+    absl::StatusOr<grpc_core::URI> uri = grpc_core::URI::Parse(address_str);
+    if (!uri.ok()) {
+      gpr_log(GPR_ERROR, "Failed to parse. Error: %s",
+              uri.status().ToString().c_str());
+      GPR_ASSERT(uri.ok());
     }
     grpc_resolved_address address;
-    GPR_ASSERT(grpc_parse_uri(uri, &address));
+    GPR_ASSERT(grpc_parse_uri(*uri, &address));
     result.addresses.emplace_back(address.addr, address.len, nullptr);
-    grpc_uri_destroy(uri);
   }
   return result;
 }

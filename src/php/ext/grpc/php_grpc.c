@@ -171,9 +171,7 @@ void prefork() {
 // Called at post fork
 void php_grpc_clean_persistent_list(TSRMLS_D) {
     zend_hash_clean(&grpc_persistent_list);
-    zend_hash_destroy(&grpc_persistent_list);
     zend_hash_clean(&grpc_target_upper_bound_map);
-    zend_hash_destroy(&grpc_target_upper_bound_map);
 }
 
 void postfork_child() {
@@ -191,7 +189,7 @@ void postfork_child() {
   grpc_php_shutdown_completion_queue(TSRMLS_C);
 
   // clean-up grpc_core
-  grpc_shutdown_blocking();
+  grpc_shutdown();
   if (grpc_is_initialized() > 0) {
     zend_throw_exception(spl_ce_UnexpectedValueException,
                          "Oops, failed to shutdown gRPC Core after fork()",
@@ -567,7 +565,7 @@ PHP_MSHUTDOWN_FUNCTION(grpc) {
     zend_hash_destroy(&grpc_target_upper_bound_map);
     grpc_shutdown_timeval(TSRMLS_C);
     grpc_php_shutdown_completion_queue(TSRMLS_C);
-    grpc_shutdown_blocking();
+    grpc_shutdown();
     GRPC_G(initialized) = 0;
   }
   return SUCCESS;

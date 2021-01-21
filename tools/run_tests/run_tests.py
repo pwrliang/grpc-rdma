@@ -648,7 +648,7 @@ class PythonLanguage(object):
         return [
             self.config.job_spec(
                 config.run,
-                timeout_seconds=5 * 60,
+                timeout_seconds=8 * 60,
                 environ=dict(GRPC_PYTHON_TESTRUNNER_FILTER=str(suite_name),
                              **environment),
                 shortname='%s.%s.%s' %
@@ -893,7 +893,7 @@ class RubyLanguage(object):
         return 'Makefile'
 
     def dockerfile_dir(self):
-        return 'tools/dockerfile/test/ruby_jessie_%s' % _docker_arch_suffix(
+        return 'tools/dockerfile/test/ruby_buster_%s' % _docker_arch_suffix(
             self.args.arch)
 
     def __str__(self):
@@ -1100,7 +1100,7 @@ class ObjCLanguage(object):
         out.append(
             self.config.job_spec(
                 ['test/core/iomgr/ios/CFStreamTests/build_and_run_tests.sh'],
-                timeout_seconds=20 * 60,
+                timeout_seconds=60 * 60,
                 shortname='ios-test-cfstream-tests',
                 cpu_cost=1e6,
                 environ=_FORCE_ENVIRON_FOR_WRAPPERS))
@@ -1137,7 +1137,7 @@ class ObjCLanguage(object):
                                  environ={'SCHEME': 'PerfTestsPosix'}))
         out.append(
             self.config.job_spec(['test/cpp/ios/build_and_run_tests.sh'],
-                                 timeout_seconds=30 * 60,
+                                 timeout_seconds=60 * 60,
                                  shortname='ios-cpp-test-cronet',
                                  cpu_cost=1e6,
                                  environ=_FORCE_ENVIRON_FOR_WRAPPERS))
