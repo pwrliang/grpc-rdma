@@ -87,7 +87,10 @@ DebugOnlyTraceFlag grpc_trace_subchannel_refcount(false, "subchannel_refcount");
 ConnectedSubchannel::ConnectedSubchannel(
     grpc_channel_stack* channel_stack, const grpc_channel_args* args,
     RefCountedPtr<channelz::SubchannelNode> channelz_subchannel)
-    : RefCounted<ConnectedSubchannel>(&grpc_trace_subchannel_refcount),
+    : RefCounted<ConnectedSubchannel>(
+          GRPC_TRACE_FLAG_ENABLED(grpc_trace_subchannel_refcount)
+              ? "ConnectedSubchannel"
+              : nullptr),
       channel_stack_(channel_stack),
       args_(grpc_channel_args_copy(args)),
       channelz_subchannel_(std::move(channelz_subchannel)) {}
@@ -118,18 +121,9 @@ void ConnectedSubchannel::Ping(grpc_closure* on_initiate,
   elem->filter->start_transport_op(elem, op);
 }
 
-size_t ConnectedSubchannel::GetInitialCallSizeEstimate(
-    size_t parent_data_size) const {
-  size_t allocation_size =
-      GPR_ROUND_UP_TO_ALIGNMENT_SIZE(sizeof(SubchannelCall));
-  if (parent_data_size > 0) {
-    allocation_size +=
-        GPR_ROUND_UP_TO_ALIGNMENT_SIZE(channel_stack_->call_stack_size) +
-        parent_data_size;
-  } else {
-    allocation_size += channel_stack_->call_stack_size;
-  }
-  return allocation_size;
+size_t ConnectedSubchannel::GetInitialCallSizeEstimate() const {
+  return GPR_ROUND_UP_TO_ALIGNMENT_SIZE(sizeof(SubchannelCall)) +
+         channel_stack_->call_stack_size;
 }
 
 //
@@ -139,8 +133,7 @@ size_t ConnectedSubchannel::GetInitialCallSizeEstimate(
 RefCountedPtr<SubchannelCall> SubchannelCall::Create(Args args,
                                                      grpc_error** error) {
   const size_t allocation_size =
-      args.connected_subchannel->GetInitialCallSizeEstimate(
-          args.parent_data_size);
+      args.connected_subchannel->GetInitialCallSizeEstimate();
   Arena* arena = args.arena;
   return RefCountedPtr<SubchannelCall>(new (
       arena->Alloc(allocation_size)) SubchannelCall(std::move(args), error));
@@ -182,12 +175,6 @@ void SubchannelCall::StartTransportStreamOpBatch(
   grpc_call_element* top_elem = grpc_call_stack_element(call_stack, 0);
   GRPC_CALL_LOG_OP(GPR_INFO, top_elem, batch);
   top_elem->filter->start_transport_stream_op_batch(top_elem, batch);
-}
-
-void* SubchannelCall::GetParentData() {
-  grpc_channel_stack* chanstk = connected_subchannel_->channel_stack();
-  return (char*)this + GPR_ROUND_UP_TO_ALIGNMENT_SIZE(sizeof(SubchannelCall)) +
-         GPR_ROUND_UP_TO_ALIGNMENT_SIZE(chanstk->call_stack_size);
 }
 
 grpc_call_stack* SubchannelCall::GetCallStack() {
@@ -322,7 +309,7 @@ class Subchannel::ConnectedSubchannelStateWatcher
     GRPC_SUBCHANNEL_WEAK_UNREF(subchannel_, "connecting");
   }
 
-  ~ConnectedSubchannelStateWatcher() {
+  ~ConnectedSubchannelStateWatcher() override {
     GRPC_SUBCHANNEL_WEAK_UNREF(subchannel_, "state_watcher");
   }
 
@@ -388,17 +375,17 @@ class Subchannel::AsyncWatcherNotifierLocked {
     }
     watcher_->PushConnectivityStateChange(
         {state, status, std::move(connected_subchannel)});
-    ExecCtx::Run(
-        DEBUG_LOCATION,
-        GRPC_CLOSURE_INIT(&closure_,
-                          [](void* arg, grpc_error* /*error*/) {
-                            auto* self =
-                                static_cast<AsyncWatcherNotifierLocked*>(arg);
-                            self->watcher_->OnConnectivityStateChange();
-                            delete self;
-                          },
-                          this, nullptr),
-        GRPC_ERROR_NONE);
+    ExecCtx::Run(DEBUG_LOCATION,
+                 GRPC_CLOSURE_INIT(
+                     &closure_,
+                     [](void* arg, grpc_error* /*error*/) {
+                       auto* self =
+                           static_cast<AsyncWatcherNotifierLocked*>(arg);
+                       self->watcher_->OnConnectivityStateChange();
+                       delete self;
+                     },
+                     this, nullptr),
+                 GRPC_ERROR_NONE);
   }
 
  private:
@@ -437,8 +424,7 @@ void Subchannel::ConnectivityStateWatcherList::NotifyLocked(
 class Subchannel::HealthWatcherMap::HealthWatcher
     : public AsyncConnectivityStateWatcherInterface {
  public:
-  HealthWatcher(Subchannel* c,
-                grpc_core::UniquePtr<char> health_check_service_name,
+  HealthWatcher(Subchannel* c, std::string health_check_service_name,
                 grpc_connectivity_state subchannel_state)
       : subchannel_(c),
         health_check_service_name_(std::move(health_check_service_name)),
@@ -449,12 +435,12 @@ class Subchannel::HealthWatcherMap::HealthWatcher
     if (subchannel_state == GRPC_CHANNEL_READY) StartHealthCheckingLocked();
   }
 
-  ~HealthWatcher() {
+  ~HealthWatcher() override {
     GRPC_SUBCHANNEL_WEAK_UNREF(subchannel_, "health_watcher");
   }
 
-  const char* health_check_service_name() const {
-    return health_check_service_name_.get();
+  const std::string& health_check_service_name() const {
+    return health_check_service_name_;
   }
 
   grpc_connectivity_state state() const { return state_; }
@@ -517,12 +503,12 @@ class Subchannel::HealthWatcherMap::HealthWatcher
   void StartHealthCheckingLocked() {
     GPR_ASSERT(health_check_client_ == nullptr);
     health_check_client_ = MakeOrphanable<HealthCheckClient>(
-        health_check_service_name_.get(), subchannel_->connected_subchannel_,
+        health_check_service_name_, subchannel_->connected_subchannel_,
         subchannel_->pollset_set_, subchannel_->channelz_node_, Ref());
   }
 
   Subchannel* subchannel_;
-  grpc_core::UniquePtr<char> health_check_service_name_;
+  std::string health_check_service_name_;
   OrphanablePtr<HealthCheckClient> health_check_client_;
   grpc_connectivity_state state_;
   absl::Status status_;
@@ -535,18 +521,17 @@ class Subchannel::HealthWatcherMap::HealthWatcher
 
 void Subchannel::HealthWatcherMap::AddWatcherLocked(
     Subchannel* subchannel, grpc_connectivity_state initial_state,
-    grpc_core::UniquePtr<char> health_check_service_name,
+    const std::string& health_check_service_name,
     RefCountedPtr<ConnectivityStateWatcherInterface> watcher) {
   // If the health check service name is not already present in the map,
   // add it.
-  auto it = map_.find(health_check_service_name.get());
+  auto it = map_.find(health_check_service_name);
   HealthWatcher* health_watcher;
   if (it == map_.end()) {
-    const char* key = health_check_service_name.get();
     auto w = MakeOrphanable<HealthWatcher>(
-        subchannel, std::move(health_check_service_name), subchannel->state_);
+        subchannel, health_check_service_name, subchannel->state_);
     health_watcher = w.get();
-    map_[key] = std::move(w);
+    map_.emplace(health_check_service_name, std::move(w));
   } else {
     health_watcher = it->second.get();
   }
@@ -555,7 +540,7 @@ void Subchannel::HealthWatcherMap::AddWatcherLocked(
 }
 
 void Subchannel::HealthWatcherMap::RemoveWatcherLocked(
-    const char* health_check_service_name,
+    const std::string& health_check_service_name,
     ConnectivityStateWatcherInterface* watcher) {
   auto it = map_.find(health_check_service_name);
   GPR_ASSERT(it != map_.end());
@@ -574,7 +559,7 @@ void Subchannel::HealthWatcherMap::NotifyLocked(grpc_connectivity_state state,
 
 grpc_connectivity_state
 Subchannel::HealthWatcherMap::CheckConnectivityStateLocked(
-    Subchannel* subchannel, const char* health_check_service_name) {
+    Subchannel* subchannel, const std::string& health_check_service_name) {
   auto it = map_.find(health_check_service_name);
   if (it == map_.end()) {
     // If the health check service name is not found in the map, we're
@@ -699,7 +684,7 @@ Subchannel::Subchannel(SubchannelKey* key,
   const grpc_integer_options options = {
       GRPC_MAX_CHANNEL_TRACE_EVENT_MEMORY_PER_NODE_DEFAULT, 0, INT_MAX};
   size_t channel_tracer_max_memory =
-      (size_t)grpc_channel_arg_get_integer(arg, options);
+      static_cast<size_t>(grpc_channel_arg_get_integer(arg, options));
   if (channelz_enabled) {
     channelz_node_ = MakeRefCounted<channelz::SubchannelNode>(
         GetTargetAddress(), channel_tracer_max_memory);
@@ -837,15 +822,15 @@ channelz::SubchannelNode* Subchannel::channelz_node() {
 }
 
 grpc_connectivity_state Subchannel::CheckConnectivityState(
-    const char* health_check_service_name,
+    const absl::optional<std::string>& health_check_service_name,
     RefCountedPtr<ConnectedSubchannel>* connected_subchannel) {
   MutexLock lock(&mu_);
   grpc_connectivity_state state;
-  if (health_check_service_name == nullptr) {
+  if (!health_check_service_name.has_value()) {
     state = state_;
   } else {
     state = health_watcher_map_.CheckConnectivityStateLocked(
-        this, health_check_service_name);
+        this, *health_check_service_name);
   }
   if (connected_subchannel != nullptr && state == GRPC_CHANNEL_READY) {
     *connected_subchannel = connected_subchannel_;
@@ -855,37 +840,37 @@ grpc_connectivity_state Subchannel::CheckConnectivityState(
 
 void Subchannel::WatchConnectivityState(
     grpc_connectivity_state initial_state,
-    grpc_core::UniquePtr<char> health_check_service_name,
+    const absl::optional<std::string>& health_check_service_name,
     RefCountedPtr<ConnectivityStateWatcherInterface> watcher) {
   MutexLock lock(&mu_);
   grpc_pollset_set* interested_parties = watcher->interested_parties();
   if (interested_parties != nullptr) {
     grpc_pollset_set_add_pollset_set(pollset_set_, interested_parties);
   }
-  if (health_check_service_name == nullptr) {
+  if (!health_check_service_name.has_value()) {
     if (state_ != initial_state) {
       new AsyncWatcherNotifierLocked(watcher, this, state_, status_);
     }
     watcher_list_.AddWatcherLocked(std::move(watcher));
   } else {
-    health_watcher_map_.AddWatcherLocked(this, initial_state,
-                                         std::move(health_check_service_name),
-                                         std::move(watcher));
+    health_watcher_map_.AddWatcherLocked(
+        this, initial_state, *health_check_service_name, std::move(watcher));
   }
 }
 
 void Subchannel::CancelConnectivityStateWatch(
-    const char* health_check_service_name,
+    const absl::optional<std::string>& health_check_service_name,
     ConnectivityStateWatcherInterface* watcher) {
   MutexLock lock(&mu_);
   grpc_pollset_set* interested_parties = watcher->interested_parties();
   if (interested_parties != nullptr) {
     grpc_pollset_set_del_pollset_set(pollset_set_, interested_parties);
   }
-  if (health_check_service_name == nullptr) {
+  if (!health_check_service_name.has_value()) {
     watcher_list_.RemoveWatcherLocked(watcher);
   } else {
-    health_watcher_map_.RemoveWatcherLocked(health_check_service_name, watcher);
+    health_watcher_map_.RemoveWatcherLocked(*health_check_service_name,
+                                            watcher);
   }
 }
 
@@ -909,7 +894,7 @@ void Subchannel::ResetBackoff() {
 grpc_arg Subchannel::CreateSubchannelAddressArg(
     const grpc_resolved_address* addr) {
   return grpc_channel_arg_string_create(
-      (char*)GRPC_ARG_SUBCHANNEL_ADDRESS,
+      const_cast<char*>(GRPC_ARG_SUBCHANNEL_ADDRESS),
       gpr_strdup(addr->len > 0 ? grpc_sockaddr_to_uri(addr).c_str() : ""));
 }
 
@@ -925,10 +910,12 @@ const char* Subchannel::GetUriFromSubchannelAddressArg(
 namespace {
 
 void UriToSockaddr(const char* uri_str, grpc_resolved_address* addr) {
-  grpc_uri* uri = grpc_uri_parse(uri_str, 0 /* suppress_errors */);
-  GPR_ASSERT(uri != nullptr);
-  if (!grpc_parse_uri(uri, addr)) memset(addr, 0, sizeof(*addr));
-  grpc_uri_destroy(uri);
+  absl::StatusOr<URI> uri = URI::Parse(uri_str);
+  if (!uri.ok()) {
+    gpr_log(GPR_ERROR, "%s", uri.status().ToString().c_str());
+    GPR_ASSERT(uri.ok());
+  }
+  if (!grpc_parse_uri(*uri, addr)) memset(addr, 0, sizeof(*addr));
 }
 
 }  // namespace

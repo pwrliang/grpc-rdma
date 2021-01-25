@@ -33,7 +33,7 @@ class DummyInterceptor : public experimental::Interceptor {
  public:
   DummyInterceptor() {}
 
-  virtual void Intercept(experimental::InterceptorBatchMethods* methods) {
+  void Intercept(experimental::InterceptorBatchMethods* methods) override {
     if (methods->QueryInterceptionHookPoint(
             experimental::InterceptionHookPoints::PRE_SEND_INITIAL_METADATA)) {
       num_times_run_++;
@@ -71,12 +71,12 @@ class DummyInterceptorFactory
     : public experimental::ClientInterceptorFactoryInterface,
       public experimental::ServerInterceptorFactoryInterface {
  public:
-  virtual experimental::Interceptor* CreateClientInterceptor(
+  experimental::Interceptor* CreateClientInterceptor(
       experimental::ClientRpcInfo* /*info*/) override {
     return new DummyInterceptor();
   }
 
-  virtual experimental::Interceptor* CreateServerInterceptor(
+  experimental::Interceptor* CreateServerInterceptor(
       experimental::ServerRpcInfo* /*info*/) override {
     return new DummyInterceptor();
   }
@@ -87,12 +87,12 @@ class NullInterceptorFactory
     : public experimental::ClientInterceptorFactoryInterface,
       public experimental::ServerInterceptorFactoryInterface {
  public:
-  virtual experimental::Interceptor* CreateClientInterceptor(
+  experimental::Interceptor* CreateClientInterceptor(
       experimental::ClientRpcInfo* /*info*/) override {
     return nullptr;
   }
 
-  virtual experimental::Interceptor* CreateServerInterceptor(
+  experimental::Interceptor* CreateServerInterceptor(
       experimental::ServerRpcInfo* /*info*/) override {
     return nullptr;
   }
@@ -191,7 +191,7 @@ bool CheckMetadata(const std::multimap<std::string, std::string>& map,
 std::vector<std::unique_ptr<experimental::ClientInterceptorFactoryInterface>>
 CreateDummyClientInterceptors();
 
-inline void* tag(int i) { return (void*)static_cast<intptr_t>(i); }
+inline void* tag(int i) { return reinterpret_cast<void*>(i); }
 inline int detag(void* p) {
   return static_cast<int>(reinterpret_cast<intptr_t>(p));
 }

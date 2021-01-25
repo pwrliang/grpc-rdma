@@ -43,13 +43,13 @@ namespace grpc_core {
 class GrpcPolledFdPosix : public GrpcPolledFd {
  public:
   GrpcPolledFdPosix(ares_socket_t as, grpc_pollset_set* driver_pollset_set)
-      : name_(absl::StrCat("c-ares fd: ", (int)as)), as_(as) {
-    fd_ = grpc_fd_create((int)as, name_.c_str(), false);
+      : name_(absl::StrCat("c-ares fd: ", static_cast<int>(as))), as_(as) {
+    fd_ = grpc_fd_create(static_cast<int>(as), name_.c_str(), false);
     driver_pollset_set_ = driver_pollset_set;
     grpc_pollset_set_add_fd(driver_pollset_set_, fd_);
   }
 
-  ~GrpcPolledFdPosix() {
+  ~GrpcPolledFdPosix() override {
     grpc_pollset_set_del_fd(driver_pollset_set_, fd_);
     /* c-ares library will close the fd inside grpc_fd. This fd may be picked up
        immediately by another thread, and should not be closed by the following

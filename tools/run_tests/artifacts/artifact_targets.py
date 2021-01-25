@@ -95,7 +95,7 @@ def create_jobspec(name,
     return jobspec
 
 
-_MACOS_COMPAT_FLAG = '-mmacosx-version-min=10.7'
+_MACOS_COMPAT_FLAG = '-mmacosx-version-min=10.10'
 
 _ARCH_FLAG_MAP = {'x86': '-m32', 'x64': '-m64'}
 
@@ -203,7 +203,7 @@ class RubyArtifact:
         return create_jobspec(
             self.name, ['tools/run_tests/artifacts/build_artifact_ruby.sh'],
             use_workspace=True,
-            timeout_seconds=45 * 60)
+            timeout_seconds=60 * 60)
 
 
 class CSharpExtArtifact:
@@ -233,6 +233,7 @@ class CSharpExtArtifact:
             return create_jobspec(
                 self.name,
                 ['tools/run_tests/artifacts/build_artifact_csharp_ios.sh'],
+                timeout_seconds=45 * 60,
                 use_workspace=True)
         elif self.platform == 'windows':
             return create_jobspec(self.name, [
@@ -304,17 +305,9 @@ class ProtocArtifact:
 
     def build_jobspec(self):
         if self.platform != 'windows':
-            cxxflags = '-DNDEBUG %s' % _ARCH_FLAG_MAP[self.arch]
-            ldflags = '%s' % _ARCH_FLAG_MAP[self.arch]
-            if self.platform != 'macos':
-                ldflags += '  -static-libgcc -static-libstdc++ -s'
-            environ = {
-                'CONFIG': 'opt',
-                'CXXFLAGS': cxxflags,
-                'LDFLAGS': ldflags,
-                'PROTOBUF_LDFLAGS_EXTRA': ldflags
-            }
+            environ = {'CXXFLAGS': '', 'LDFLAGS': ''}
             if self.platform == 'linux':
+                environ['LDFLAGS'] += ' -static-libgcc -static-libstdc++ -s'
                 return create_docker_jobspec(
                     self.name,
                     'tools/dockerfile/grpc_artifact_centos6_{}'.format(
@@ -344,10 +337,16 @@ class ProtocArtifact:
 
 def targets():
     """Gets list of supported targets"""
-    return ([
-        Cls(platform, arch) for Cls in (CSharpExtArtifact, ProtocArtifact)
-        for platform in ('linux', 'macos', 'windows') for arch in ('x86', 'x64')
-    ] + [
+    return [
+        ProtocArtifact('linux', 'x64'),
+        ProtocArtifact('linux', 'x86'),
+        ProtocArtifact('macos', 'x64'),
+        ProtocArtifact('windows', 'x64'),
+        ProtocArtifact('windows', 'x86'),
+        CSharpExtArtifact('linux', 'x64'),
+        CSharpExtArtifact('macos', 'x64'),
+        CSharpExtArtifact('windows', 'x64'),
+        CSharpExtArtifact('windows', 'x86'),
         CSharpExtArtifact('linux', 'android', arch_abi='arm64-v8a'),
         CSharpExtArtifact('linux', 'android', arch_abi='armeabi-v7a'),
         CSharpExtArtifact('linux', 'android', arch_abi='x86'),
@@ -393,16 +392,14 @@ def targets():
         PythonArtifact('windows', 'x86', 'Python36_32bit'),
         PythonArtifact('windows', 'x86', 'Python37_32bit'),
         PythonArtifact('windows', 'x86', 'Python38_32bit'),
-        # TODO(lidiz) uncomment if Python39 installs stably.
-        # PythonArtifact('windows', 'x86', 'Python39_32bit'),
+        PythonArtifact('windows', 'x86', 'Python39_32bit'),
         PythonArtifact('windows', 'x64', 'Python27'),
         PythonArtifact('windows', 'x64', 'Python35'),
         PythonArtifact('windows', 'x64', 'Python36'),
         PythonArtifact('windows', 'x64', 'Python37'),
         PythonArtifact('windows', 'x64', 'Python38'),
-        # TODO(lidiz) uncomment if Python39 installs stably.
-        # PythonArtifact('windows', 'x64', 'Python39'),
+        PythonArtifact('windows', 'x64', 'Python39'),
         RubyArtifact('linux', 'x64'),
         RubyArtifact('macos', 'x64'),
         PHPArtifact('linux', 'x64')
-    ])
+    ]

@@ -30,7 +30,7 @@ namespace {
 class Foo : public DualRefCounted<Foo> {
  public:
   Foo() = default;
-  ~Foo() { GPR_ASSERT(shutting_down_); }
+  ~Foo() override { GPR_ASSERT(shutting_down_); }
 
   void Orphan() override { shutting_down_ = true; }
 
@@ -72,14 +72,10 @@ TEST(DualRefCounted, RefIfNonZero) {
   foo->WeakUnref();
 }
 
-// Note: We use DebugOnlyTraceFlag instead of TraceFlag to ensure that
-// things build properly in both debug and non-debug cases.
-DebugOnlyTraceFlag foo_tracer(true, "foo");
-
 class FooWithTracing : public DualRefCounted<FooWithTracing> {
  public:
-  FooWithTracing() : DualRefCounted(&foo_tracer) {}
-  ~FooWithTracing() { GPR_ASSERT(shutting_down_); }
+  FooWithTracing() : DualRefCounted("FooWithTracing") {}
+  ~FooWithTracing() override { GPR_ASSERT(shutting_down_); }
 
   void Orphan() override { shutting_down_ = true; }
 

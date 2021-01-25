@@ -58,7 +58,7 @@ class ExternalConnectionAcceptorImpl;
 /// \a Server instances.
 class Server : public ServerInterface, private GrpcLibraryCodegen {
  public:
-  ~Server();
+  ~Server() override;
 
   /// Block until the server shuts down.
   ///
@@ -133,7 +133,7 @@ class Server : public ServerInterface, private GrpcLibraryCodegen {
  protected:
   /// Register a service. This call does not take ownership of the service.
   /// The service must exist for the lifetime of the Server instance.
-  bool RegisterService(const std::string* host, Service* service) override;
+  bool RegisterService(const std::string* addr, Service* service) override;
 
   /// Try binding the server to the given \a addr endpoint
   /// (port, and optionally including IP address to bind to).
@@ -179,6 +179,7 @@ class Server : public ServerInterface, private GrpcLibraryCodegen {
          int min_pollers, int max_pollers, int sync_cq_timeout_msec,
          std::vector<std::shared_ptr<internal::ExternalConnectionAcceptorImpl>>
              acceptors,
+         grpc_server_config_fetcher* server_config_fetcher = nullptr,
          grpc_resource_quota* server_rq = nullptr,
          std::vector<
              std::unique_ptr<experimental::ServerInterceptorFactoryInterface>>

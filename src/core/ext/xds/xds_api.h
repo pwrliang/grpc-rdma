@@ -29,6 +29,8 @@
 #include "absl/types/optional.h"
 #include "re2/re2.h"
 
+#include "upb/def.hpp"
+
 #include <grpc/slice_buffer.h>
 
 #include "src/core/ext/filters/client_channel/server_address.h"
@@ -36,6 +38,11 @@
 #include "src/core/ext/xds/xds_client_stats.h"
 
 namespace grpc_core {
+
+// TODO(yashykt): Check to see if xDS security is enabled. This will be
+// removed once this feature is fully integration-tested and enabled by
+// default.
+bool XdsSecurityEnabled();
 
 class XdsClient;
 
@@ -45,6 +52,17 @@ class XdsApi {
   static const char* kRdsTypeUrl;
   static const char* kCdsTypeUrl;
   static const char* kEdsTypeUrl;
+
+  struct Duration {
+    int64_t seconds = 0;
+    int32_t nanos = 0;
+    bool operator==(const Duration& other) const {
+      return (seconds == other.seconds && nanos == other.nanos);
+    }
+    std::string ToString() const {
+      return absl::StrFormat("Duration seconds: %ld, nanos %d", seconds, nanos);
+    }
+  };
 
   // TODO(donnadionne): When we can use absl::variant<>, consider using that
   // for: PathMatcher, HeaderMatcher, cluster_name and weighted_clusters
@@ -60,6 +78,7 @@ class XdsApi {
         PathMatcherType type;
         std::string string_matcher;
         std::unique_ptr<RE2> regex_matcher;
+        bool case_sensitive = true;
 
         PathMatcher() = default;
         PathMatcher(const PathMatcher& other);
@@ -122,11 +141,17 @@ class XdsApi {
       std::string ToString() const;
     };
     std::vector<ClusterWeight> weighted_clusters;
+    // Storing the timeout duration from route action:
+    // RouteAction.max_stream_duration.grpc_timeout_header_max or
+    // RouteAction.max_stream_duration.max_stream_duration if the former is
+    // not set.
+    absl::optional<Duration> max_stream_duration;
 
     bool operator==(const Route& other) const {
       return (matchers == other.matchers &&
               cluster_name == other.cluster_name &&
-              weighted_clusters == other.weighted_clusters);
+              weighted_clusters == other.weighted_clusters &&
+              max_stream_duration == other.max_stream_duration);
     }
     std::string ToString() const;
   };
@@ -150,23 +175,40 @@ class XdsApi {
     VirtualHost* FindVirtualHostForDomain(const std::string& domain);
   };
 
-  struct StringMatcher {
+  class StringMatcher {
+   public:
     enum class StringMatcherType {
-      EXACT,       // value stored in string_matcher_field
-      PREFIX,      // value stored in string_matcher_field
-      SUFFIX,      // value stored in string_matcher_field
-      SAFE_REGEX,  // use regex_match field
-      CONTAINS,    // value stored in string_matcher_field
+      EXACT,       // value stored in string_matcher_ field
+      PREFIX,      // value stored in string_matcher_ field
+      SUFFIX,      // value stored in string_matcher_ field
+      SAFE_REGEX,  // pattern stored in regex_matcher_ field
+      CONTAINS,    // value stored in string_matcher_ field
     };
-    StringMatcherType type;
-    std::string string_matcher;
-    std::unique_ptr<RE2> regex_match;
-    bool ignore_case;
 
     StringMatcher() = default;
     StringMatcher(const StringMatcher& other);
+    StringMatcher(StringMatcherType type, const std::string& matcher,
+                  bool ignore_case = false);
     StringMatcher& operator=(const StringMatcher& other);
     bool operator==(const StringMatcher& other) const;
+
+    bool Match(absl::string_view value) const;
+
+    std::string ToString() const;
+
+    StringMatcherType type() const { return type_; }
+
+    // Valid for EXACT, PREFIX, SUFFIX and CONTAINS
+    const std::string& string_matcher() const { return string_matcher_; }
+
+    // Valid for SAFE_REGEX
+    RE2* regex_matcher() const { return regex_matcher_.get(); }
+
+   private:
+    StringMatcherType type_ = StringMatcherType::EXACT;
+    std::string string_matcher_;
+    std::unique_ptr<RE2> regex_matcher_;
+    bool ignore_case_ = false;
   };
 
   struct CommonTlsContext {
@@ -176,20 +218,40 @@ class XdsApi {
       bool operator==(const CertificateValidationContext& other) const {
         return match_subject_alt_names == other.match_subject_alt_names;
       }
+
+      std::string ToString() const;
+      bool Empty() const;
+    };
+
+    struct CertificateProviderInstance {
+      std::string instance_name;
+      std::string certificate_name;
+
+      bool operator==(const CertificateProviderInstance& other) const {
+        return instance_name == other.instance_name &&
+               certificate_name == other.certificate_name;
+      }
+
+      std::string ToString() const;
+      bool Empty() const;
     };
 
     struct CombinedCertificateValidationContext {
       CertificateValidationContext default_validation_context;
-      std::string validation_context_certificate_provider_instance;
+      CertificateProviderInstance
+          validation_context_certificate_provider_instance;
 
       bool operator==(const CombinedCertificateValidationContext& other) const {
         return default_validation_context == other.default_validation_context &&
                validation_context_certificate_provider_instance ==
                    other.validation_context_certificate_provider_instance;
       }
+
+      std::string ToString() const;
+      bool Empty() const;
     };
 
-    std::string tls_certificate_certificate_provider_instance;
+    CertificateProviderInstance tls_certificate_certificate_provider_instance;
     CombinedCertificateValidationContext combined_validation_context;
 
     bool operator==(const CommonTlsContext& other) const {
@@ -197,6 +259,9 @@ class XdsApi {
                  other.tls_certificate_certificate_provider_instance &&
              combined_validation_context == other.combined_validation_context;
     }
+
+    std::string ToString() const;
+    bool Empty() const;
   };
 
   // TODO(roth): When we can use absl::variant<>, consider using that
@@ -204,13 +269,17 @@ class XdsApi {
   struct LdsUpdate {
     // The name to use in the RDS request.
     std::string route_config_name;
+    // Storing the Http Connection Manager Common Http Protocol Option
+    // max_stream_duration
+    Duration http_max_stream_duration;
     // The RouteConfiguration to use for this listener.
     // Present only if it is inlined in the LDS response.
     absl::optional<RdsUpdate> rds_update;
 
     bool operator==(const LdsUpdate& other) const {
       return route_config_name == other.route_config_name &&
-             rds_update == other.rds_update;
+             rds_update == other.rds_update &&
+             http_max_stream_duration == other.http_max_stream_duration;
     }
   };
 
@@ -240,6 +309,8 @@ class XdsApi {
                  other.lrs_load_reporting_server_name &&
              max_concurrent_requests == other.max_concurrent_requests;
     }
+
+    std::string ToString() const;
   };
 
   using CdsUpdateMap = std::map<std::string /*cluster_name*/, CdsUpdate>;
@@ -339,11 +410,12 @@ class XdsApi {
       std::pair<std::string /*cluster_name*/, std::string /*eds_service_name*/>,
       ClusterLoadReport>;
 
-  XdsApi(XdsClient* client, TraceFlag* tracer, const XdsBootstrap* bootstrap);
+  XdsApi(XdsClient* client, TraceFlag* tracer, const XdsBootstrap::Node* node);
 
   // Creates an ADS request.
   // Takes ownership of \a error.
-  grpc_slice CreateAdsRequest(const std::string& type_url,
+  grpc_slice CreateAdsRequest(const XdsBootstrap::XdsServer& server,
+                              const std::string& type_url,
                               const std::set<absl::string_view>& resource_names,
                               const std::string& version,
                               const std::string& nonce, grpc_error* error,
@@ -370,7 +442,7 @@ class XdsApi {
       const std::set<absl::string_view>& expected_eds_service_names);
 
   // Creates an initial LRS request.
-  grpc_slice CreateLrsInitialRequest();
+  grpc_slice CreateLrsInitialRequest(const XdsBootstrap::XdsServer& server);
 
   // Creates an LRS request sending a client-side load report.
   grpc_slice CreateLrsRequest(ClusterLoadReportMap cluster_load_report_map);
@@ -386,8 +458,8 @@ class XdsApi {
  private:
   XdsClient* client_;
   TraceFlag* tracer_;
-  const bool use_v3_;
-  const XdsBootstrap* bootstrap_;  // Do not own.
+  const XdsBootstrap::Node* node_;  // Do not own.
+  upb::SymbolTable symtab_;
   const std::string build_version_;
   const std::string user_agent_name_;
 };

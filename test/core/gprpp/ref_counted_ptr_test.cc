@@ -58,14 +58,16 @@ TEST(RefCountedPtr, ExplicitConstructor) { RefCountedPtr<Foo> foo(new Foo()); }
 TEST(RefCountedPtr, MoveConstructor) {
   RefCountedPtr<Foo> foo(new Foo());
   RefCountedPtr<Foo> foo2(std::move(foo));
-  EXPECT_EQ(nullptr, foo.get());  // NOLINT
+  // NOLINTNEXTLINE(bugprone-use-after-move)
+  EXPECT_EQ(nullptr, foo.get());
   EXPECT_NE(nullptr, foo2.get());
 }
 
 TEST(RefCountedPtr, MoveAssignment) {
   RefCountedPtr<Foo> foo(new Foo());
   RefCountedPtr<Foo> foo2 = std::move(foo);
-  EXPECT_EQ(nullptr, foo.get());  // NOLINT
+  // NOLINTNEXTLINE(bugprone-use-after-move)
+  EXPECT_EQ(nullptr, foo.get());
   EXPECT_NE(nullptr, foo2.get());
 }
 
@@ -100,6 +102,7 @@ TEST(RefCountedPtr, EnclosedScope) {
   RefCountedPtr<Foo> foo(new Foo());
   {
     RefCountedPtr<Foo> foo2(std::move(foo));
+    // NOLINTNEXTLINE(bugprone-use-after-move)
     EXPECT_EQ(nullptr, foo.get());
     EXPECT_NE(nullptr, foo2.get());
   }
@@ -180,11 +183,9 @@ TEST(MakeRefCounted, Args) {
   EXPECT_EQ(3, foo->value());
 }
 
-TraceFlag foo_tracer(true, "foo");
-
 class FooWithTracing : public RefCounted<FooWithTracing> {
  public:
-  FooWithTracing() : RefCounted(&foo_tracer) {}
+  FooWithTracing() : RefCounted("FooWithTracing") {}
 };
 
 TEST(RefCountedPtr, RefCountedWithTracing) {
@@ -265,7 +266,7 @@ class Bar : public DualRefCounted<Bar> {
 
   explicit Bar(int value) : value_(value) {}
 
-  ~Bar() { GPR_ASSERT(shutting_down_); }
+  ~Bar() override { GPR_ASSERT(shutting_down_); }
 
   void Orphan() override { shutting_down_ = true; }
 
@@ -339,6 +340,7 @@ TEST(WeakRefCountedPtr, EnclosedScope) {
   WeakRefCountedPtr<Bar> bar = bar_strong->WeakRef();
   {
     WeakRefCountedPtr<Bar> bar2(std::move(bar));
+    // NOLINTNEXTLINE(bugprone-use-after-move)
     EXPECT_EQ(nullptr, bar.get());
     EXPECT_NE(nullptr, bar2.get());
   }
@@ -416,13 +418,11 @@ TEST(WeakRefCountedPtr, Swap) {
   EXPECT_EQ(bar_strong.get(), bar3.get());
 }
 
-TraceFlag bar_tracer(true, "bar");
-
 class BarWithTracing : public DualRefCounted<BarWithTracing> {
  public:
-  BarWithTracing() : DualRefCounted(&bar_tracer) {}
+  BarWithTracing() : DualRefCounted("BarWithTracing") {}
 
-  ~BarWithTracing() { GPR_ASSERT(shutting_down_); }
+  ~BarWithTracing() override { GPR_ASSERT(shutting_down_); }
 
   void Orphan() override { shutting_down_ = true; }
 
@@ -442,7 +442,7 @@ class WeakBaseClass : public DualRefCounted<WeakBaseClass> {
  public:
   WeakBaseClass() {}
 
-  ~WeakBaseClass() { GPR_ASSERT(shutting_down_); }
+  ~WeakBaseClass() override { GPR_ASSERT(shutting_down_); }
 
   void Orphan() override { shutting_down_ = true; }
 

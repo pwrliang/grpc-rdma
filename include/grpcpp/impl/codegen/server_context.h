@@ -37,6 +37,7 @@
 #include <grpcpp/impl/codegen/create_auth_context.h>
 #include <grpcpp/impl/codegen/message_allocator.h>
 #include <grpcpp/impl/codegen/metadata_map.h>
+#include <grpcpp/impl/codegen/rpc_service_method.h>
 #include <grpcpp/impl/codegen/security/auth_context.h>
 #include <grpcpp/impl/codegen/server_callback.h>
 #include <grpcpp/impl/codegen/server_interceptor.h>
@@ -75,7 +76,11 @@ template <class RequestType, class ResponseType>
 class CallbackBidiHandler;
 template <class ServiceType, class RequestType, class ResponseType>
 class ClientStreamingHandler;
-template <class ServiceType, class RequestType, class ResponseType>
+template <class ResponseType>
+void UnaryRunHandlerHelper(const MethodHandler::HandlerParameter&,
+                           ResponseType*, Status&);
+template <class ServiceType, class RequestType, class ResponseType,
+          class BaseRequestType, class BaseResponseType>
 class RpcMethodHandler;
 template <class Base>
 class FinishOnlyReactor;
@@ -260,7 +265,7 @@ class ServerContextBase {
   ///
   /// \see grpc::AuthContext.
   std::shared_ptr<const ::grpc::AuthContext> auth_context() const {
-    if (auth_context_.get() == nullptr) {
+    if (auth_context_ == nullptr) {
       auth_context_ = ::grpc::CreateAuthContext(call_.call);
     }
     return auth_context_;
@@ -355,7 +360,12 @@ class ServerContextBase {
   friend class ::grpc::ServerWriter;
   template <class W, class R>
   friend class ::grpc::internal::ServerReaderWriterBody;
-  template <class ServiceType, class RequestType, class ResponseType>
+  template <class ResponseType>
+  friend void ::grpc::internal::UnaryRunHandlerHelper(
+      const internal::MethodHandler::HandlerParameter& param, ResponseType* rsp,
+      Status& status);
+  template <class ServiceType, class RequestType, class ResponseType,
+            class BaseRequestType, class BaseResponseType>
   friend class ::grpc::internal::RpcMethodHandler;
   template <class ServiceType, class RequestType, class ResponseType>
   friend class ::grpc::internal::ClientStreamingHandler;
@@ -405,7 +415,7 @@ class ServerContextBase {
       const char* method, ::grpc::internal::RpcMethod::RpcType type,
       const std::vector<std::unique_ptr<
           ::grpc::experimental::ServerInterceptorFactoryInterface>>& creators) {
-    if (creators.size() != 0) {
+    if (!creators.empty()) {
       rpc_info_ = new ::grpc::experimental::ServerRpcInfo(this, method, type);
       rpc_info_->RegisterInterceptors(creators);
     }
@@ -466,6 +476,7 @@ class ServerContextBase {
   };
 
   void SetupTestDefaultReactor(std::function<void(::grpc::Status)> func) {
+    // NOLINTNEXTLINE(modernize-make-unique)
     test_unary_.reset(new TestServerCallbackUnary(this, std::move(func)));
   }
   bool test_status_set() const {
