@@ -46,7 +46,7 @@ namespace grpc_core {
 namespace {
 
 tsi_ssl_pem_key_cert_pair* ConvertToTsiPemKeyCertPair(
-    const grpc_core::PemKeyCertPairList& cert_pair_list) {
+    const PemKeyCertPairList& cert_pair_list) {
   tsi_ssl_pem_key_cert_pair* tsi_pairs = nullptr;
   size_t num_key_cert_pairs = cert_pair_list.size();
   if (num_key_cert_pairs > 0) {
@@ -68,11 +68,11 @@ tsi_ssl_pem_key_cert_pair* ConvertToTsiPemKeyCertPair(
 }  // namespace
 
 // -------------------channel security connector-------------------
-grpc_core::RefCountedPtr<grpc_channel_security_connector>
+RefCountedPtr<grpc_channel_security_connector>
 TlsChannelSecurityConnector::CreateTlsChannelSecurityConnector(
-    grpc_core::RefCountedPtr<grpc_channel_credentials> channel_creds,
-    grpc_core::RefCountedPtr<grpc_tls_credentials_options> options,
-    grpc_core::RefCountedPtr<grpc_call_credentials> request_metadata_creds,
+    RefCountedPtr<grpc_channel_credentials> channel_creds,
+    RefCountedPtr<grpc_tls_credentials_options> options,
+    RefCountedPtr<grpc_call_credentials> request_metadata_creds,
     const char* target_name, const char* overridden_target_name,
     tsi_ssl_session_cache* ssl_session_cache) {
   if (channel_creds == nullptr) {
@@ -93,18 +93,16 @@ TlsChannelSecurityConnector::CreateTlsChannelSecurityConnector(
             "TlsChannelSecurityConnectorCreate()");
     return nullptr;
   }
-  grpc_core::RefCountedPtr<TlsChannelSecurityConnector> c =
-      grpc_core::MakeRefCounted<TlsChannelSecurityConnector>(
-          std::move(channel_creds), std::move(options),
-          std::move(request_metadata_creds), target_name,
-          overridden_target_name, ssl_session_cache);
-  return c;
+  return MakeRefCounted<TlsChannelSecurityConnector>(
+      std::move(channel_creds), std::move(options),
+      std::move(request_metadata_creds), target_name, overridden_target_name,
+      ssl_session_cache);
 }
 
 TlsChannelSecurityConnector::TlsChannelSecurityConnector(
-    grpc_core::RefCountedPtr<grpc_channel_credentials> channel_creds,
-    grpc_core::RefCountedPtr<grpc_tls_credentials_options> options,
-    grpc_core::RefCountedPtr<grpc_call_credentials> request_metadata_creds,
+    RefCountedPtr<grpc_channel_credentials> channel_creds,
+    RefCountedPtr<grpc_tls_credentials_options> options,
+    RefCountedPtr<grpc_call_credentials> request_metadata_creds,
     const char* target_name, const char* overridden_target_name,
     tsi_ssl_session_cache* ssl_session_cache)
     : grpc_channel_security_connector(GRPC_SSL_URL_SCHEME,
@@ -120,7 +118,7 @@ TlsChannelSecurityConnector::TlsChannelSecurityConnector(
   check_arg_ = ServerAuthorizationCheckArgCreate(this);
   absl::string_view host;
   absl::string_view port;
-  grpc_core::SplitHostPort(target_name, &host, &port);
+  SplitHostPort(target_name, &host, &port);
   target_name_ = std::string(host);
   // Create a watcher.
   auto watcher_ptr = absl::make_unique<TlsChannelCertificateWatcher>(this);
@@ -136,9 +134,20 @@ TlsChannelSecurityConnector::TlsChannelSecurityConnector(
   if (options_->watch_identity_pair()) {
     watched_identity_cert_name = options_->identity_cert_name();
   }
-  distributor->WatchTlsCertificates(std::move(watcher_ptr),
-                                    watched_root_cert_name,
-                                    watched_identity_cert_name);
+  // We will use the root certs stored in system default locations if not
+  // watching root certs on the client side. We will handle this case
+  // differently here, because "watching a default roots without the identity
+  // certs" is a valid case(and hence we will need to call
+  // OnCertificatesChanged), but it requires nothing from the provider, and
+  // hence no need to register the watcher.
+  bool use_default_roots = !options_->watch_root_cert();
+  if (use_default_roots && !options_->watch_identity_pair()) {
+    watcher_ptr->OnCertificatesChanged(absl::nullopt, absl::nullopt);
+  } else {
+    distributor->WatchTlsCertificates(std::move(watcher_ptr),
+                                      watched_root_cert_name,
+                                      watched_identity_cert_name);
+  }
 }
 
 TlsChannelSecurityConnector::~TlsChannelSecurityConnector() {
@@ -148,7 +157,9 @@ TlsChannelSecurityConnector::~TlsChannelSecurityConnector() {
   // Cancel all the watchers.
   grpc_tls_certificate_distributor* distributor =
       options_->certificate_distributor();
-  distributor->CancelTlsCertificatesWatch(certificate_watcher_);
+  if (distributor != nullptr) {
+    distributor->CancelTlsCertificatesWatch(certificate_watcher_);
+  }
   if (client_handshaker_factory_ != nullptr) {
     tsi_ssl_client_handshaker_factory_unref(client_handshaker_factory_);
   }
@@ -159,8 +170,8 @@ TlsChannelSecurityConnector::~TlsChannelSecurityConnector() {
 
 void TlsChannelSecurityConnector::add_handshakers(
     const grpc_channel_args* args, grpc_pollset_set* /*interested_parties*/,
-    grpc_core::HandshakeManager* handshake_mgr) {
-  grpc_core::MutexLock lock(&mu_);
+    HandshakeManager* handshake_mgr) {
+  MutexLock lock(&mu_);
   if (client_handshaker_factory_ != nullptr) {
     // Instantiate TSI handshaker.
     tsi_handshaker* tsi_hs = nullptr;
@@ -175,7 +186,7 @@ void TlsChannelSecurityConnector::add_handshakers(
       return;
     }
     // Create handshakers.
-    handshake_mgr->Add(grpc_core::SecurityHandshakerCreate(tsi_hs, this, args));
+    handshake_mgr->Add(SecurityHandshakerCreate(tsi_hs, this, args));
     return;
   }
   // TODO(ZhenLian): Implement the logic(delegation to
@@ -186,14 +197,14 @@ void TlsChannelSecurityConnector::add_handshakers(
 
 void TlsChannelSecurityConnector::check_peer(
     tsi_peer peer, grpc_endpoint* /*ep*/,
-    grpc_core::RefCountedPtr<grpc_auth_context>* auth_context,
+    RefCountedPtr<grpc_auth_context>* auth_context,
     grpc_closure* on_peer_checked) {
   const char* target_name = overridden_target_name_.empty()
                                 ? target_name_.c_str()
                                 : overridden_target_name_.c_str();
-  grpc_error* error = grpc_ssl_check_alpn(&peer);
+  grpc_error_handle error = grpc_ssl_check_alpn(&peer);
   if (error != GRPC_ERROR_NONE) {
-    grpc_core::ExecCtx::Run(DEBUG_LOCATION, on_peer_checked, error);
+    ExecCtx::Run(DEBUG_LOCATION, on_peer_checked, error);
     tsi_peer_destruct(&peer);
     return;
   }
@@ -203,7 +214,7 @@ void TlsChannelSecurityConnector::check_peer(
     /* Do the default host name check if specifying the target name. */
     error = internal::TlsCheckHostName(target_name, &peer);
     if (error != GRPC_ERROR_NONE) {
-      grpc_core::ExecCtx::Run(DEBUG_LOCATION, on_peer_checked, error);
+      ExecCtx::Run(DEBUG_LOCATION, on_peer_checked, error);
       tsi_peer_destruct(&peer);
       return;
     }
@@ -286,7 +297,7 @@ void TlsChannelSecurityConnector::check_peer(
       error = ProcessServerAuthorizationCheckResult(check_arg_);
     }
   }
-  grpc_core::ExecCtx::Run(DEBUG_LOCATION, on_peer_checked, error);
+  ExecCtx::Run(DEBUG_LOCATION, on_peer_checked, error);
   tsi_peer_destruct(&peer);
 }
 
@@ -304,39 +315,40 @@ int TlsChannelSecurityConnector::cmp(
 
 bool TlsChannelSecurityConnector::check_call_host(
     absl::string_view host, grpc_auth_context* auth_context,
-    grpc_closure* /*on_call_host_checked*/, grpc_error** error) {
+    grpc_closure* /*on_call_host_checked*/, grpc_error_handle* error) {
+  if (options_->server_verification_option() ==
+          GRPC_TLS_SKIP_HOSTNAME_VERIFICATION ||
+      options_->server_verification_option() ==
+          GRPC_TLS_SKIP_ALL_SERVER_VERIFICATION) {
+    return true;
+  }
   return grpc_ssl_check_call_host(host, target_name_.c_str(),
                                   overridden_target_name_.c_str(), auth_context,
                                   error);
 }
 
 void TlsChannelSecurityConnector::cancel_check_call_host(
-    grpc_closure* /*on_call_host_checked*/, grpc_error* error) {
+    grpc_closure* /*on_call_host_checked*/, grpc_error_handle error) {
   GRPC_ERROR_UNREF(error);
 }
 
 void TlsChannelSecurityConnector::TlsChannelCertificateWatcher::
-    OnCertificatesChanged(
-        absl::optional<absl::string_view> root_certs,
-        absl::optional<grpc_core::PemKeyCertPairList> key_cert_pairs) {
+    OnCertificatesChanged(absl::optional<absl::string_view> root_certs,
+                          absl::optional<PemKeyCertPairList> key_cert_pairs) {
   GPR_ASSERT(security_connector_ != nullptr);
-  grpc_core::MutexLock lock(&security_connector_->mu_);
+  MutexLock lock(&security_connector_->mu_);
   if (root_certs.has_value()) {
     security_connector_->pem_root_certs_ = root_certs;
   }
   if (key_cert_pairs.has_value()) {
     security_connector_->pem_key_cert_pair_list_ = std::move(key_cert_pairs);
   }
-  bool root_being_watched = security_connector_->options_->watch_root_cert();
-  bool root_has_value = security_connector_->pem_root_certs_.has_value();
-  bool identity_being_watched =
-      security_connector_->options_->watch_identity_pair();
-  bool identity_has_value =
+  const bool root_ready = !security_connector_->options_->watch_root_cert() ||
+                          security_connector_->pem_root_certs_.has_value();
+  const bool identity_ready =
+      !security_connector_->options_->watch_identity_pair() ||
       security_connector_->pem_key_cert_pair_list_.has_value();
-  if ((root_being_watched && root_has_value && identity_being_watched &&
-       identity_has_value) ||
-      (root_being_watched && root_has_value && !identity_being_watched) ||
-      (!root_being_watched && identity_being_watched && identity_has_value)) {
+  if (root_ready && identity_ready) {
     if (security_connector_->UpdateHandshakerFactoryLocked() !=
         GRPC_SECURITY_OK) {
       gpr_log(GPR_ERROR, "Update handshaker factory failed.");
@@ -347,16 +359,16 @@ void TlsChannelSecurityConnector::TlsChannelCertificateWatcher::
 // TODO(ZhenLian): implement the logic to signal waiting handshakers once
 // BlockOnInitialCredentialHandshaker is implemented.
 void TlsChannelSecurityConnector::TlsChannelCertificateWatcher::OnError(
-    grpc_error* root_cert_error, grpc_error* identity_cert_error) {
+    grpc_error_handle root_cert_error, grpc_error_handle identity_cert_error) {
   if (root_cert_error != GRPC_ERROR_NONE) {
     gpr_log(GPR_ERROR,
             "TlsChannelCertificateWatcher getting root_cert_error: %s",
-            grpc_error_string(root_cert_error));
+            grpc_error_std_string(root_cert_error).c_str());
   }
   if (identity_cert_error != GRPC_ERROR_NONE) {
     gpr_log(GPR_ERROR,
             "TlsChannelCertificateWatcher getting identity_cert_error: %s",
-            grpc_error_string(identity_cert_error));
+            grpc_error_std_string(identity_cert_error).c_str());
   }
   GRPC_ERROR_UNREF(root_cert_error);
   GRPC_ERROR_UNREF(identity_cert_error);
@@ -383,9 +395,11 @@ TlsChannelSecurityConnector::UpdateHandshakerFactoryLocked() {
   if (pem_key_cert_pair_list_.has_value()) {
     pem_key_cert_pair = ConvertToTsiPemKeyCertPair(*pem_key_cert_pair_list_);
   }
+  bool use_default_roots = !options_->watch_root_cert();
   grpc_security_status status = grpc_ssl_tsi_client_handshaker_factory_init(
       pem_key_cert_pair,
-      pem_root_certs.empty() ? nullptr : pem_root_certs.c_str(),
+      pem_root_certs.empty() || use_default_roots ? nullptr
+                                                  : pem_root_certs.c_str(),
       skip_server_certificate_verification,
       grpc_get_tsi_tls_version(options_->min_tls_version()),
       grpc_get_tsi_tls_version(options_->max_tls_version()), ssl_session_cache_,
@@ -400,16 +414,17 @@ TlsChannelSecurityConnector::UpdateHandshakerFactoryLocked() {
 void TlsChannelSecurityConnector::ServerAuthorizationCheckDone(
     grpc_tls_server_authorization_check_arg* arg) {
   GPR_ASSERT(arg != nullptr);
-  grpc_core::ExecCtx exec_ctx;
-  grpc_error* error = ProcessServerAuthorizationCheckResult(arg);
+  ExecCtx exec_ctx;
+  grpc_error_handle error = ProcessServerAuthorizationCheckResult(arg);
   TlsChannelSecurityConnector* connector =
       static_cast<TlsChannelSecurityConnector*>(arg->cb_user_data);
-  grpc_core::ExecCtx::Run(DEBUG_LOCATION, connector->on_peer_checked_, error);
+  ExecCtx::Run(DEBUG_LOCATION, connector->on_peer_checked_, error);
 }
 
-grpc_error* TlsChannelSecurityConnector::ProcessServerAuthorizationCheckResult(
+grpc_error_handle
+TlsChannelSecurityConnector::ProcessServerAuthorizationCheckResult(
     grpc_tls_server_authorization_check_arg* arg) {
-  grpc_error* error = GRPC_ERROR_NONE;
+  grpc_error_handle error = GRPC_ERROR_NONE;
   /* Server authorization check is cancelled by caller. */
   if (arg->status == GRPC_STATUS_CANCELLED) {
     error = GRPC_ERROR_CREATE_FROM_COPIED_STRING(
@@ -474,10 +489,10 @@ void TlsChannelSecurityConnector::ServerAuthorizationCheckArgDestroy(
 }
 
 // -------------------server security connector-------------------
-grpc_core::RefCountedPtr<grpc_server_security_connector>
+RefCountedPtr<grpc_server_security_connector>
 TlsServerSecurityConnector::CreateTlsServerSecurityConnector(
-    grpc_core::RefCountedPtr<grpc_server_credentials> server_creds,
-    grpc_core::RefCountedPtr<grpc_tls_credentials_options> options) {
+    RefCountedPtr<grpc_server_credentials> server_creds,
+    RefCountedPtr<grpc_tls_credentials_options> options) {
   if (server_creds == nullptr) {
     gpr_log(GPR_ERROR,
             "server_creds is nullptr in "
@@ -490,15 +505,13 @@ TlsServerSecurityConnector::CreateTlsServerSecurityConnector(
             "TlsServerSecurityConnectorCreate()");
     return nullptr;
   }
-  grpc_core::RefCountedPtr<TlsServerSecurityConnector> c =
-      grpc_core::MakeRefCounted<TlsServerSecurityConnector>(
-          std::move(server_creds), std::move(options));
-  return c;
+  return MakeRefCounted<TlsServerSecurityConnector>(std::move(server_creds),
+                                                    std::move(options));
 }
 
 TlsServerSecurityConnector::TlsServerSecurityConnector(
-    grpc_core::RefCountedPtr<grpc_server_credentials> server_creds,
-    grpc_core::RefCountedPtr<grpc_tls_credentials_options> options)
+    RefCountedPtr<grpc_server_credentials> server_creds,
+    RefCountedPtr<grpc_tls_credentials_options> options)
     : grpc_server_security_connector(GRPC_SSL_URL_SCHEME,
                                      std::move(server_creds)),
       options_(std::move(options)) {
@@ -516,6 +529,7 @@ TlsServerSecurityConnector::TlsServerSecurityConnector(
   if (options_->watch_identity_pair()) {
     watched_identity_cert_name = options_->identity_cert_name();
   }
+  // Server side won't use default system roots at any time.
   distributor->WatchTlsCertificates(std::move(watcher_ptr),
                                     watched_root_cert_name,
                                     watched_identity_cert_name);
@@ -533,8 +547,8 @@ TlsServerSecurityConnector::~TlsServerSecurityConnector() {
 
 void TlsServerSecurityConnector::add_handshakers(
     const grpc_channel_args* args, grpc_pollset_set* /*interested_parties*/,
-    grpc_core::HandshakeManager* handshake_mgr) {
-  grpc_core::MutexLock lock(&mu_);
+    HandshakeManager* handshake_mgr) {
+  MutexLock lock(&mu_);
   if (server_handshaker_factory_ != nullptr) {
     // Instantiate TSI handshaker.
     tsi_handshaker* tsi_hs = nullptr;
@@ -546,7 +560,7 @@ void TlsServerSecurityConnector::add_handshakers(
       return;
     }
     // Create handshakers.
-    handshake_mgr->Add(grpc_core::SecurityHandshakerCreate(tsi_hs, this, args));
+    handshake_mgr->Add(SecurityHandshakerCreate(tsi_hs, this, args));
     return;
   }
   // TODO(ZhenLian): Implement the logic(delegation to
@@ -557,13 +571,13 @@ void TlsServerSecurityConnector::add_handshakers(
 
 void TlsServerSecurityConnector::check_peer(
     tsi_peer peer, grpc_endpoint* /*ep*/,
-    grpc_core::RefCountedPtr<grpc_auth_context>* auth_context,
+    RefCountedPtr<grpc_auth_context>* auth_context,
     grpc_closure* on_peer_checked) {
-  grpc_error* error = grpc_ssl_check_alpn(&peer);
+  grpc_error_handle error = grpc_ssl_check_alpn(&peer);
   *auth_context =
       grpc_ssl_peer_to_auth_context(&peer, GRPC_TLS_TRANSPORT_SECURITY_TYPE);
   tsi_peer_destruct(&peer);
-  grpc_core::ExecCtx::Run(DEBUG_LOCATION, on_peer_checked, error);
+  ExecCtx::Run(DEBUG_LOCATION, on_peer_checked, error);
 }
 
 int TlsServerSecurityConnector::cmp(
@@ -573,11 +587,10 @@ int TlsServerSecurityConnector::cmp(
 }
 
 void TlsServerSecurityConnector::TlsServerCertificateWatcher::
-    OnCertificatesChanged(
-        absl::optional<absl::string_view> root_certs,
-        absl::optional<grpc_core::PemKeyCertPairList> key_cert_pairs) {
+    OnCertificatesChanged(absl::optional<absl::string_view> root_certs,
+                          absl::optional<PemKeyCertPairList> key_cert_pairs) {
   GPR_ASSERT(security_connector_ != nullptr);
-  grpc_core::MutexLock lock(&security_connector_->mu_);
+  MutexLock lock(&security_connector_->mu_);
   if (root_certs.has_value()) {
     security_connector_->pem_root_certs_ = root_certs;
   }
@@ -604,16 +617,16 @@ void TlsServerSecurityConnector::TlsServerCertificateWatcher::
 // TODO(ZhenLian): implement the logic to signal waiting handshakers once
 // BlockOnInitialCredentialHandshaker is implemented.
 void TlsServerSecurityConnector::TlsServerCertificateWatcher::OnError(
-    grpc_error* root_cert_error, grpc_error* identity_cert_error) {
+    grpc_error_handle root_cert_error, grpc_error_handle identity_cert_error) {
   if (root_cert_error != GRPC_ERROR_NONE) {
     gpr_log(GPR_ERROR,
             "TlsServerCertificateWatcher getting root_cert_error: %s",
-            grpc_error_string(root_cert_error));
+            grpc_error_std_string(root_cert_error).c_str());
   }
   if (identity_cert_error != GRPC_ERROR_NONE) {
     gpr_log(GPR_ERROR,
             "TlsServerCertificateWatcher getting identity_cert_error: %s",
-            grpc_error_string(identity_cert_error));
+            grpc_error_std_string(identity_cert_error).c_str());
   }
   GRPC_ERROR_UNREF(root_cert_error);
   GRPC_ERROR_UNREF(identity_cert_error);
@@ -654,7 +667,8 @@ TlsServerSecurityConnector::UpdateHandshakerFactoryLocked() {
 
 namespace internal {
 
-grpc_error* TlsCheckHostName(const char* peer_name, const tsi_peer* peer) {
+grpc_error_handle TlsCheckHostName(const char* peer_name,
+                                   const tsi_peer* peer) {
   /* Check the peer name if specified. */
   if (peer_name != nullptr && !grpc_ssl_host_matches_name(peer, peer_name)) {
     return GRPC_ERROR_CREATE_FROM_COPIED_STRING(

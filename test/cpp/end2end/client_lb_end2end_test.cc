@@ -45,12 +45,12 @@
 #include "src/core/ext/filters/client_channel/resolver/fake/fake_resolver.h"
 #include "src/core/ext/filters/client_channel/server_address.h"
 #include "src/core/ext/filters/client_channel/service_config.h"
+#include "src/core/lib/address_utils/parse_address.h"
 #include "src/core/lib/backoff/backoff.h"
 #include "src/core/lib/channel/channel_args.h"
 #include "src/core/lib/gpr/env.h"
 #include "src/core/lib/gprpp/debug_location.h"
 #include "src/core/lib/gprpp/ref_counted_ptr.h"
-#include "src/core/lib/iomgr/parse_address.h"
 #include "src/core/lib/iomgr/tcp_client.h"
 #include "src/core/lib/security/credentials/fake/fake_credentials.h"
 #include "src/cpp/client/secure_credentials.h"
@@ -374,7 +374,7 @@ class ClientLbEnd2endTest : public ::testing::Test {
       grpc::internal::CondVar cond;
       thread_ = absl::make_unique<std::thread>(
           std::bind(&ServerData::Serve, this, server_host, &mu, &cond));
-      cond.WaitUntil(&mu, [this] { return server_ready_; });
+      grpc::internal::WaitUntil(&cond, &mu, [this] { return server_ready_; });
       server_ready_ = false;
       gpr_log(GPR_INFO, "server startup complete");
     }

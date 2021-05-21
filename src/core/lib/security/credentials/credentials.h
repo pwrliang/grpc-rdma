@@ -187,13 +187,13 @@ struct grpc_call_credentials
                                     grpc_auth_metadata_context context,
                                     grpc_credentials_mdelem_array* md_array,
                                     grpc_closure* on_request_metadata,
-                                    grpc_error** error) = 0;
+                                    grpc_error_handle* error) = 0;
 
   // Cancels a pending asynchronous operation started by
   // grpc_call_credentials_get_request_metadata() with the corresponding
   // value of \a md_array.
   virtual void cancel_get_request_metadata(
-      grpc_credentials_mdelem_array* md_array, grpc_error* error) = 0;
+      grpc_credentials_mdelem_array* md_array, grpc_error_handle error) = 0;
 
   virtual grpc_security_level min_security_level() const {
     return min_security_level_;
@@ -227,8 +227,9 @@ struct grpc_server_credentials
 
   ~grpc_server_credentials() override { DestroyProcessor(); }
 
+  // Ownership of \a args is not passed.
   virtual grpc_core::RefCountedPtr<grpc_server_security_connector>
-  create_security_connector() = 0;
+  create_security_connector(const grpc_channel_args* args) = 0;
 
   const char* type() const { return type_; }
 

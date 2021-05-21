@@ -305,6 +305,9 @@ class _Context(grpc.ServicerContext):
         with self._state.condition:
             self._state.trailing_metadata = trailing_metadata
 
+    def trailing_metadata(self):
+        return self._state.trailing_metadata
+
     def abort(self, code, details):
         # treat OK like other invalid arguments: fail the RPC
         if code == grpc.StatusCode.OK:
@@ -326,9 +329,15 @@ class _Context(grpc.ServicerContext):
         with self._state.condition:
             self._state.code = code
 
+    def code(self):
+        return self._state.code
+
     def set_details(self, details):
         with self._state.condition:
             self._state.details = _common.encode(details)
+
+    def details(self):
+        return self._state.details
 
     def _finalize_state(self):
         pass
@@ -945,9 +954,9 @@ class _Server(grpc.Server):
 
     # pylint: disable=too-many-arguments
     def __init__(self, thread_pool, generic_handlers, interceptors, options,
-                 maximum_concurrent_rpcs, compression):
+                 maximum_concurrent_rpcs, compression, xds):
         completion_queue = cygrpc.CompletionQueue()
-        server = cygrpc.Server(_augment_options(options, compression))
+        server = cygrpc.Server(_augment_options(options, compression), xds)
         server.register_completion_queue(completion_queue)
         self._state = _ServerState(completion_queue, server, generic_handlers,
                                    _interceptor.service_pipeline(interceptors),
@@ -989,7 +998,7 @@ class _Server(grpc.Server):
 
 
 def create_server(thread_pool, generic_rpc_handlers, interceptors, options,
-                  maximum_concurrent_rpcs, compression):
+                  maximum_concurrent_rpcs, compression, xds):
     _validate_generic_rpc_handlers(generic_rpc_handlers)
     return _Server(thread_pool, generic_rpc_handlers, interceptors, options,
-                   maximum_concurrent_rpcs, compression)
+                   maximum_concurrent_rpcs, compression, xds)

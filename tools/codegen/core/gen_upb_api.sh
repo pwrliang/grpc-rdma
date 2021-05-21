@@ -43,9 +43,11 @@ $bazel build @upb//upbc:protoc-gen-upbdefs
 UPBDEFS_PLUGIN=$PWD/bazel-bin/external/upb/upbc/protoc-gen-upbdefs
 
 proto_files=( \
+  "envoy/admin/v3/config_dump.proto" \
   "envoy/annotations/deprecation.proto" \
   "envoy/annotations/resource.proto" \
   "envoy/config/accesslog/v3/accesslog.proto" \
+  "envoy/config/bootstrap/v3/bootstrap.proto" \
   "envoy/config/cluster/v3/circuit_breaker.proto" \
   "envoy/config/cluster/v3/cluster.proto" \
   "envoy/config/cluster/v3/filter.proto" \
@@ -70,11 +72,17 @@ proto_files=( \
   "envoy/config/listener/v3/listener.proto" \
   "envoy/config/listener/v3/listener_components.proto" \
   "envoy/config/listener/v3/udp_listener_config.proto" \
+  "envoy/config/metrics/v3/stats.proto" \
+  "envoy/config/overload/v3/overload.proto" \
   "envoy/config/rbac/v3/rbac.proto" \
   "envoy/config/route/v3/route.proto" \
   "envoy/config/route/v3/route_components.proto" \
   "envoy/config/route/v3/scoped_route.proto" \
   "envoy/config/trace/v3/http_tracer.proto" \
+  "envoy/extensions/clusters/aggregate/v3/cluster.proto" \
+  "envoy/extensions/filters/http/router/v3/router.proto" \
+  "envoy/extensions/filters/common/fault/v3/fault.proto" \
+  "envoy/extensions/filters/http/fault/v3/fault.proto" \
   "envoy/extensions/filters/network/http_connection_manager/v3/http_connection_manager.proto" \
   "envoy/extensions/transport_sockets/tls/v3/cert.proto" \
   "envoy/extensions/transport_sockets/tls/v3/common.proto" \
@@ -88,11 +96,14 @@ proto_files=( \
   "envoy/service/load_stats/v3/lrs.proto" \
   "envoy/service/route/v3/rds.proto" \
   "envoy/service/route/v3/srds.proto" \
+  "envoy/service/status/v3/csds.proto" \
   "envoy/type/matcher/v3/metadata.proto" \
+  "envoy/type/matcher/v3/node.proto" \
   "envoy/type/matcher/v3/number.proto" \
   "envoy/type/matcher/v3/path.proto" \
   "envoy/type/matcher/v3/regex.proto" \
   "envoy/type/matcher/v3/string.proto" \
+  "envoy/type/matcher/v3/struct.proto" \
   "envoy/type/matcher/v3/value.proto" \
   "envoy/type/metadata/v3/metadata.proto" \
   "envoy/type/tracing/v3/custom_tag.proto" \
@@ -112,6 +123,7 @@ proto_files=( \
   "google/protobuf/timestamp.proto" \
   "google/protobuf/wrappers.proto" \
   "google/rpc/status.proto" \
+  "src/proto/grpc/auth/v1/authz_policy.proto" \
   "src/proto/grpc/gcp/altscontext.proto" \
   "src/proto/grpc/gcp/handshaker.proto" \
   "src/proto/grpc/gcp/transport_security_common.proto" \
@@ -124,12 +136,13 @@ proto_files=( \
   "udpa/annotations/sensitive.proto" \
   "udpa/annotations/status.proto" \
   "udpa/annotations/versioning.proto" \
-  "udpa/core/v1/authority.proto" \
-  "udpa/core/v1/collection_entry.proto" \
-  "udpa/core/v1/context_params.proto" \
-  "udpa/core/v1/resource_locator.proto" \
-  "udpa/core/v1/resource_name.proto" \
-  "udpa/core/v1/resource.proto" \
+  "udpa/type/v1/typed_struct.proto" \
+  "xds/core/v3/authority.proto" \
+  "xds/core/v3/collection_entry.proto" \
+  "xds/core/v3/context_params.proto" \
+  "xds/core/v3/resource_locator.proto" \
+  "xds/core/v3/resource_name.proto" \
+  "xds/core/v3/resource.proto" \
   "validate/validate.proto")
 
 INCLUDE_OPTIONS="-I=$PWD/third_party/udpa \

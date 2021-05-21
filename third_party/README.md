@@ -48,6 +48,14 @@ Usually the process is
 
 Updating some dependencies requires extra care.
 
+### Updating third_party/abseil-cpp
+
+- Two additional steps should be done before running `generate_projects.sh` above.
+  - Running `src/abseil-cpp/preprocessed_builds.yaml.gen.py`.
+  - Updating `abseil_version =` scripts in `templates/gRPC-C++.podspec.template` and 
+    `templates/gRPC-Core.podspec.template`.
+- You can see an example of previous [upgrade](https://github.com/grpc/grpc/pull/24270).
+
 ### Updating third_party/boringssl-with-bazel
 
 - Update the `third_party/boringssl-with-bazel` submodule to the latest [`master-with-bazel`](https://github.com/google/boringssl/tree/master-with-bazel) branch
@@ -73,9 +81,9 @@ git commit -m "update submodule boringssl-with-bazel with origin/master-with-baz
 
 - Run `tools/buildgen/generate_projects.sh` to regenerate the generated files
     - Because `sha256` in `bazel/grpc_deps.bzl` was left empty, you will get a DEBUG msg like this one:
-```
-Rule 'boringssl' indicated that a canonical reproducible form can be obtained by modifying arguments sha256 = "SHA value"
-```
+      ```
+      Rule 'boringssl' indicated that a canonical reproducible form can be obtained by modifying arguments sha256 = "SHA value"
+      ```
     - Commit the regenrated files `git commit -m "regenerate files"`
     - Update `bazel/grpc_deps.bzl` with the SHA value shown in the above debug msg. Commit again `git commit -m "Updated sha256"`
 
@@ -97,3 +105,10 @@ Rule 'boringssl' indicated that a canonical reproducible form can be obtained by
 ### Updating third_party/protobuf
 
 See http://go/grpc-third-party-protobuf-update-instructions (internal only)
+
+### Updating third_party/envoy-api
+
+Apart from the above steps, please perform the following two steps to generate the Python `xds-protos` package:
+
+1. Bump the version in the `tools/distrib/python/xds_protos/setup.py`;
+2. Run `tools/distrib/python/xds_protos/build_validate_upload.sh` to upload the built wheel.

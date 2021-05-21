@@ -169,10 +169,11 @@ class ServicerContext(Generic[RequestType, ResponseType], abc.ABC):
         """
 
     @abc.abstractmethod
-    async def abort(self,
-                    code: grpc.StatusCode,
-                    details: str = '',
-                    trailing_metadata: Metadata = tuple()) -> None:
+    async def abort(
+        self,
+        code: grpc.StatusCode,
+        details: str = '',
+        trailing_metadata: Metadata = tuple()) -> None:
         """Raises an exception to terminate the RPC with a non-OK status.
 
         The code and details passed as arguments will supercede any existing
@@ -192,7 +193,7 @@ class ServicerContext(Generic[RequestType, ResponseType], abc.ABC):
         """
 
     @abc.abstractmethod
-    async def set_trailing_metadata(self, trailing_metadata: Metadata) -> None:
+    def set_trailing_metadata(self, trailing_metadata: Metadata) -> None:
         """Sends the trailing metadata for the RPC.
 
         This method need not be called by implementations if they have no
@@ -294,3 +295,42 @@ class ServicerContext(Generic[RequestType, ResponseType], abc.ABC):
         Returns:
           A map of strings to an iterable of bytes for each auth property.
         """
+
+    def time_remaining(self) -> float:
+        """Describes the length of allowed time remaining for the RPC.
+
+        Returns:
+          A nonnegative float indicating the length of allowed time in seconds
+          remaining for the RPC to complete before it is considered to have
+          timed out, or None if no deadline was specified for the RPC.
+        """
+
+    def trailing_metadata(self):
+        """Access value to be used as trailing metadata upon RPC completion.
+
+        This is an EXPERIMENTAL API.
+
+        Returns:
+          The trailing :term:`metadata` for the RPC.
+        """
+        raise NotImplementedError()
+
+    def code(self):
+        """Accesses the value to be used as status code upon RPC completion.
+
+        This is an EXPERIMENTAL API.
+
+        Returns:
+          The StatusCode value for the RPC.
+        """
+        raise NotImplementedError()
+
+    def details(self):
+        """Accesses the value to be used as detail string upon RPC completion.
+
+        This is an EXPERIMENTAL API.
+
+        Returns:
+          The details string of the RPC.
+        """
+        raise NotImplementedError()

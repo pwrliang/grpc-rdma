@@ -41,7 +41,7 @@ grpc_chttp2_data_parser::~grpc_chttp2_data_parser() {
   GRPC_ERROR_UNREF(error);
 }
 
-grpc_error* grpc_chttp2_data_parser_begin_frame(
+grpc_error_handle grpc_chttp2_data_parser_begin_frame(
     grpc_chttp2_data_parser* /*parser*/, uint8_t flags, uint32_t stream_id,
     grpc_chttp2_stream* s) {
   if (flags & ~GRPC_CHTTP2_DATA_FLAG_END_STREAM) {
@@ -89,11 +89,11 @@ void grpc_chttp2_encode_data(uint32_t id, grpc_slice_buffer* inbuf,
   stats->data_bytes += write_bytes;
 }
 
-grpc_error* grpc_deframe_unprocessed_incoming_frames(
+grpc_error_handle grpc_deframe_unprocessed_incoming_frames(
     grpc_chttp2_data_parser* p, grpc_chttp2_stream* s,
     grpc_slice_buffer* slices, grpc_slice* slice_out,
     grpc_core::OrphanablePtr<grpc_core::ByteStream>* stream_out) {
-  grpc_error* error = GRPC_ERROR_NONE;
+  grpc_error_handle error = GRPC_ERROR_NONE;
   grpc_chttp2_transport* t = s->t;
 
   while (slices->count > 0) {
@@ -275,11 +275,11 @@ grpc_error* grpc_deframe_unprocessed_incoming_frames(
   return GRPC_ERROR_NONE;
 }
 
-grpc_error* grpc_chttp2_data_parser_parse(void* /*parser*/,
-                                          grpc_chttp2_transport* t,
-                                          grpc_chttp2_stream* s,
-                                          const grpc_slice& slice,
-                                          int is_last) {
+grpc_error_handle grpc_chttp2_data_parser_parse(void* /*parser*/,
+                                                grpc_chttp2_transport* t,
+                                                grpc_chttp2_stream* s,
+                                                const grpc_slice& slice,
+                                                int is_last) {
   if (!s->pending_byte_stream) {
     grpc_slice_ref_internal(slice);
     grpc_slice_buffer_add(&s->frame_storage, slice);
@@ -297,7 +297,11 @@ grpc_error* grpc_chttp2_data_parser_parse(void* /*parser*/,
   }
 
   if (is_last && s->received_last_frame) {
-    grpc_chttp2_mark_stream_closed(t, s, true, false, GRPC_ERROR_NONE);
+    grpc_chttp2_mark_stream_closed(
+        t, s, true, false,
+        t->is_client ? GRPC_ERROR_CREATE_FROM_STATIC_STRING(
+                           "Data frame with END_STREAM flag received")
+                     : GRPC_ERROR_NONE);
   }
 
   return GRPC_ERROR_NONE;

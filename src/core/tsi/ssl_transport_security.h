@@ -25,12 +25,9 @@
 #include "absl/strings/string_view.h"
 #include "src/core/tsi/transport_security_interface.h"
 
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wmodule-import-in-extern-c"
 extern "C" {
 #include <openssl/x509.h>
 }
-#pragma clang diagnostic pop
 
 /* Value for the TSI_CERTIFICATE_TYPE_PEER_PROPERTY property for X509 certs. */
 #define TSI_X509_CERTIFICATE_TYPE "X509"
@@ -40,14 +37,13 @@ extern "C" {
 #define TSI_X509_SUBJECT_ALTERNATIVE_NAME_PEER_PROPERTY \
   "x509_subject_alternative_name"
 #define TSI_SSL_SESSION_REUSED_PEER_PROPERTY "ssl_session_reused"
-
 #define TSI_X509_PEM_CERT_PROPERTY "x509_pem_cert"
-
 #define TSI_X509_PEM_CERT_CHAIN_PROPERTY "x509_pem_cert_chain"
-
 #define TSI_SSL_ALPN_SELECTED_PROTOCOL "ssl_alpn_selected_protocol"
-
+#define TSI_X509_DNS_PEER_PROPERTY "x509_dns"
 #define TSI_X509_URI_PEER_PROPERTY "x509_uri"
+#define TSI_X509_EMAIL_PEER_PROPERTY "x509_email"
+#define TSI_X509_IP_PEER_PROPERTY "x509_ip"
 
 /* --- tsi_ssl_root_certs_store object ---
 
