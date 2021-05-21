@@ -25,6 +25,11 @@ NAMESPACE = flags.DEFINE_string(
 NETWORK = flags.DEFINE_string("network",
                               default="default",
                               help="GCP Network ID")
+# Mirrors --xds-server-uri argument of Traffic Director gRPC Bootstrap
+XDS_SERVER_URI = flags.DEFINE_string(
+    "xds_server_uri",
+    default=None,
+    help="Override Traffic Director server uri, for testing")
 
 # Test server
 SERVER_NAME = flags.DEFINE_string("server_name",
@@ -32,7 +37,16 @@ SERVER_NAME = flags.DEFINE_string("server_name",
                                   help="Server deployment and service name")
 SERVER_PORT = flags.DEFINE_integer("server_port",
                                    default=8080,
+                                   lower_bound=0,
+                                   upper_bound=65535,
                                    help="Server test port")
+SERVER_MAINTENANCE_PORT = flags.DEFINE_integer(
+    "server_maintenance_port",
+    lower_bound=0,
+    upper_bound=65535,
+    default=None,
+    help="Server port running maintenance services: health check, channelz, etc"
+)
 SERVER_XDS_HOST = flags.DEFINE_string("server_xds_host",
                                       default='xds-test-server',
                                       help="Test server xDS hostname")

@@ -355,9 +355,10 @@ class CLanguage(object):
                             tests = subprocess.check_output(
                                 [binary, '--benchmark_list_tests'],
                                 stderr=fnull)
-                        for line in tests.split('\n'):
+                        for line in tests.decode().split('\n'):
                             test = line.strip()
-                            if not test: continue
+                            if not test:
+                                continue
                             cmdline = [binary,
                                        '--benchmark_filter=%s$' % test
                                       ] + target['args']
@@ -380,10 +381,12 @@ class CLanguage(object):
                             tests = subprocess.check_output(
                                 [binary, '--gtest_list_tests'], stderr=fnull)
                         base = None
-                        for line in tests.split('\n'):
+                        for line in tests.decode().split('\n'):
                             i = line.find('#')
-                            if i >= 0: line = line[:i]
-                            if not line: continue
+                            if i >= 0:
+                                line = line[:i]
+                            if not line:
+                                continue
                             if line[0] != ' ':
                                 base = line.strip()
                             else:
@@ -484,14 +487,14 @@ class CLanguage(object):
             return ('buster', [])
         elif compiler == 'gcc_musl':
             return ('alpine', [])
-        elif compiler == 'clang3.6':
+        elif compiler == 'clang4.0':
             return ('ubuntu1604',
                     self._clang_cmake_configure_extra_args(
-                        version_suffix='-3.6'))
-        elif compiler == 'clang3.7':
+                        version_suffix='-4.0'))
+        elif compiler == 'clang5.0':
             return ('ubuntu1604',
                     self._clang_cmake_configure_extra_args(
-                        version_suffix='-3.7'))
+                        version_suffix='-5.0'))
         else:
             raise Exception('Compiler %s not supported.' % compiler)
 
@@ -1324,7 +1327,8 @@ def runs_per_test_type(arg_str):
         return 0
     try:
         n = int(arg_str)
-        if n <= 0: raise ValueError
+        if n <= 0:
+            raise ValueError
         return n
     except:
         msg = '\'{}\' is not a positive integer or \'inf\''.format(arg_str)
@@ -1421,8 +1425,8 @@ argp.add_argument(
         'gcc7.4',
         'gcc8.3',
         'gcc_musl',
-        'clang3.6',
-        'clang3.7',
+        'clang4.0',
+        'clang5.0',
         'python2.7',
         'python3.5',
         'python3.6',

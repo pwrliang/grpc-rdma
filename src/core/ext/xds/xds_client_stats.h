@@ -56,10 +56,10 @@ class XdsLocalityName : public RefCounted<XdsLocalityName> {
     }
   };
 
-  XdsLocalityName(std::string region, std::string zone, std::string subzone)
+  XdsLocalityName(std::string region, std::string zone, std::string sub_zone)
       : region_(std::move(region)),
         zone_(std::move(zone)),
-        sub_zone_(std::move(subzone)) {}
+        sub_zone_(std::move(sub_zone)) {}
 
   bool operator==(const XdsLocalityName& other) const {
     return region_ == other.region_ && zone_ == other.zone_ &&
@@ -149,7 +149,7 @@ class XdsClusterDropStats : public RefCounted<XdsClusterDropStats> {
   // dropped_requests can be accessed by both the picker (from data plane
   // mutex) and the load reporting thread (from the control plane combiner).
   Mutex mu_;
-  CategorizedDropsMap categorized_drops_;
+  CategorizedDropsMap categorized_drops_ ABSL_GUARDED_BY(mu_);
 };
 
 // Locality stats for an xds cluster.
@@ -231,7 +231,8 @@ class XdsClusterLocalityStats : public RefCounted<XdsClusterLocalityStats> {
   // call's recv_trailing_metadata (not from the control plane work serializer)
   // and the load reporting thread (from the control plane work serializer).
   Mutex backend_metrics_mu_;
-  std::map<std::string, BackendMetric> backend_metrics_;
+  std::map<std::string, BackendMetric> backend_metrics_
+      ABSL_GUARDED_BY(backend_metrics_mu_);
 };
 
 }  // namespace grpc_core

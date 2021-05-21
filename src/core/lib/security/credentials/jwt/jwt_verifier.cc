@@ -28,14 +28,11 @@
 #include <grpc/support/string_util.h>
 #include <grpc/support/sync.h>
 
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wmodule-import-in-extern-c"
 extern "C" {
 #include <openssl/bn.h>
 #include <openssl/pem.h>
 #include <openssl/rsa.h>
 }
-#pragma clang diagnostic pop
 
 #include "src/core/lib/gpr/string.h"
 #include "src/core/lib/gprpp/manual_constructor.h"
@@ -90,10 +87,11 @@ static Json parse_json_part_from_jwt(const char* str, size_t len) {
     return Json();  // JSON null
   }
   absl::string_view string = grpc_core::StringViewFromSlice(slice);
-  grpc_error* error = GRPC_ERROR_NONE;
+  grpc_error_handle error = GRPC_ERROR_NONE;
   Json json = Json::Parse(string, &error);
   if (error != GRPC_ERROR_NONE) {
-    gpr_log(GPR_ERROR, "JSON parse error: %s", grpc_error_string(error));
+    gpr_log(GPR_ERROR, "JSON parse error: %s",
+            grpc_error_std_string(error).c_str());
     GRPC_ERROR_UNREF(error);
     json = Json();  // JSON null
   }
@@ -415,7 +413,7 @@ static Json json_from_http(const grpc_httpcli_response* response) {
             response->status);
     return Json();  // JSON null
   }
-  grpc_error* error = GRPC_ERROR_NONE;
+  grpc_error_handle error = GRPC_ERROR_NONE;
   Json json = Json::Parse(
       absl::string_view(response->body, response->body_length), &error);
   if (error != GRPC_ERROR_NONE) {
@@ -630,7 +628,7 @@ end:
   return result;
 }
 
-static void on_keys_retrieved(void* user_data, grpc_error* /*error*/) {
+static void on_keys_retrieved(void* user_data, grpc_error_handle /*error*/) {
   verifier_cb_ctx* ctx = static_cast<verifier_cb_ctx*>(user_data);
   Json json = json_from_http(&ctx->responses[HTTP_RESPONSE_KEYS]);
   EVP_PKEY* verification_key = nullptr;
@@ -669,7 +667,8 @@ end:
   verifier_cb_ctx_destroy(ctx);
 }
 
-static void on_openid_config_retrieved(void* user_data, grpc_error* /*error*/) {
+static void on_openid_config_retrieved(void* user_data,
+                                       grpc_error_handle /*error*/) {
   verifier_cb_ctx* ctx = static_cast<verifier_cb_ctx*>(user_data);
   const grpc_http_response* response = &ctx->responses[HTTP_RESPONSE_OPENID];
   Json json = json_from_http(response);

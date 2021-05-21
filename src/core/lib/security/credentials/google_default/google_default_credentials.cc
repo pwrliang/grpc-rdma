@@ -61,7 +61,7 @@ using grpc_core::Json;
  * means the detection is done via network test that is unreliable and the
  * unreliable result should not be referred by successive calls. */
 static int g_metadata_server_available = 0;
-static gpr_mu g_state_mu;
+static grpc_core::Mutex* g_state_mu;
 /* Protect a metadata_server_detector instance that can be modified by more than
  * one gRPC threads */
 static gpr_mu* g_polling_mu;
@@ -69,7 +69,9 @@ static gpr_once g_once = GPR_ONCE_INIT;
 static grpc_core::internal::grpc_gce_tenancy_checker g_gce_tenancy_checker =
     grpc_alts_is_running_on_gcp;
 
-static void init_default_credentials(void) { gpr_mu_init(&g_state_mu); }
+static void init_default_credentials(void) {
+  g_state_mu = new grpc_core::Mutex();
+}
 
 struct metadata_server_detector {
   grpc_polling_entity pollent;
@@ -132,8 +134,8 @@ grpc_channel_args* grpc_google_default_channel_credentials::update_arguments(
   return updated;
 }
 
-static void on_metadata_server_detection_http_response(void* user_data,
-                                                       grpc_error* error) {
+static void on_metadata_server_detection_http_response(
+    void* user_data, grpc_error_handle error) {
   metadata_server_detector* detector =
       static_cast<metadata_server_detector*>(user_data);
   if (error == GRPC_ERROR_NONE && detector->response.status == 200 &&
@@ -159,7 +161,7 @@ static void on_metadata_server_detection_http_response(void* user_data,
   gpr_mu_unlock(g_polling_mu);
 }
 
-static void destroy_pollset(void* p, grpc_error* /*e*/) {
+static void destroy_pollset(void* p, grpc_error_handle /*e*/) {
   grpc_pollset_destroy(static_cast<grpc_pollset*>(p));
 }
 
@@ -219,14 +221,14 @@ static int is_metadata_server_reachable() {
 }
 
 /* Takes ownership of creds_path if not NULL. */
-static grpc_error* create_default_creds_from_path(
+static grpc_error_handle create_default_creds_from_path(
     const std::string& creds_path,
     grpc_core::RefCountedPtr<grpc_call_credentials>* creds) {
   grpc_auth_json_key key;
   grpc_auth_refresh_token token;
   grpc_core::RefCountedPtr<grpc_call_credentials> result;
   grpc_slice creds_data = grpc_empty_slice();
-  grpc_error* error = GRPC_ERROR_NONE;
+  grpc_error_handle error = GRPC_ERROR_NONE;
   Json json;
   if (creds_path.empty()) {
     error = GRPC_ERROR_CREATE_FROM_STATIC_STRING("creds_path unset");
@@ -282,7 +284,7 @@ end:
 
 static void update_tenancy() {
   gpr_once_init(&g_once, init_default_credentials);
-  grpc_core::MutexLock lock(&g_state_mu);
+  grpc_core::MutexLock lock(g_state_mu);
 
   /* Try a platform-provided hint for GCE. */
   if (!g_metadata_server_available) {
@@ -297,14 +299,14 @@ static void update_tenancy() {
 }
 
 static bool metadata_server_available() {
-  grpc_core::MutexLock lock(&g_state_mu);
+  grpc_core::MutexLock lock(g_state_mu);
   return static_cast<bool>(g_metadata_server_available);
 }
 
 static grpc_core::RefCountedPtr<grpc_call_credentials> make_default_call_creds(
-    grpc_error** error) {
+    grpc_error_handle* error) {
   grpc_core::RefCountedPtr<grpc_call_credentials> call_creds;
-  grpc_error* err;
+  grpc_error_handle err;
 
   /* First, try the environment variable. */
   char* path_from_env = gpr_getenv(GRPC_GOOGLE_CREDENTIALS_ENV_VAR);
@@ -342,7 +344,7 @@ grpc_channel_credentials* grpc_google_default_credentials_create(
     grpc_call_credentials* call_credentials) {
   grpc_channel_credentials* result = nullptr;
   grpc_core::RefCountedPtr<grpc_call_credentials> call_creds(call_credentials);
-  grpc_error* error = nullptr;
+  grpc_error_handle error = GRPC_ERROR_NONE;
   grpc_core::ExecCtx exec_ctx;
 
   GRPC_API_TRACE("grpc_google_default_credentials_create(%p)", 1,
@@ -371,7 +373,7 @@ grpc_channel_credentials* grpc_google_default_credentials_create(
     GPR_ASSERT(result != nullptr);
   } else {
     gpr_log(GPR_ERROR, "Could not create google default credentials: %s",
-            grpc_error_string(error));
+            grpc_error_std_string(error).c_str());
   }
   GRPC_ERROR_UNREF(error);
   return result;
@@ -387,9 +389,8 @@ void set_gce_tenancy_checker_for_testing(grpc_gce_tenancy_checker checker) {
 void grpc_flush_cached_google_default_credentials(void) {
   grpc_core::ExecCtx exec_ctx;
   gpr_once_init(&g_once, init_default_credentials);
-  gpr_mu_lock(&g_state_mu);
+  grpc_core::MutexLock lock(g_state_mu);
   g_metadata_server_available = 0;
-  gpr_mu_unlock(&g_state_mu);
 }
 
 }  // namespace internal

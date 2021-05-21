@@ -13,13 +13,16 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+"""Explicitly ban select functions from being used in src/core/**.
+
+Most of these functions have internal versions that should be used instead."""
 
 import os
 import sys
 
 os.chdir(os.path.join(os.path.dirname(sys.argv[0]), '../../..'))
 
-# map of banned function signature to whitelist
+# map of banned function signature to allowlist
 BANNED_EXCEPT = {
     'grpc_slice_from_static_buffer(': ['src/core/lib/slice/slice.cc'],
     'grpc_resource_quota_ref(': ['src/core/lib/iomgr/resource_quota.cc'],
@@ -52,15 +55,18 @@ BANNED_EXCEPT = {
 errors = 0
 num_files = 0
 for root, dirs, files in os.walk('src/core'):
-    if root.startswith('src/core/tsi'): continue
+    if root.startswith('src/core/tsi'):
+        continue
     for filename in files:
         num_files += 1
         path = os.path.join(root, filename)
-        if os.path.splitext(path)[1] != '.cc': continue
+        if os.path.splitext(path)[1] != '.cc':
+            continue
         with open(path) as f:
             text = f.read()
         for banned, exceptions in BANNED_EXCEPT.items():
-            if path in exceptions: continue
+            if path in exceptions:
+                continue
             if banned in text:
                 print('Illegal use of "%s" in %s' % (banned, path))
                 errors += 1

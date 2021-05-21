@@ -129,8 +129,8 @@ class GrpcTlsCertificateDistributorTest : public ::testing::Test {
                                              std::move(updated_identity));
     }
 
-    void OnError(grpc_error* root_cert_error,
-                 grpc_error* identity_cert_error) override {
+    void OnError(grpc_error_handle root_cert_error,
+                 grpc_error_handle identity_cert_error) override {
       GPR_ASSERT(root_cert_error != GRPC_ERROR_NONE ||
                  identity_cert_error != GRPC_ERROR_NONE);
       std::string root_error_str;
@@ -562,8 +562,8 @@ TEST_F(GrpcTlsCertificateDistributorTest, ResetCallbackToNull) {
 
 TEST_F(GrpcTlsCertificateDistributorTest, SetKeyMaterialsInCallback) {
   distributor_.SetWatchStatusCallback([this](std::string cert_name,
-                                             bool root_being_watched,
-                                             bool identity_being_watched) {
+                                             bool /*root_being_watched*/,
+                                             bool /*identity_being_watched*/) {
     distributor_.SetKeyMaterials(
         cert_name, kRootCert1Contents,
         MakeCertKeyPairs(kIdentityCert1PrivateKey, kIdentityCert1Contents));
@@ -913,8 +913,8 @@ TEST_F(GrpcTlsCertificateDistributorTest, WatchErroredCertInfoBySetError) {
 
 TEST_F(GrpcTlsCertificateDistributorTest, SetErrorForCertInCallback) {
   distributor_.SetWatchStatusCallback([this](std::string cert_name,
-                                             bool root_being_watched,
-                                             bool identity_being_watched) {
+                                             bool /*root_being_watched*/,
+                                             bool /*identity_being_watched*/) {
     this->distributor_.SetErrorForCert(
         cert_name, GRPC_ERROR_CREATE_FROM_STATIC_STRING(kRootErrorMessage),
         GRPC_ERROR_CREATE_FROM_STATIC_STRING(kIdentityErrorMessage));

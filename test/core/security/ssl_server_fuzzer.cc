@@ -42,7 +42,7 @@ struct handshake_state {
   bool done_callback_called;
 };
 
-static void on_handshake_done(void* arg, grpc_error* error) {
+static void on_handshake_done(void* arg, grpc_error_handle error) {
   grpc_core::HandshakerArgs* args =
       static_cast<grpc_core::HandshakerArgs*>(arg);
   struct handshake_state* state =
@@ -91,7 +91,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
 
     // Create security connector
     grpc_core::RefCountedPtr<grpc_server_security_connector> sc =
-        creds->create_security_connector();
+        creds->create_security_connector(nullptr);
     GPR_ASSERT(sc != nullptr);
     grpc_millis deadline = GPR_MS_PER_SEC + grpc_core::ExecCtx::Get()->Now();
 
