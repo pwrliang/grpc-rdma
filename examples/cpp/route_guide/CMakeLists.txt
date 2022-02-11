@@ -23,6 +23,17 @@ project(RouteGuide C CXX)
 
 include(../cmake/common.cmake)
 
+# find gflags-------------------------------------------------------------------
+include("../cmake/FindGFlags.cmake")
+if (NOT GFLAGS_FOUND)
+    message(FATAL_ERROR "gflags not found")
+else ()
+    include_directories(SYSTEM ${GFLAGS_INCLUDE_DIRS})
+endif ()
+
+find_package(MPI REQUIRED)
+include_directories(SYSTEM ${MPI_CXX_INCLUDE_PATH})
+
 # Proto file
 get_filename_component(rg_proto "../../protos/route_guide.proto" ABSOLUTE)
 get_filename_component(rg_proto_path "${rg_proto}" PATH)
@@ -77,4 +88,7 @@ foreach(_target
     ${_REFLECTION}
     ${_GRPC_GRPCPP}
     ${_PROTOBUF_LIBPROTOBUF})
+  if(NOT APPLE)
+    target_link_libraries(${_target} ibverbs)
+  endif()
 endforeach()

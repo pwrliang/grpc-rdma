@@ -48,6 +48,11 @@ option(gRPC_BUILD_TESTS "Build tests" OFF)
 option(gRPC_BUILD_CODEGEN "Build codegen" ON)
 option(gRPC_BUILD_CSHARP_EXT "Build C# extensions" ON)
 option(gRPC_BACKWARDS_COMPATIBILITY_MODE "Build libraries that are binary compatible across a larger number of OS and libc versions" OFF)
+option(gRPC_BUILD_RDMA "" OFF)
+
+if(gRPC_BUILD_RDMA)
+  add_definitions(-DRDMA_ENABLE)
+endif()
 
 set(gRPC_INSTALL_default ON)
 if(NOT CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
@@ -224,6 +229,7 @@ endif()
 if (MINGW)
   add_definitions(-D_WIN32_WINNT=0x600)
 endif()
+set(_gRPC_C_CXX_FLAGS "-g")
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${_gRPC_C_CXX_FLAGS}")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${_gRPC_C_CXX_FLAGS}")
 
@@ -1830,6 +1836,7 @@ add_library(grpc
   src/core/lib/iomgr/ev_apple.cc
   src/core/lib/iomgr/ev_epoll1_linux.cc
   src/core/lib/iomgr/ev_epollex_linux.cc
+  src/core/lib/iomgr/ev_epollex_rdma_linux.cc
   src/core/lib/iomgr/ev_poll_posix.cc
   src/core/lib/iomgr/ev_posix.cc
   src/core/lib/iomgr/ev_windows.cc
@@ -1884,6 +1891,11 @@ add_library(grpc
   src/core/lib/iomgr/tcp_client_windows.cc
   src/core/lib/iomgr/tcp_custom.cc
   src/core/lib/iomgr/tcp_posix.cc
+  src/core/lib/iomgr/rdma_posix.cc
+  src/core/lib/rdma/log.cc
+  src/core/lib/rdma/RDMAUtils.cc
+  src/core/lib/rdma/ringbuffer.cc
+  src/core/lib/rdma/RDMASenderReceiver.cc
   src/core/lib/iomgr/tcp_server.cc
   src/core/lib/iomgr/tcp_server_custom.cc
   src/core/lib/iomgr/tcp_server_posix.cc
@@ -2450,6 +2462,7 @@ add_library(grpc_unsecure
   src/core/lib/iomgr/ev_apple.cc
   src/core/lib/iomgr/ev_epoll1_linux.cc
   src/core/lib/iomgr/ev_epollex_linux.cc
+  src/core/lib/iomgr/ev_epollex_rdma_linux.cc
   src/core/lib/iomgr/ev_poll_posix.cc
   src/core/lib/iomgr/ev_posix.cc
   src/core/lib/iomgr/ev_windows.cc
@@ -2504,6 +2517,11 @@ add_library(grpc_unsecure
   src/core/lib/iomgr/tcp_client_windows.cc
   src/core/lib/iomgr/tcp_custom.cc
   src/core/lib/iomgr/tcp_posix.cc
+  src/core/lib/iomgr/rdma_posix.cc
+  src/core/lib/rdma/log.cc
+  src/core/lib/rdma/RDMAUtils.cc
+  src/core/lib/rdma/ringbuffer.cc
+  src/core/lib/rdma/RDMASenderReceiver.cc
   src/core/lib/iomgr/tcp_server.cc
   src/core/lib/iomgr/tcp_server_custom.cc
   src/core/lib/iomgr/tcp_server_posix.cc

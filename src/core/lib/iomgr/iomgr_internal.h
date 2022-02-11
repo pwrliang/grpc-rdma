@@ -41,6 +41,10 @@ typedef struct grpc_iomgr_platform_vtable {
                                            grpc_error_handle error);
 } grpc_iomgr_platform_vtable;
 
+enum platform_t {IOMGR_TCP, IOMGR_RDMA};
+
+platform_t grpc_check_iomgr_platform();
+
 void grpc_iomgr_register_object(grpc_iomgr_object* obj, const char* name);
 void grpc_iomgr_unregister_object(grpc_iomgr_object* obj);
 

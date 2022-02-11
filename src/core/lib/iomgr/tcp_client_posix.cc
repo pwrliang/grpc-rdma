@@ -123,7 +123,9 @@ static void tc_on_alarm(void* acp, grpc_error_handle error) {
 
 grpc_endpoint* grpc_tcp_client_create_from_fd(
     grpc_fd* fd, const grpc_channel_args* channel_args, const char* addr_str) {
-  return grpc_tcp_create(fd, channel_args, addr_str);
+  // return grpc_tcp_create(fd, channel_args, addr_str);
+  printf("client create endpoint\n");
+  return grpc_endpoint_create(fd, channel_args, addr_str);
 }
 
 static void on_writable(void* acp, grpc_error_handle error) {
@@ -282,15 +284,20 @@ void grpc_tcp_client_create_from_prepared_fd(
   } while (err < 0 && errno == EINTR);
 
   std::string name = absl::StrCat("tcp-client:", grpc_sockaddr_to_uri(addr));
+  printf("grpc_tcp_client_create_from_prepared_fd, 0\n");
   grpc_fd* fdobj = grpc_fd_create(fd, name.c_str(), true);
 
+  printf("grpc_tcp_client_create_from_prepared_fd, A, %d, rdmasr %p\n", fd, grpc_fd_get_rdmasr(fdobj));
+
   if (err >= 0) {
+    printf("grpc_tcp_client_create_from_prepared_fd, B\n");
     *ep = grpc_tcp_client_create_from_fd(fdobj, channel_args,
                                          grpc_sockaddr_to_uri(addr).c_str());
     grpc_core::ExecCtx::Run(DEBUG_LOCATION, closure, GRPC_ERROR_NONE);
     return;
   }
   if (errno != EWOULDBLOCK && errno != EINPROGRESS) {
+    printf("grpc_tcp_client_create_from_prepared_fd, C\n");
     grpc_error_handle error = GRPC_OS_ERROR(errno, "connect");
     error = grpc_error_set_str(
         error, GRPC_ERROR_STR_TARGET_ADDRESS,
@@ -299,8 +306,11 @@ void grpc_tcp_client_create_from_prepared_fd(
     grpc_core::ExecCtx::Run(DEBUG_LOCATION, closure, error);
     return;
   }
+  printf("grpc_tcp_client_create_from_prepared_fd, D\n");
 
   grpc_pollset_set_add_fd(interested_parties, fdobj);
+
+  printf("grpc_tcp_client_create_from_prepared_fd, E, %d, rdmasr %p\n", fd, grpc_fd_get_rdmasr(fdobj));
 
   async_connect* ac = new async_connect();
   ac->closure = closure;

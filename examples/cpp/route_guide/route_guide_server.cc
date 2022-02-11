@@ -169,7 +169,7 @@ class RouteGuideImpl final : public RouteGuide::Service {
 };
 
 void RunServer(const std::string& db_path) {
-  std::string server_address("0.0.0.0:50051");
+  std::string server_address("10.3.1.18:50051");
   RouteGuideImpl service(db_path);
 
   ServerBuilder builder;
@@ -182,6 +182,8 @@ void RunServer(const std::string& db_path) {
 
 int main(int argc, char** argv) {
   // Expect only arg: --db_path=path/to/route_guide_db.json.
+  setenv("GRPC_PLATFORM_TYPE", "RDMA", 1);
+  // setenv("GRPC_PLATFORM_TYPE", "TCP", 1);
   std::string db = routeguide::GetDbFileContent(argc, argv);
   RunServer(db);
 

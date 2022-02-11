@@ -19,8 +19,27 @@
 #include <grpc/support/port_platform.h>
 
 #include "src/core/lib/iomgr/endpoint.h"
+#include "src/core/lib/iomgr/ev_posix.h"
+#include "src/core/lib/iomgr/iomgr_internal.h"
+#include "src/core/lib/iomgr/tcp_posix.h"
+#include "src/core/lib/iomgr/rdma_posix.h"
 
 grpc_core::TraceFlag grpc_tcp_trace(false, "tcp");
+grpc_core::TraceFlag grpc_rdma_trace(false, "rdma");
+
+grpc_endpoint* grpc_endpoint_create(grpc_fd* fd, const grpc_channel_args* args,
+                                    const char* peer_string) {
+  printf("grpc_endpoint_create\n");
+  switch (grpc_check_iomgr_platform()) {
+    case IOMGR_RDMA:
+      return grpc_rdma_create(fd, args, peer_string);
+    case IOMGR_TCP:
+      return grpc_tcp_create(fd, args, peer_string);
+    default:
+      gpr_log(GPR_ERROR, "unknown platform type");
+      abort();
+  }
+}
 
 void grpc_endpoint_read(grpc_endpoint* ep, grpc_slice_buffer* slices,
                         grpc_closure* cb, bool urgent) {

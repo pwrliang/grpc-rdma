@@ -49,7 +49,7 @@ class GreeterServiceImpl final : public Greeter::Service {
 };
 
 void RunServer() {
-  std::string server_address("0.0.0.0:50051");
+  std::string server_address("10.3.1.18:50051");
   GreeterServiceImpl service;
 
   grpc::EnableDefaultHealthCheckService(true);
@@ -70,6 +70,8 @@ void RunServer() {
 }
 
 int main(int argc, char** argv) {
+  setenv("GRPC_PLATFORM_TYPE", "RDMA", 1);
+  // setenv("GRPC_PLATFORM_TYPE", "TCP", 1);
   RunServer();
 
   return 0;

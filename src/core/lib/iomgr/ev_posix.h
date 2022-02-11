@@ -29,6 +29,7 @@
 #include "src/core/lib/iomgr/pollset.h"
 #include "src/core/lib/iomgr/pollset_set.h"
 #include "src/core/lib/iomgr/wakeup_fd_posix.h"
+#include "src/core/lib/rdma/RDMASenderReceiver.h"
 
 GPR_GLOBAL_CONFIG_DECLARE_STRING(grpc_poll_strategy);
 
@@ -60,6 +61,8 @@ typedef struct grpc_event_engine_vtable {
   void (*fd_set_writable)(grpc_fd* fd);
   void (*fd_set_error)(grpc_fd* fd);
   bool (*fd_is_shutdown)(grpc_fd* fd);
+  void (*fd_set_rdmasr)(grpc_fd* fd, RDMASenderReceiver* rdmasr);
+  RDMASenderReceiver* (*fd_get_rdmasr)(grpc_fd* fd);
 
   void (*pollset_init)(grpc_pollset* pollset, gpr_mu** mu);
   void (*pollset_shutdown)(grpc_pollset* pollset, grpc_closure* closure);
@@ -177,6 +180,9 @@ void grpc_fd_set_writable(grpc_fd* fd);
  * grpc_fd_notify_on_error being invoked.
  */
 void grpc_fd_set_error(grpc_fd* fd);
+
+void grpc_fd_set_rdmasr(grpc_fd* fd, RDMASenderReceiver* rdmasr);
+RDMASenderReceiver* grpc_fd_get_rdmasr(grpc_fd* fd);
 
 /* pollset_posix functions */
 

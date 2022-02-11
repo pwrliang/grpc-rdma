@@ -252,7 +252,7 @@ static void on_read(void* arg, grpc_error_handle err) {
              &sp->server->next_pollset_to_assign, 1)) %
          sp->server->pollsets->size()];
 
-    grpc_pollset_add_fd(read_notifier_pollset, fdobj);
+    // grpc_pollset_add_fd(read_notifier_pollset, fdobj);
 
     // Create acceptor.
     grpc_tcp_server_acceptor* acceptor =
@@ -262,10 +262,15 @@ static void on_read(void* arg, grpc_error_handle err) {
     acceptor->fd_index = sp->fd_index;
     acceptor->external_connection = false;
 
+    // sp->server->on_accept_cb(
+    //     sp->server->on_accept_cb_arg,
+    //     grpc_tcp_create(fdobj, sp->server->channel_args, addr_str.c_str()),
+    //     read_notifier_pollset, acceptor);
     sp->server->on_accept_cb(
         sp->server->on_accept_cb_arg,
-        grpc_tcp_create(fdobj, sp->server->channel_args, addr_str.c_str()),
+        grpc_endpoint_create(fdobj, sp->server->channel_args, addr_str.c_str()),
         read_notifier_pollset, acceptor);
+    grpc_pollset_add_fd(read_notifier_pollset, fdobj);
   }
 
   GPR_UNREACHABLE_CODE(return );

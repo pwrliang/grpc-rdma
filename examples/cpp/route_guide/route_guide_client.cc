@@ -216,9 +216,11 @@ class RouteGuideClient {
 
 int main(int argc, char** argv) {
   // Expect only arg: --db_path=path/to/route_guide_db.json.
+  setenv("GRPC_PLATFORM_TYPE", "RDMA", 1);
+  // setenv("GRPC_PLATFORM_TYPE", "TCP", 1);
   std::string db = routeguide::GetDbFileContent(argc, argv);
   RouteGuideClient guide(
-      grpc::CreateChannel("localhost:50051",
+      grpc::CreateChannel("10.3.1.18:50051",
                           grpc::InsecureChannelCredentials()),
       db);
 
@@ -226,10 +228,10 @@ int main(int argc, char** argv) {
   guide.GetFeature();
   std::cout << "-------------- ListFeatures --------------" << std::endl;
   guide.ListFeatures();
-  std::cout << "-------------- RecordRoute --------------" << std::endl;
-  guide.RecordRoute();
-  std::cout << "-------------- RouteChat --------------" << std::endl;
-  guide.RouteChat();
+  // std::cout << "-------------- RecordRoute --------------" << std::endl;
+  // guide.RecordRoute();
+  // std::cout << "-------------- RouteChat --------------" << std::endl;
+  // guide.RouteChat();
 
   return 0;
 }

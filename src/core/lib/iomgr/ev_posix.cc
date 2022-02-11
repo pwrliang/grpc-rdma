@@ -36,7 +36,9 @@
 #include "src/core/lib/iomgr/ev_epoll1_linux.h"
 #include "src/core/lib/iomgr/ev_epollex_linux.h"
 #include "src/core/lib/iomgr/ev_poll_posix.h"
+#include "src/core/lib/iomgr/ev_epollex_rdma_linux.h"
 #include "src/core/lib/iomgr/internal_errqueue.h"
+#include "src/core/lib/iomgr/iomgr_internal.h"
 
 GPR_GLOBAL_CONFIG_DEFINE_STRING(
     grpc_poll_strategy, "all",
@@ -131,7 +133,7 @@ static event_engine_factory g_factories[] = {
     {ENGINE_HEAD_CUSTOM, nullptr},        {ENGINE_HEAD_CUSTOM, nullptr},
     {"epollex", grpc_init_epollex_linux}, {"epoll1", grpc_init_epoll1_linux},
     {"poll", grpc_init_poll_posix},       {"none", init_non_polling},
-    {ENGINE_TAIL_CUSTOM, nullptr},        {ENGINE_TAIL_CUSTOM, nullptr},
+    {"epollex_rdma", grpc_init_epollex_rdma_linux},        {ENGINE_TAIL_CUSTOM, nullptr},
     {ENGINE_TAIL_CUSTOM, nullptr},        {ENGINE_TAIL_CUSTOM, nullptr},
 };
 
@@ -171,6 +173,7 @@ static void try_engine(const char* engine) {
                0 == strcmp(engine, g_factories[i].name)))) {
         g_poll_strategy_name = g_factories[i].name;
         gpr_log(GPR_DEBUG, "Using polling engine: %s", g_factories[i].name);
+        printf("Using polling engine: %s\n", g_factories[i].name);
         return;
       }
     }
@@ -210,6 +213,10 @@ void grpc_register_event_engine_factory(const char* name,
 const char* grpc_get_poll_strategy_name() { return g_poll_strategy_name; }
 
 void grpc_event_engine_init(void) {
+  platform_t type = grpc_check_iomgr_platform();
+  if (type == IOMGR_RDMA) {
+    GPR_GLOBAL_CONFIG_SET(grpc_poll_strategy, "epollex_rdma");
+  }
   grpc_core::UniquePtr<char> value = GPR_GLOBAL_CONFIG_GET(grpc_poll_strategy);
 
   char** strings = nullptr;
@@ -297,6 +304,12 @@ void grpc_fd_set_readable(grpc_fd* fd) { g_event_engine->fd_set_readable(fd); }
 void grpc_fd_set_writable(grpc_fd* fd) { g_event_engine->fd_set_writable(fd); }
 
 void grpc_fd_set_error(grpc_fd* fd) { g_event_engine->fd_set_error(fd); }
+
+void grpc_fd_set_rdmasr(grpc_fd* fd, RDMASenderReceiver* rdmasr) { g_event_engine->fd_set_rdmasr(fd, rdmasr); }
+
+RDMASenderReceiver* grpc_fd_get_rdmasr(grpc_fd* fd) {
+  return g_event_engine->fd_get_rdmasr(fd);
+}
 
 static size_t pollset_size(void) { return g_event_engine->pollset_size; }
 
