@@ -9,20 +9,20 @@
 #include <sys/param.h>
 #include <pthread.h>
 #include <atomic>
-#include "log.h"
-// #include "RDMASenderReceiver.h"
 
-#define MAX_CONNECTIONS 200
-#define EPOLL_TIMEOUT 1
+const size_t DEFAULT_MAX_SEND_WR = 5000;
+const size_t DEFAULT_MAX_RECV_WR = 5000;
+const size_t DEFAULT_MAX_SEND_SGE = 10;
+const size_t DEFAULT_MAX_RECV_SGE = 10;
+const size_t DEFAULT_MAX_POST_RECV = 500;
+const size_t DEFAULT_MAX_CQE = 100;
 
-class RDMAEventSenderReceiver;
-
-void INIT_SGE(ibv_sge *sge, void *lc_addr, size_t sz, uint32_t lkey);
-void INIT_SR(ibv_send_wr *sr, ibv_sge *sge, ibv_wr_opcode opcode, void *rt_addr, uint32_t rkey, int num_sge = 1, uint32_t imm_data = 0);
-void INIT_RR(ibv_recv_wr *rr, ibv_sge *sge, int num_sge = 1);
+class RDMASenderReceiver;
+class RDMASenderReceiverBP;
+class RDMASenderReceiverEvent;
 
 class MemRegion {
-public:
+  public:
     const static int rw_flag = IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_REMOTE_READ;
     const static int w_flag = IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_READ;
 
@@ -44,7 +44,9 @@ public:
     void* addr() const { return remote ? remote_mr.addr : (local_mr ? local_mr->addr : 0); }
     size_t length() const { return remote ? remote_mr.length : (local_mr ? local_mr->length : 0); }
     bool is_remote() const { return remote; }
+    bool is_local() const { return !remote; }
 
+  private:
     ibv_pd *ib_pd; // protection domain
     ibv_mr *local_mr; // local memory region
     ibv_mr remote_mr; // remote memory region
@@ -54,94 +56,78 @@ public:
 };
 
 class RDMANode {
-public:
+  public:
     const static int ib_port = 1;
-
-    RDMANode() : ib_ctx(NULL), ib_pd(NULL) { SET_RDMA_VERBOSITY(RDMA_ENV_VAR); }
+    RDMANode() : ib_ctx(NULL), ib_pd(NULL) {}
     virtual ~RDMANode() { close(); }
 
     int open(const char* name);
     void close();
+
     ibv_context *get_ctx() const { return ib_ctx; }
     ibv_pd *get_pd() const { return ib_pd; }
     ibv_port_attr get_port_attr() const { return port_attr; }
     union ibv_gid get_gid() const { return gid; }
-
+    ibv_device_attr get_device_attr() const { return dev_attr; }
+    
+  private:
     ibv_context *ib_ctx;
     ibv_pd *ib_pd;
     ibv_port_attr port_attr;
     union ibv_gid gid;
-
-    void event_channel_init();
-    ibv_comp_channel *event_channel = nullptr;
+    ibv_device_attr dev_attr;
 };
-
 
 class RDMAConn {
-public:
-    typedef enum { UNINIT=0, RESET, INIT, RTR, RTS, SQD, SQE, ERROR } state;
+  public:
+    typedef enum { UNINIT=0, RESET, INIT, RTR, RTS, SQD, SQE, ERROR } state_t;
+    RDMAConn(int fd, RDMANode* node) : fd_(fd), node_(node) {}
+    ~RDMAConn();
 
-    RDMAConn(int sd, RDMANode *node) : 
-        _state(UNINIT), _sd(sd), _node(node), _rcq(NULL), _scq(NULL), _qp(NULL) {}
-    virtual ~RDMAConn() { clean(); }
+    virtual void poll_send_completion();
+    virtual void post_send_and_poll_completion(ibv_send_wr* sr);
+    virtual void post_send_and_poll_completion(MemRegion& remote_mr, size_t remote_tail, 
+                                       MemRegion& local_mr, size_t local_offset,
+                                       size_t sz, ibv_wr_opcode opcode);
+    // after qp was created, sync data with remote
+    virtual int init();
 
-    /*
-     * create scq and rcq if not provide. 
-     * Set qp_attr and create _qp from ibv_create_qp.
-     * Set local qp_num, lid and gid, then sync these data with remote.
-     * modify_state through INIT, RTR, RTS.Then sync().
-     */
-    int init(ibv_cq *rcq = NULL, ibv_cq *scq = NULL);
-
-    // ibv_destroy_cq, ibv_destroy_qp
-    void clean();
-
-    int modify_state(state st);
-
-    // sync data (qp_num, lid, gid) with socket
+    int modify_state(state_t st);
     int sync_data(char *local, char *remote, const size_t sz);
-
-    // sync mr data (addr, rkey, length with remote, and register remote_mr)
     int sync_mr(MemRegion &local, MemRegion &remote);
 
-    // poll scq, 0 success, 1 error
-    virtual int poll_completion(ibv_cq *cq);
 
-    // init one sge from src + soff, then init sr, then ibv_post_send and poll_completion, 0 success, 1 error
-    int rdma_write(MemRegion &dst, size_t &doff, MemRegion &src, size_t soff, size_t sz, ibv_wr_opcode opcode);
-    int rdma_write(ibv_send_wr *sr);
-    int rdma_write_event(MemRegion &dst, size_t &doff, MemRegion &src, size_t soff, size_t sz, ibv_wr_opcode opcode, ibv_wr_opcode end_opcode, size_t mlen);
-    int rdma_write_from_sge(MemRegion &dst, size_t &doff, MemRegion &src, void *src_addr, size_t sz, ibv_wr_opcode opcode, bool end_flag);
+  protected:
+    state_t state_;
+    int fd_;
+    RDMANode* node_ = nullptr;
 
-    state _state;
-    int _sd; // a connected fd, usually connected by tcp socket
-    RDMAEventSenderReceiver *_rdmasr = nullptr;
-    RDMANode *_node;
-    ibv_cq *_rcq;
-    ibv_cq *_scq;
-    ibv_qp_init_attr _qp_attr;
-    ibv_qp *_qp;
-    uint32_t _qp_num_rt;  /* local: _qp->qp_num */
-    uint16_t _lid_rt;     /* local: host->get_port_attr().lid */
-    union ibv_gid _gid_rt;
+    ibv_cq* scq_ = nullptr;
+    ibv_cq* rcq_ = nullptr;
 
-    ibv_sge *_send_sges = nullptr;
-    size_t _sge_id = 0;
-    size_t _nwritten = 0;
-
-    // event
-    bool _one_check_all_flag = true;
-    ibv_comp_channel *_event_channel = nullptr;
-    std::atomic<int> _rcq_event_count{0};
-    // int _rcq_unprocessed_event_count = 0;
-    std::atomic<int> _rcq_unprocessed_event_count{0};
-    ibv_wc _wc;
-    int _rdma_write_with_imm_count = 0;
-
-    int event_init(int epfd, RDMAEventSenderReceiver *rdmasr);
-    int event_post_recv(uint8_t* addr, size_t length, uint32_t lkey);
-    int event_check_incoming(int epfd, bool flag);
-    int event_poll_completion(ibv_cq *cq, int num_event);
+    ibv_qp* qp_ = nullptr;
+    ibv_qp_init_attr qp_attr_;
+    uint32_t qp_num_rt_;
+    uint16_t lid_rt_;
+    union ibv_gid gid_rt_;
 };
+
+class RDMAConnBP : public RDMAConn {
+
+};
+
+class RDMAConnEvent : public RDMAConn {
+    friend class RDMASenderReceiverEvent;
+  public:
+    RDMAConnEvent(int fd, RDMANode* node, ibv_comp_channel* channel, RDMASenderReceiverEvent* rdmasr);
+    virtual ~RDMAConnEvent() {}
+
+    void post_recvs(uint8_t* addr, size_t length, uint32_t lkey, size_t n);
+    size_t poll_recv_completions_and_post_recvs(uint8_t* addr, size_t length, uint32_t lkey);
+    
+  protected:
+    ibv_wc recv_wcs_[DEFAULT_MAX_POST_RECV];
+};
+
 
 #endif

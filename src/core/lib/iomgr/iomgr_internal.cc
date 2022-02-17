@@ -38,18 +38,14 @@ platform_t grpc_check_iomgr_platform() {
 
 void grpc_determine_iomgr_platform() {
   if (iomgr_platform_vtable == nullptr) {
-// #ifdef RDMA_ENABLE
-//     pt = IOMGR_RDMA;
-//     printf("select rdma\n");
-// #else
-//     pt = IOMGR_TCP;
-//     printf("select tcp\n");
-// #endif
     char* type;
     type = getenv("GRPC_PLATFORM_TYPE");
-    if (strcmp(type, "RDMA") == 0) {
-      pt = IOMGR_RDMA;
-      printf("select rdma\n");
+    if (strcmp(type, "RDMA_BP") == 0) {
+      pt = IOMGR_RDMA_BP;
+      printf("select rdma bp\n");
+    } else if (strcmp(type, "RDMA_EVENT") == 0) {
+      pt = IOMGR_RDMA_EVENT;
+      printf("select rdma event\n");
     } else {
       pt = IOMGR_TCP;
       printf("select tcp\n");

@@ -42,7 +42,7 @@ extern grpc_core::TraceFlag grpc_rdma_trace;
 
 /* Create a rdma endpoint given a file desciptor and a read slice size.
    Takes ownership of fd. */
-grpc_endpoint* grpc_rdma_create(grpc_fd* fd, const grpc_channel_args* args,
+grpc_endpoint* grpc_rdma_event_create(grpc_fd* fd, const grpc_channel_args* args,
                                const char* peer_string);
 
 /* Return the rdma endpoint's fd, or -1 if this is not available. Does not

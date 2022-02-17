@@ -1,5 +1,5 @@
-#include "./RDMAUtils.h"
-#include "RDMASenderReceiver.h"
+#include "RDMAUtils.h"
+#include "log.h"
 
 #include <arpa/inet.h>
 #include <errno.h>
@@ -11,39 +11,6 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 #include "fcntl.h"
-
-void INIT_SGE(ibv_sge* sge, void* lc_addr, size_t sz, uint32_t lkey) {
-  memset(sge, 0, sizeof(ibv_sge));
-  sge->addr = (uint64_t)lc_addr;
-  sge->length = sz;
-  sge->lkey = lkey;
-}
-
-void INIT_SR(ibv_send_wr* sr, ibv_sge* sge, ibv_wr_opcode opcode, void* rt_addr,
-             uint32_t rkey, int num_sge, uint32_t imm_data) {
-  static int id = 0;
-  memset(sr, 0, sizeof(ibv_send_wr));
-  sr->next = NULL;
-  sr->wr_id = id++;
-  sr->sg_list = sge;
-  sr->num_sge = num_sge;
-  sr->opcode = opcode;
-  sr->imm_data = imm_data;
-  sr->send_flags = IBV_SEND_SIGNALED;
-  sr->wr.rdma.remote_addr = (uint64_t)rt_addr;
-  sr->wr.rdma.rkey = rkey;
-}
-
-void INIT_RR(ibv_recv_wr* rr, ibv_sge* sge, int num_sge) {
-  static int id = 0;
-  memset(rr, 0, sizeof(ibv_recv_wr));
-  rr->next = NULL;
-  rr->wr_id = id++;
-  rr->sg_list = sge;
-  rr->num_sge = num_sge;
-}
-
-// -----< MemRegion >-----
 
 int MemRegion::remote_reg(void* mem, uint32_t rkey, size_t len) {
   dereg();
@@ -83,8 +50,6 @@ void MemRegion::dereg() {
   flag = 0;
   remote = true;
 }
-
-// -----< RDMANode >-----
 
 int RDMANode::open(const char* name) {
   ibv_device** dev_list = NULL;
@@ -127,27 +92,23 @@ int RDMANode::open(const char* name) {
     return -1;
   }
 
+  if (ibv_query_device(ib_ctx, &dev_attr)) {
+    rdma_log(RDMA_ERROR, "RDMANode::open, failed to query device");
+    return -1;
+  }
+
   ib_pd = ibv_alloc_pd(ib_ctx);
   if (!ib_pd) {
     rdma_log(RDMA_ERROR, "RDMANode::open, ibv_alloc_pd failed");
     return -1;
   }
 
+  SET_RDMA_VERBOSITY();
+
   return 0;
 }
 
-void RDMANode::event_channel_init() {
-  event_channel = ibv_create_comp_channel(ib_ctx);
-  int flags = fcntl(event_channel->fd, F_GETFL);
-  if (fcntl(event_channel->fd, F_SETFL, flags | O_NONBLOCK) < 0) {
-    rdma_log(RDMA_ERROR, "Failed to change fd of CQ Event to non-blocking");
-  }
-}
-
 void RDMANode::close() {
-  if (event_channel) {
-    ibv_destroy_comp_channel(event_channel);
-  }
   if (ib_pd) {
     ibv_dealloc_pd(ib_pd);
     ib_pd = NULL;
@@ -159,7 +120,36 @@ void RDMANode::close() {
   memset(&port_attr, 0, sizeof(port_attr));
 }
 
-// -----< RDMAConn >-----
+void INIT_SGE(ibv_sge* sge, void* lc_addr, size_t sz, uint32_t lkey) {
+  memset(sge, 0, sizeof(ibv_sge));
+  sge->addr = (uint64_t)lc_addr;
+  sge->length = sz;
+  sge->lkey = lkey;
+}
+
+void INIT_SR(ibv_send_wr* sr, ibv_sge* sge, ibv_wr_opcode opcode, void* rt_addr,
+             uint32_t rkey, int num_sge, uint32_t imm_data) {
+  static int id = 0;
+  memset(sr, 0, sizeof(ibv_send_wr));
+  sr->next = NULL;
+  sr->wr_id = id++;
+  sr->sg_list = sge;
+  sr->num_sge = num_sge;
+  sr->opcode = opcode;
+  sr->imm_data = imm_data;
+  sr->send_flags = IBV_SEND_SIGNALED;
+  sr->wr.rdma.remote_addr = (uint64_t)rt_addr;
+  sr->wr.rdma.rkey = rkey;
+}
+
+void INIT_RR(ibv_recv_wr* rr, ibv_sge* sge, int num_sge = 1) {
+  static int id = 0;
+  memset(rr, 0, sizeof(ibv_recv_wr));
+  rr->next = NULL;
+  rr->wr_id = id++;
+  rr->sg_list = sge;
+  rr->num_sge = num_sge;
+}
 
 static int modify_qp_to_init(ibv_qp* qp) {
   ibv_qp_attr attr;
@@ -242,265 +232,37 @@ int modify_qp_to_rts(struct ibv_qp* qp) {
   return rc;
 }
 
-int RDMAConn::event_poll_completion(ibv_cq* cq, int num_event) {
-  ibv_wc wc[num_event];
-  int num_entries = ibv_poll_cq(cq, num_event, wc);
-  if (num_entries != num_event) {
-    rdma_log(RDMA_ERROR,
-             "RDMAConn::event_poll_completion, num_entries != num_event, "
-             "num_entires = %d, num_event = %d",
-             num_entries, num_event);
-    return -1;
-  }
-  int total_recv_bytes = 0;
-  for (int i = 0; i < num_entries; i++) {
-    if (wc[i].status != IBV_WC_SUCCESS) {
-      rdma_log(RDMA_ERROR,
-               "RDMAConn::event_poll_completion, wc[%d] status = %d", i,
-               wc[i].status);
-      // sleep(1);
-      return -1;
-    }
-    int imm_data = wc[i].imm_data;
-    total_recv_bytes += imm_data;
-  }
-  return total_recv_bytes;
-}
 
-int RDMAConn::event_check_incoming(int epfd, bool flag) {
-  if (flag) {
-    struct epoll_event events[MAX_CONNECTIONS];
-    int nfds = epoll_wait(epfd, events, MAX_CONNECTIONS, EPOLL_TIMEOUT);
+// -----< RDMAConn >-----
 
-    for (int i = 0; i < nfds; i++) {
-      ibv_comp_channel* channel = (ibv_comp_channel*)(events[i].data.ptr);
-      ibv_cq* cq;
-      void* ev_ctx;
-      if (ibv_get_cq_event(
-              channel, &cq,
-              &ev_ctx)) {  // this may happen if the other side already exit
-        rdma_log(
-            RDMA_ERROR,
-            "fd = %d, RDMAConn::event_check_incoming, failed to get cq event",
-            _sd);
-        return -1;
-      }
-      RDMAEventSenderReceiver* rdmasr = (RDMAEventSenderReceiver*)ev_ctx;
-      if (ibv_req_notify_cq(cq,
-                            0)) {  // this must be called before other thread
-                                   // call ibv_get_cq_event with the same cq
-        rdma_log(RDMA_ERROR,
-                 "fd = %d, RDMAConn::event_check_incoming, failed to notify cq",
-                 _sd);
-        return -1;
-      }
-      rdmasr->event_post_recv();
-      // ibv_ack_cq_events(cq, 1);
-
-      std::atomic<int>* count = &(rdmasr->conn_->_rcq_event_count);
-      int n = count->fetch_add(1, std::memory_order_relaxed);
-    }
-  }
-
-  int this_count = _rcq_event_count.exchange(0, std::memory_order_relaxed);
-
-  // if (this_count > 1) printf("fd = %d, channel fd = %d has incoming, count =
-  // %d\n", _sd, _event_channel->fd, this_count);
-
-  _rcq_unprocessed_event_count.fetch_add(this_count, std::memory_order_relaxed);
-
-  if (this_count > 0) {
-    ibv_ack_cq_events(_rcq, this_count);
-    return event_poll_completion(_rcq, this_count);
-  }
-
-  if (_rcq_unprocessed_event_count.load(std::memory_order_relaxed) > 0)
-    return 1;
-
-  return -1;
-}
-
-int RDMAConn::event_post_recv(uint8_t* addr, size_t length, uint32_t lkey) {
-  struct ibv_recv_wr rr;
-  struct ibv_sge sge;
-  struct ibv_recv_wr* bad_wr = NULL;
-
-  INIT_SGE(&sge, addr, length, lkey);
-  INIT_RR(&rr, &sge);
-
-  int ret = ibv_post_recv(_qp, &rr, &bad_wr);
-  if (ret) {
-    rdma_log(RDMA_ERROR, "Failed to post RR, errno = %d, wr_id = %d", ret,
-             bad_wr->wr_id);
-    // sleep(1);
-    return 1;
-  }
-
-  return 0;
-}
-
-int RDMAConn::event_init(int epfd, RDMAEventSenderReceiver* rdmasr) {
-  ibv_context* ctx = _node->get_ctx();
-  _rdmasr = rdmasr;
-
-  _event_channel = ibv_create_comp_channel(ctx);
-  int flags = fcntl(_event_channel->fd, F_GETFL);
-  if (fcntl(_event_channel->fd, F_SETFL, flags | O_NONBLOCK) < 0) {
-    rdma_log(
-        RDMA_ERROR,
-        "RDMAConn::event_init, failed to change channel fd to non-blocking");
-    return 1;
-  }
-  ibv_cq* cq = ibv_create_cq(ctx, 65, _rdmasr, _event_channel, 0);
-  if (!cq) {
-    rdma_log(RDMA_ERROR,
-             "RDMAConn::event_init, failed to create CQ for a connection");
-    return 1;
-  }
-  _rcq = cq;
-  if (init(cq)) return 1;
-
-  struct epoll_event ev;
-  ev.events = EPOLLET | EPOLLIN;
-  // ev.events = EPOLLET;
-  ev.data.fd = _event_channel->fd;
-  ev.data.ptr = (void*)_event_channel;
-  epoll_ctl(epfd, EPOLL_CTL_ADD, _event_channel->fd, &ev);
-
-  if (ibv_req_notify_cq(_rcq, 0)) {
-    rdma_log(RDMA_ERROR, "RDMAConn::event_init, failed to notify rcq");
-    return 1;
-  }
-  return 0;
-}
-
-int RDMAConn::init(ibv_cq* rcq, ibv_cq* scq) {
-  ibv_context* ctx = _node->get_ctx();
-  ibv_pd* pd = _node->get_pd();
-  ibv_port_attr port_attr = _node->get_port_attr();
-  union ibv_gid gid = _node->get_gid();
-
-  // Create own CQs if no external CQs are given to this connection
-  if (rcq == NULL || scq == NULL) {
-    ibv_cq* cq = ibv_create_cq(ctx, 65, NULL, NULL, 0);
-    if (!cq) {
-      rdma_log(RDMA_ERROR,
-               "RDMAConn::init, failed to create CQ for a connection");
-      return 1;
-    }
-    if (rcq == NULL) {
-      _rcq = rcq = cq;
-    }
-    if (scq == NULL) {
-      _scq = scq = cq;
-    }
-  }
-
-  // create QP for this connection
-  memset(&_qp_attr, 0, sizeof(_qp_attr));
-
-  _qp_attr.recv_cq = rcq;
-  _qp_attr.send_cq = scq;
-  _qp_attr.qp_type = IBV_QPT_RC;
-  _qp_attr.sq_sig_all = 0;
-
-  _qp_attr.cap.max_send_wr = 5000;  // previous is 5000
-  _qp_attr.cap.max_recv_wr = 5000;  // previous is 5000
-  _qp_attr.cap.max_send_sge =
-      10;  // to enable send_msghdr_zerocopy, set big number (10+)
-  _qp_attr.cap.max_recv_sge = 1;
-  _send_sges = new ibv_sge[_qp_attr.cap.max_send_sge];
-
-  _qp = ibv_create_qp(pd, &_qp_attr);
-  if (!_qp) {
-    rdma_log(RDMA_ERROR,
-             "RDMAConn::init, failed to create QP for a connection");
-    return 1;
-  }
-
-  struct {
-    uint32_t qp_num;
-    uint16_t lid;
-    uint8_t gid[16];
-  } local = {_qp->qp_num, port_attr.lid}, remote;
-  memcpy(&local.gid, &gid, sizeof(gid));
-
-  // exchange data for nodes
-  if (sync_data((char*)&local, (char*)&remote, sizeof(local))) {
-    rdma_log(RDMA_ERROR,
-             "RDMAConn::init, failed to exchange QP data and the initial MR");
-    return 1;
-  }
-
-  _qp_num_rt = remote.qp_num;
-  _lid_rt = remote.lid;
-  memcpy(&_gid_rt, remote.gid, sizeof(_gid_rt));
-
-  if (modify_state(INIT)) {
-    rdma_log(RDMA_ERROR, "RDMAConn::init, failed to change to INIT state");
-    return 1;
-  }
-
-  if (modify_state(RTR)) {
-    rdma_log(RDMA_ERROR, "DMAConn::init, failed to change to RTR state");
-    return 1;
-  }
-
-  if (modify_state(RTS)) {
-    rdma_log(RDMA_ERROR, "DMAConn::init, failed to change to RTS state");
-    return 1;
-  }
-
-  char tmp;
-  if (sync_data((char*)"s", &tmp, 1)) {
-    rdma_log(RDMA_ERROR,
-             "DMAConn::init, failed to sync after switching QP to RTS");
-    return 1;
-  }
-
-  return 0;
-}
-
-void RDMAConn::clean() {
-  if (_rcq && _rcq == _scq) {
-    ibv_destroy_cq(_rcq);
+RDMAConn::~RDMAConn() {
+  if (rcq_ && rcq_ == scq_) {
+    ibv_destroy_cq(rcq_);
   } else {
-    if (_rcq) ibv_destroy_cq(_rcq);
-    if (_scq) ibv_destroy_cq(_scq);
-  }
-  _rcq = _scq = NULL;
-
-  if (_qp) {
-    ibv_destroy_qp(_qp);
-    _qp = NULL;
+    if (rcq_) ibv_destroy_cq(rcq_);
+    if (scq_) ibv_destroy_cq(scq_);
   }
 
-  if (_send_sges) {
-    delete _send_sges;
+  if (qp_) {
+    ibv_destroy_qp(qp_);
   }
-
-  if (_event_channel) {
-    ibv_destroy_comp_channel(_event_channel);
-  }
-
-  _rdmasr = nullptr;
 }
 
-int RDMAConn::modify_state(RDMAConn::state st) {
+int RDMAConn::modify_state(RDMAConn::state_t st) {
   int ret = 0;
 
   switch (st) {
     case RESET:
       break;
     case INIT:
-      ret = modify_qp_to_init(_qp);
+      ret = modify_qp_to_init(qp_);
       break;
     case RTR:
-      ret = modify_qp_to_rtr(_qp, _qp_num_rt, _lid_rt, _gid_rt,
-                             _node->get_port_attr().link_layer);
+      ret = modify_qp_to_rtr(qp_, qp_num_rt_, lid_rt_, gid_rt_,
+                             node_->get_port_attr().link_layer);
       break;
     case RTS:
-      ret = modify_qp_to_rts(_qp);
+      ret = modify_qp_to_rts(qp_);
       break;
     default:
       rdma_log(RDMA_ERROR, "RDMAConn::modify_state, Unsupported state %d", st);
@@ -512,19 +274,18 @@ int RDMAConn::modify_state(RDMAConn::state st) {
 int RDMAConn::sync_data(char* local, char* remote, const size_t sz) {
   size_t remain = sz;
   ssize_t done;
-  if (_sd < 3) {
+  if (fd_ < 3) {
     rdma_log(RDMA_ERROR,
              "RDMAConn::sync_data, failed to sync data with remote, no opened "
              "socket(sd: %d)",
-             _sd);
+             fd_);
     return -1;
   }
 
   while (remain) {
-    done = ::write(_sd, local + (sz - remain), remain);
+    done = ::write(fd_, local + (sz - remain), remain);
     if (done < 0) {
       if (errno == EINTR || errno == EAGAIN) {
-        // fprintf(stdout, "write in sync_data! %s\n", strerror(errno));
       } else {
         rdma_log(RDMA_ERROR, "RDMAConn::sync_data, write errno %d: %s", errno,
                  strerror(errno));
@@ -537,10 +298,9 @@ int RDMAConn::sync_data(char* local, char* remote, const size_t sz) {
 
   remain = sz;
   while (remain) {
-    done = ::read(_sd, remote + (sz - remain), remain);
+    done = ::read(fd_, remote + (sz - remain), remain);
     if (done < 0) {
       if (errno == EINTR || errno == EAGAIN) {
-        // fprintf(stdout, "read in sync_data! %s\n", strerror(errno));
       } else {
         rdma_log(RDMA_ERROR, "RDMAConn::sync_data, read errno %d: %s", errno,
                  strerror(errno));
@@ -570,146 +330,199 @@ int RDMAConn::sync_mr(MemRegion& local, MemRegion& remote) {
   return remote.remote_reg(rt.addr, rt.rkey, rt.length);
 }
 
-int RDMAConn::poll_completion(ibv_cq* cq) {
-  // ibv_wc wc;
+int RDMAConn::init() {
+  ibv_context* ctx = node_->get_ctx();
+  ibv_pd* pd = node_->get_pd();
+  ibv_port_attr port_attr = node_->get_port_attr();
+  ibv_device_attr dev_attr = node_->get_device_attr();
+  union ibv_gid gid = node_->get_gid();
+
+  struct {
+    uint32_t qp_num;
+    uint16_t lid;
+    uint8_t gid[16];
+  } local = {qp_->qp_num, port_attr.lid}, remote;
+  memcpy(&local.gid, &gid, sizeof(gid));
+  
+  // exchange data for nodes
+  if (sync_data((char*)&local, (char*)&remote, sizeof(local))) {
+    rdma_log(RDMA_ERROR,
+             "RDMAConn::init, failed to exchange QP data and the initial MR");
+    exit(-1);
+  }
+
+  qp_num_rt_ = remote.qp_num;
+  lid_rt_ = remote.lid;
+  memcpy(&gid_rt_, remote.gid, sizeof(gid_rt_));
+
+  if (modify_state(INIT)) {
+    rdma_log(RDMA_ERROR, "RDMAConn::init, failed to change to INIT state");
+    exit(-1);
+  }
+
+  if (modify_state(RTR)) {
+    rdma_log(RDMA_ERROR, "DMAConn::init, failed to change to RTR state");
+    exit(-1);
+  }
+
+  if (modify_state(RTS)) {
+    rdma_log(RDMA_ERROR, "DMAConn::init, failed to change to RTS state");
+    exit(-1);
+  }
+
+  char tmp;
+  if (sync_data((char*)"s", &tmp, 1)) {
+    rdma_log(RDMA_ERROR,
+             "DMAConn::init, failed to sync after switching QP to RTS");
+    exit(-1);
+  }
+
+  return 0;
+}
+
+void RDMAConn::poll_send_completion() {
   int num_entries;
+  ibv_wc wc;
   do {
-    num_entries = ibv_poll_cq(cq, 1, &_wc);
+    num_entries = ibv_poll_cq(scq_, 1, &wc);
   } while (num_entries == 0);
 
   if (num_entries < 0) {
-    rdma_log(RDMA_ERROR, "fd = %d, RDMAConn::poll_completion return %d", _sd,
-             num_entries);
-    return 1;
-  } else if (_wc.status != IBV_WC_SUCCESS) {
-    rdma_log(RDMA_ERROR,
-             "fd = %d, RDMAConn::poll_completion return %d with status %d, "
-             "vendor syndrome %d, imm count = %d",
-             _sd, num_entries, _wc.status, _wc.vendor_err,
-             _rdma_write_with_imm_count);
-    return 1;
+    rdma_log(RDMA_ERROR, "RDMAConn::poll_send_completion, failed to poll scq");
+    exit(-1);
   }
-  return 0;
+  if (wc.status != IBV_WC_SUCCESS) {
+    rdma_log(RDMA_ERROR, 
+             "RDMAConn::poll_send_completion, failed to poll scq, status %d", wc.status);
+    exit(-1);
+  }
 }
 
-int RDMAConn::rdma_write_from_sge(MemRegion& dst, size_t& doff, MemRegion& src,
-                                  void* src_addr, size_t sz,
-                                  ibv_wr_opcode opcode, bool end_flag) {
-  if (!dst.is_remote() || src.is_remote()) {
-    rdma_log(RDMA_ERROR,
-             "RDMAConn::rdma_write, failed to do RDMA write, src has to be a "
-             "local MR and dst has to be a remote MR!");
-    return 1;
+void RDMAConn::post_send_and_poll_completion(ibv_send_wr* sr) {
+  struct ibv_send_wr* bad_wr = nullptr;
+
+  if (ibv_post_send(qp_, sr, &bad_wr) != 0) {
+    rdma_log(RDMA_ERROR, "RDMAConnEvent::post_send_and_poll_completion, failed to post send");
+    exit(-1);
   }
 
-  size_t dst_cap = dst.length();
-  struct ibv_send_wr sr;
-  struct ibv_send_wr* bad_wr = NULL;
-
-  for (size_t nwritten = 0, n; nwritten < sz;) {
-    n = MIN(dst_cap - doff, sz - nwritten);
-    INIT_SGE(&_send_sges[_sge_id++], (char*)src_addr + nwritten, n, src.lkey());
-    _nwritten += n;
-    nwritten += n;
-    if (_sge_id == _qp_attr.cap.max_send_sge || doff + _nwritten == dst_cap ||
-        (end_flag && nwritten == sz)) {
-      INIT_SR(&sr, _send_sges, opcode, (char*)dst.addr() + doff, dst.rkey(),
-              _sge_id);
-      doff = (doff + _nwritten) % dst_cap;
-      _sge_id = 0;
-      _nwritten = 0;
-      if (ibv_post_send(_qp, &sr, &bad_wr)) {
-        rdma_log(RDMA_ERROR, "RDMAConn::rdma_write, failed to post SR");
-        return 1;
-      }
-      if (poll_completion(_scq)) {
-        rdma_log(RDMA_ERROR, "RDMAConn::rdma_write, failed to poll _scq");
-        return 1;
-      }
-    }
-    // _nwritten += n;
-  }
-
-  return 0;
+  poll_send_completion();
 }
 
-int RDMAConn::rdma_write_event(MemRegion& dst, size_t& doff, MemRegion& src,
-                               size_t soff, size_t sz, ibv_wr_opcode opcode,
-                               ibv_wr_opcode end_opcode, size_t mlen) {
-  if (!dst.is_remote() || src.is_remote()) {
-    rdma_log(RDMA_ERROR,
-             "fd = %d, RDMAConn::rdma_event_write, failed to do RDMA write, "
-             "src has to be a local MR and dst has to be a remote MR!",
-             _sd);
-    return 1;
+void RDMAConn::post_send_and_poll_completion(MemRegion& remote_mr, size_t remote_tail, 
+                                             MemRegion& local_mr, size_t local_offset,
+                                             size_t sz, ibv_wr_opcode opcode) {
+  if (remote_mr.is_local() || local_mr.is_remote()) {
+    rdma_log(RDMA_ERROR, "RDMAConnEvent::rdma_write, MemRegion incorrect");
+    exit(-1);
   }
 
   struct ibv_send_wr sr;
   struct ibv_sge sge;
-  size_t dst_cap = dst.length();
-  size_t original_doff = doff;
-
-  for (size_t nwritten = 0, n; nwritten < sz; nwritten += n) {
-    n = MIN(sz - nwritten, dst_cap - doff);
-    INIT_SGE(&sge, (char*)src.addr() + soff, n, src.lkey());
-    if (n == sz - nwritten) {
-      INIT_SR(&sr, &sge, end_opcode, (char*)dst.addr() + doff, dst.rkey(), 1,
-              mlen);
-      if (end_opcode == IBV_WR_RDMA_WRITE_WITH_IMM) {
-        _rdma_write_with_imm_count++;
-      }
-    } else
-      INIT_SR(&sr, &sge, opcode, (char*)dst.addr() + doff, dst.rkey(), 1, mlen);
-    if (rdma_write(&sr)) {
-      doff = original_doff;
-      return 1;
-    }
-    doff = (doff + n) % dst_cap;
-    soff += n;
-  }
-
-  return 0;
+  size_t remote_cap = remote_mr.length();
+  size_t r_len = MIN(remote_cap - remote_tail, sz);
+  INIT_SGE(&sge, (uint8_t*)local_mr.addr() + local_offset, r_len, local_mr.lkey());
+  INIT_SR(&sr, &sge, opcode, (uint8_t*)remote_mr.addr() + remote_tail, remote_mr.rkey(), 1, r_len);
+  rdma_log(RDMA_INFO, "RDMAConn::post_send_and_poll_completion, send %d data to remote %d",
+           r_len, remote_tail);
+  post_send_and_poll_completion(&sr);
+  if (r_len < sz) {
+    INIT_SGE(&sge, (uint8_t*)local_mr.addr() + local_offset + r_len, sz - r_len, local_mr.lkey());
+    INIT_SR(&sr, &sge, opcode, remote_mr.addr(), remote_mr.rkey(), 1, sz - r_len);
+    rdma_log(RDMA_INFO, "RDMAConn::post_send_and_poll_completion, send %d data to remote %d",
+             sz - r_len, 0);
+    post_send_and_poll_completion(&sr);
+  } 
 }
 
-int RDMAConn::rdma_write(MemRegion& dst, size_t& doff, MemRegion& src,
-                         size_t soff, size_t sz, ibv_wr_opcode opcode) {
-  if (!dst.is_remote() || src.is_remote()) {
+// -----< RDMAConnBP >-----
+
+
+
+
+// -----< RDMAConnEvent >-----
+
+RDMAConnEvent::RDMAConnEvent(int fd, RDMANode* node, ibv_comp_channel* channel, RDMASenderReceiverEvent* rdmasr)
+  : RDMAConn(fd, node) {
+  ibv_context* ctx = node_->get_ctx();
+  ibv_pd* pd = node_->get_pd();
+  ibv_port_attr port_attr = node_->get_port_attr();
+  ibv_device_attr dev_attr = node_->get_device_attr();
+  union ibv_gid gid = node_->get_gid();
+
+  scq_ = ibv_create_cq(ctx, dev_attr.max_cqe, NULL, NULL, 0);
+  if (!scq_) {
     rdma_log(RDMA_ERROR,
-             "RDMAConn::rdma_write, failed to do RDMA write, src has to be a "
-             "local MR and dst has to be a remote MR!");
-    return 1;
+      "RDMAConn::event_init, failed to create CQ for a connection");
+    exit(-1);
+  }
+  rcq_ = ibv_create_cq(ctx, dev_attr.max_cqe, rdmasr, channel, 0);
+  if (!rcq_) {
+    rdma_log(RDMA_ERROR,
+      "RDMAConn::event_init, failed to create CQ for a connection");
+    exit(-1);
   }
 
-  struct ibv_send_wr sr;
-  struct ibv_sge sge;
-  size_t dst_cap = dst.length();
-
-  for (size_t nwritten = 0, n; nwritten < sz; nwritten += n) {
-    n = MIN(sz - nwritten, dst_cap - doff);
-    INIT_SGE(&sge, (char*)src.addr() + soff, n, src.lkey());
-    INIT_SR(&sr, &sge, opcode, (char*)dst.addr() + doff, dst.rkey());
-    // printf("send %d byte to %d, %d\n", n, doff, doff + n);
-    if (rdma_write(&sr)) return 1;
-    doff = (doff + n) % dst_cap;
-    soff += n;
+  memset(&qp_attr_, 0, sizeof(qp_attr_));
+  qp_attr_.recv_cq = rcq_;
+  qp_attr_.send_cq = scq_;
+  qp_attr_.qp_type = IBV_QPT_RC;
+  qp_attr_.sq_sig_all = 0;
+  qp_attr_.cap.max_send_wr = DEFAULT_MAX_SEND_WR;
+  qp_attr_.cap.max_recv_wr = DEFAULT_MAX_RECV_WR;
+  qp_attr_.cap.max_send_sge = DEFAULT_MAX_SEND_SGE;
+  qp_attr_.cap.max_recv_sge = DEFAULT_MAX_RECV_SGE;
+  qp_ = ibv_create_qp(pd, &qp_attr_);
+  if (!qp_) {
+    rdma_log(RDMA_ERROR,
+             "RDMAConn::init, failed to create QP for a connection");
+    exit(-1);
   }
 
-  return 0;
+  init();
 }
 
-int RDMAConn::rdma_write(ibv_send_wr* sr) {
-  struct ibv_send_wr* bad_wr = NULL;
+void RDMAConnEvent::post_recvs(uint8_t* addr, size_t length, uint32_t lkey, size_t n = 1) {
+  if (n == 0) return;
+  struct ibv_recv_wr rr;
+  struct ibv_sge sge;
+  struct ibv_recv_wr* bad_wr = NULL;
 
-  if (ibv_post_send(_qp, sr, &bad_wr)) {
-    // rdma_log(RDMA_ERROR, "fd = %d, RDMAConn::rdma_write, failed to post SR",
-    //          _sd);
-    return 1;
-  }
-  if (poll_completion(_scq)) {
-    // rdma_log(RDMA_ERROR, "fd = %d, RDMAConn::rdma_write, failed to poll _scq",
-    //          _sd);
-    return 1;
-  }
+  INIT_SGE(&sge, addr, length, lkey);
+  INIT_RR(&rr, &sge);
 
-  return 0;
+  int ret;
+  while (n--) {
+    ret = ibv_post_recv(qp_, &rr, &bad_wr);
+    if (ret) {
+      rdma_log(RDMA_ERROR, "Failed to post RR, errno = %d, wr_id = %d", ret,
+               bad_wr->wr_id);
+      exit(-1);
+    }
+  }
+}
+
+size_t RDMAConnEvent::poll_recv_completions_and_post_recvs(uint8_t* addr, size_t length, uint32_t lkey) {
+  int recv_bytes = 0;
+  int completed = ibv_poll_cq(rcq_, DEFAULT_MAX_POST_RECV, recv_wcs_);
+  if (completed < 0) {
+    rdma_log(RDMA_ERROR, "RDMAConnEvent::poll_recv_completion, ibv_poll_cq return %d", completed);
+    exit(-1);
+  }
+  if (completed == 0) {
+    rdma_log(RDMA_WARNING, "RDMAConnEvent::poll_recv_completion, ibv_poll_cq return 0");
+    return 0;
+  }
+  for (int i = 0; i < completed; i++) {
+    if (recv_wcs_[i].status != IBV_WC_SUCCESS) {
+      rdma_log(RDMA_ERROR, "RDMAConnEvent::poll_recv_completion, wc[%d] status = %d",
+               i, recv_wcs_[i].status);
+    }
+    recv_bytes += recv_wcs_[i].byte_len;
+  }
+  post_recvs(addr, length, lkey, completed);
+  rdma_log(RDMA_DEBUG, "RDMAConnEvent::poll_recv_completions_and_post_recvs, poll out %d completion (%d bytes) from rcq",
+           completed, recv_bytes);
+
+  return recv_bytes;
 }

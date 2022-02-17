@@ -1,7 +1,6 @@
 #ifndef _RDMASENDERRECEIVER_H_
 #define _RDMASENDERRECEIVER_H_
 
-#include <grpc/impl/codegen/log.h>
 #include <sys/epoll.h>
 #include <atomic>
 #include <cstdlib>
@@ -9,96 +8,107 @@
 #include <mutex>
 #include <vector>
 #include "RDMAUtils.h"
-#include "log.h"
 #include "ringbuffer.h"
+#include "log.h"
 
-// before turn off RDMA_IS_ON,
-// make sure turn off RDMA_ZEROCOPY_IS_ON and RDMA_CONNECTION_SETUP_IS_ON
-// in include/grpc/impl/codegen/grpc_types.h
-#define RDMA_IS_ON
-const static int rdma_mode =
-    1;  // used in grpc project, to denote what rdma mode is used
+const size_t DEFAULT_RINGBUF_SZ = 1024ull * 1024 * 256;
+const size_t DEFAULT_SENDBUF_SZ = 1024ull * 1024 * 256;
+// we use headbuf_sz to mem align headbuf. don't set it too big
+const size_t DEFAULT_HEADBUF_SZ = 64;
 
 class RDMASenderReceiver {
- public:
-  const static size_t DEFAULT_RINGBUF_SZ = 1024ull * 1024 * 256;
-  const static size_t DEFAULT_SENDBUF_SZ = 1024ull * 1024 * 256;
-  const static size_t DEFAULT_SENDBUF_OFFSET_SZ = 1024;
-  const static size_t DEFAULT_HEAD_SZ = 64;
+  public:
 
-  RDMASenderReceiver(RDMANode* node = nullptr);
-  virtual ~RDMASenderReceiver();
+    RDMASenderReceiver();
+    virtual ~RDMASenderReceiver();
+    
+    virtual size_t get_unread_data_size() { return 0; }
+    virtual bool send(msghdr* msg, size_t mlen) { return true; }
+    virtual size_t recv(msghdr* msg) { return 0; }
 
-  virtual void init_conn(int sd);
-  int update_remote_head();
-  void update_local_head();
+    void update_remote_head();
+    void update_local_head();
 
-  virtual bool check_incoming(bool flag);
-  virtual int get_mlen();
+    RDMANode* get_node() { return &node_; }
+  
+  protected:
+    static RDMANode node_;
+    static std::atomic<bool> node_opened_;
 
-  // send msg length of mlen to remote, success return 0, error return 1;
-  virtual int send_msg(const char* msg, size_t mlen);
-  virtual int send_msghdr(const msghdr* msg, size_t mlen);
-  virtual int send_msghdr_zerocopy(const msghdr* msg, size_t mlen);
+    int fd_;
+    RDMAConn* conn_ = nullptr;
 
-  // recv msg from remote, return recv length, return -1 if remote close
-  virtual int recv_msg(char* msg);
-  virtual int recv_msghdr(msghdr* msg);
-  virtual int recv_msghdr_zerocopy(msghdr* msg);
-  void zerocopy_reset_buf_update_remote_head();
-  bool zerocopy_contains(char* bytes);
+    size_t ringbuf_sz_, remote_ringbuf_head_ = 0, remote_ringbuf_tail_ = 0;
+    RingBuffer* ringbuf_ = nullptr;
+    MemRegion local_ringbuf_mr_, remote_ringbuf_mr_;
+    size_t garbage_ = 0;
+    unsigned long long int total_recv_sz = 0;
 
-  // whether send_bye in destruction
-  RDMANode* node_ = nullptr;
-  RDMAConn* conn_ = nullptr;
-  bool external_node_flag_ = true;
-  ibv_wr_opcode opcode_;
-  int fd_;
+    size_t sendbuf_sz_;
+    uint8_t* sendbuf_ = nullptr;
+    MemRegion sendbuf_mr_;
+    unsigned long long int total_send_sz = 0;
 
-  size_t ringbuf_sz_, remote_ringbuf_head_, remote_ringbuf_tail_;
-  RingBuffer* ringbuf_ = nullptr;
-  MemRegion local_ringbuf_mr_, remote_ringbuf_mr_;
-  size_t total_recv_bytes_ = 0;
-
-  void* headbuf_ = nullptr;
-  MemRegion local_headbuf_mr_, remote_headbuf_mr_;
-  size_t local_version_ = 0;
-
-  size_t sendbuf_sz_, sendbuf_offset_sz_;
-  char *sendbuf_ = nullptr, *sendbuf_0cp_dataptr_ = nullptr;
-  MemRegion sendbuf_mr_;
-  uint8_t* zerocopy_last_head_ = nullptr;
-  size_t total_send_bytes_ = 0;
-
-  void* sendbuf_head_ = nullptr;
-  MemRegion sendbuf_head_mr_;
-  size_t remote_version_ = 1;
-
-  size_t max_message_size_sofar_ = 0;
+    size_t head_recvbuf_sz_;
+    void* head_recvbuf_ = nullptr;
+    MemRegion local_head_recvbuf_mr_, remote_head_recvbuf_mr_;
+    
+    size_t head_sendbuf_sz_;
+    void* head_sendbuf_ = nullptr;
+    MemRegion head_sendbuf_mr_;
 };
 
-class RDMAEventSenderReceiver final : public RDMASenderReceiver {
- public:
-  RDMAEventSenderReceiver(int epfd, RDMANode* node = nullptr);
-  virtual ~RDMAEventSenderReceiver() {}
+class RDMASenderReceiverBP : public RDMASenderReceiver {
+  public:
+    RDMASenderReceiverBP();
+    virtual ~RDMASenderReceiverBP();
 
-  static int* _epfds;
-  static int _num_epfds;
-  static void create_epfds(int num);
+    void connect(int fd);
+    virtual bool check_incoming();
+    virtual size_t get_unread_data_size();
+    virtual bool send(msghdr* msg, size_t mlen);
+    virtual size_t recv(msghdr* msg);
 
-  void init_conn(int sd);
-  int event_post_recv();
-  bool check_incoming(bool flag);
-  int get_mlen();
+  protected:
+    RingBufferBP* ringbuf_bp_ = nullptr;
+};
 
-  int send_msg(const char* msg, size_t mlen);
-  int send_msghdr(const msghdr* msg, size_t mlen);
-  int send_msghdr_zerocopy(const msghdr* msg, size_t mlen);
-  int recv_msg(char* msg);
-  int recv_msghdr(msghdr* msg);
-  int recv_msghdr_zerocopy(msghdr* msg);
-  size_t _expected_recv_bytes = 0;
-  int _epfd = 0;
+ibv_comp_channel* rdma_create_channel(RDMANode* node);
+int rdma_destroy_channel(ibv_comp_channel* channel);
+void rdma_epoll_add_channel(int epfd, ibv_comp_channel* channel);
+void rdma_epoll_del_channel(int epfd, ibv_comp_channel* channel);
+bool rdma_is_available_event(struct epoll_event* ev);
+void* rdma_check_incoming(struct epoll_event* ev);
+
+class RDMASenderReceiverEvent : public RDMASenderReceiver {
+  public:
+    RDMASenderReceiverEvent();
+    virtual ~RDMASenderReceiverEvent();
+
+    // create channel for each rdmasr.
+    void connect(int fd, void* user_data); // user_data will be used as cq_context when create srq 
+
+    bool connected() { return connected_; }
+
+    virtual bool send(msghdr* msg, size_t mlen);
+    virtual size_t recv(msghdr* msg);
+
+    size_t check_and_ack_incomings();
+    virtual size_t get_unread_data_size() { return unread_data_size_; }
+    void* get_user_data() { return user_data_; }
+    ibv_comp_channel* get_channel() { return channel_; }
+
+    friend void* rdma_check_incoming(struct epoll_event* ev);
+  protected:
+    RingBufferEvent* ringbuf_event_ = nullptr;
+    RDMAConnEvent* conn_event_ = nullptr;
+    ibv_comp_channel* channel_ = nullptr;
+    std::atomic<int> unprocessed_event_num_;
+    std::atomic<int> unacked_event_num_;
+    size_t unread_data_size_ = 0;
+    bool connected_ = false;
+
+    void* user_data_;
 };
 
 #endif

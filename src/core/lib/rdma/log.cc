@@ -1,10 +1,12 @@
 #include "log.h"
 
-static rdma_log_severity rdma_min_severity_to_print = RDMA_LOG_SEVERITY_ERROR;
+const std::string RDMA_ENV_VAR = "RDMA_VERBOSITY";
+
+rdma_log_severity rdma_min_severity_to_print = RDMA_LOG_SEVERITY_WARNING;
 
 
-void SET_RDMA_VERBOSITY(const std::string &rdma_env_var) {
-    char *verbosity = std::getenv(rdma_env_var.c_str());
+void SET_RDMA_VERBOSITY() {
+    char *verbosity = std::getenv(RDMA_ENV_VAR.c_str());
     if (verbosity) {
         if (strcmp(verbosity, "DEBUG") == 0) {
             rdma_min_severity_to_print = RDMA_LOG_SEVERITY_DEBUG;
@@ -23,7 +25,6 @@ const char* rdma_log_severity_string(rdma_log_severity severity) {
         case RDMA_LOG_SEVERITY_WARNING:
             return "WARNING!";
         case RDMA_LOG_SEVERITY_ERROR:
-            sleep(1);
             return "ERROR!!";
     }
     return "UNKNOWN";
@@ -48,7 +49,7 @@ void rdma_log(const char* file, int line, rdma_log_severity severity, const char
     char *display_file;
     if (final_slash == nullptr) display_file = file_temp;
     else display_file = final_slash + 1;
-    fprintf(stderr, "[%8s,%7ld %25s:%4d] \t     %s\n", 
+    fprintf(stderr, "[%-8s,%7ld %30s:%4d] %s\n", 
         rdma_log_severity_string(severity), tid, display_file, line, message);
 
     free(message);

@@ -1290,8 +1290,6 @@ static const grpc_event_engine_vtable vtable = {
     fd_become_writable,
     fd_has_errors,
     fd_is_shutdown,
-    nullptr,
-    nullptr,
 
     pollset_init,
     pollset_shutdown,

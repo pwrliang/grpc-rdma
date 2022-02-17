@@ -753,6 +753,8 @@ static void tcp_do_read(grpc_tcp* tcp) {
       read_bytes = recvmsg(tcp->fd, &msg, 0);
     } while (read_bytes < 0 && errno == EINTR);
 
+    printf("tcp_do_read, %d\n", read_bytes);
+
     /* We have read something in previous reads. We need to deliver those
      * bytes to the upper layer. */
     if (read_bytes <= 0 && total_read_bytes > 0) {
@@ -907,7 +909,6 @@ static void tcp_handle_read(void* arg /* grpc_tcp */, grpc_error_handle error) {
 
 static void tcp_read(grpc_endpoint* ep, grpc_slice_buffer* incoming_buffer,
                      grpc_closure* cb, bool urgent) {
-  printf("tcp_read, %d\n", getpid());
   grpc_tcp* tcp = reinterpret_cast<grpc_tcp*>(ep);
   GPR_ASSERT(tcp->read_cb == nullptr);
   tcp->read_cb = cb;
@@ -1474,6 +1475,7 @@ static bool tcp_flush(grpc_tcp* tcp, grpc_error_handle* error) {
 
       sent_length = tcp_send(tcp->fd, &msg);
     }
+    printf("tcp_flush, %d\n", sent_length);
 
     if (sent_length < 0) {
       if (errno == EAGAIN) {
@@ -1565,7 +1567,6 @@ static void tcp_handle_write(void* arg /* grpc_tcp */,
 
 static void tcp_write(grpc_endpoint* ep, grpc_slice_buffer* buf,
                       grpc_closure* cb, void* arg) {
-  printf("tcp_write, %d\n", getpid());
   GPR_TIMER_SCOPE("tcp_write", 0);
   grpc_tcp* tcp = reinterpret_cast<grpc_tcp*>(ep);
   grpc_error_handle error = GRPC_ERROR_NONE;

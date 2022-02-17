@@ -1836,7 +1836,7 @@ add_library(grpc
   src/core/lib/iomgr/ev_apple.cc
   src/core/lib/iomgr/ev_epoll1_linux.cc
   src/core/lib/iomgr/ev_epollex_linux.cc
-  src/core/lib/iomgr/ev_epollex_rdma_linux.cc
+  src/core/lib/iomgr/ev_epollex_rdma_event_linux.cc
   src/core/lib/iomgr/ev_poll_posix.cc
   src/core/lib/iomgr/ev_posix.cc
   src/core/lib/iomgr/ev_windows.cc
@@ -1891,7 +1891,7 @@ add_library(grpc
   src/core/lib/iomgr/tcp_client_windows.cc
   src/core/lib/iomgr/tcp_custom.cc
   src/core/lib/iomgr/tcp_posix.cc
-  src/core/lib/iomgr/rdma_posix.cc
+  src/core/lib/iomgr/rdma_event_posix.cc
   src/core/lib/rdma/log.cc
   src/core/lib/rdma/RDMAUtils.cc
   src/core/lib/rdma/ringbuffer.cc
@@ -2462,7 +2462,7 @@ add_library(grpc_unsecure
   src/core/lib/iomgr/ev_apple.cc
   src/core/lib/iomgr/ev_epoll1_linux.cc
   src/core/lib/iomgr/ev_epollex_linux.cc
-  src/core/lib/iomgr/ev_epollex_rdma_linux.cc
+  src/core/lib/iomgr/ev_epollex_rdma_event_linux.cc
   src/core/lib/iomgr/ev_poll_posix.cc
   src/core/lib/iomgr/ev_posix.cc
   src/core/lib/iomgr/ev_windows.cc
@@ -2517,7 +2517,7 @@ add_library(grpc_unsecure
   src/core/lib/iomgr/tcp_client_windows.cc
   src/core/lib/iomgr/tcp_custom.cc
   src/core/lib/iomgr/tcp_posix.cc
-  src/core/lib/iomgr/rdma_posix.cc
+  src/core/lib/iomgr/rdma_event_posix.cc
   src/core/lib/rdma/log.cc
   src/core/lib/rdma/RDMAUtils.cc
   src/core/lib/rdma/ringbuffer.cc

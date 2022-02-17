@@ -105,13 +105,16 @@ class RouteGuideImpl final : public RouteGuide::Service {
     long right = (std::max)(lo.longitude(), hi.longitude());
     long top = (std::max)(lo.latitude(), hi.latitude());
     long bottom = (std::min)(lo.latitude(), hi.latitude());
-    for (const Feature& f : feature_list_) {
-      if (f.location().longitude() >= left &&
-          f.location().longitude() <= right &&
-          f.location().latitude() >= bottom && f.location().latitude() <= top) {
-        writer->Write(f);
+    for (int i = 0; i < 100; i++) {
+      for (const Feature& f : feature_list_) {
+        if (f.location().longitude() >= left &&
+            f.location().longitude() <= right &&
+            f.location().latitude() >= bottom && f.location().latitude() <= top) {
+          writer->Write(f);
+        }
       }
     }
+    
     return Status::OK;
   }
 
@@ -169,7 +172,7 @@ class RouteGuideImpl final : public RouteGuide::Service {
 };
 
 void RunServer(const std::string& db_path) {
-  std::string server_address("10.3.1.18:50051");
+  std::string server_address("10.3.1.6:50051");
   RouteGuideImpl service(db_path);
 
   ServerBuilder builder;
@@ -182,7 +185,8 @@ void RunServer(const std::string& db_path) {
 
 int main(int argc, char** argv) {
   // Expect only arg: --db_path=path/to/route_guide_db.json.
-  setenv("GRPC_PLATFORM_TYPE", "RDMA", 1);
+  setenv("GRPC_PLATFORM_TYPE", "RDMA_EVENT", 1);
+  // setenv("RDMA_VERBOSITY", "INFO", 1);
   // setenv("GRPC_PLATFORM_TYPE", "TCP", 1);
   std::string db = routeguide::GetDbFileContent(argc, argv);
   RunServer(db);

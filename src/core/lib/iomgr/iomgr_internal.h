@@ -41,7 +41,7 @@ typedef struct grpc_iomgr_platform_vtable {
                                            grpc_error_handle error);
 } grpc_iomgr_platform_vtable;
 
-enum platform_t {IOMGR_TCP, IOMGR_RDMA};
+enum platform_t {IOMGR_TCP, IOMGR_RDMA_BP, IOMGR_RDMA_EVENT};
 
 platform_t grpc_check_iomgr_platform();
 

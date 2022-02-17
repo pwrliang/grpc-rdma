@@ -4,7 +4,8 @@
 
 #ifdef GRPC_POSIX_SOCKET_TCP
 
-#include "src/core/lib/iomgr/rdma_posix.h"
+#include "src/core/lib/iomgr/rdma_event_posix.h"
+#include "src/core/lib/iomgr/ev_epollex_rdma_event_linux.h"
 
 #include <errno.h>
 #include <limits.h>
@@ -43,6 +44,8 @@
 #include "src/core/lib/slice/slice_string_helpers.h"
 #include "src/core/lib/rdma/RDMASenderReceiver.h"
 
+#define MIN_READBUF_SIZE (1024 * 1024)
+
 namespace {
 struct grpc_rdma {
   grpc_rdma() {}
@@ -57,13 +60,13 @@ struct grpc_rdma {
   grpc_core::RefCount refcount;
   gpr_atm shutdown_count;
 
-  RDMASenderReceiver* rdmasr;
+  RDMASenderReceiverEvent* rdmasr;
 
   // int min_read_chunk_size;
   // int max_read_chunk_size;
 
   /* garbage after the last read */
-  // grpc_slice_buffer last_read_buffer;
+  grpc_slice_buffer last_read_buffer;
 
   grpc_slice_buffer* incoming_buffer;
   // int inq;          /* bytes pending on the socket from the last read. */
@@ -148,6 +151,7 @@ static void rdma_shutdown(grpc_endpoint* ep, grpc_error_handle why) {
 static void rdma_free(grpc_rdma* rdma) {
   grpc_fd_orphan(rdma->em_fd, rdma->release_fd_cb, rdma->release_fd,
                  "rdma_unref_orphan");
+  grpc_slice_buffer_destroy_internal(&rdma->last_read_buffer);
   grpc_resource_user_unref(rdma->resource_user);
   /* The lock is not really necessary here, since all refs have been released */
   // gpr_mu_lock(&rdma->tb_mu);
@@ -188,6 +192,7 @@ static void rdma_ref(grpc_tcp* rdma) { rdma->refcount.Ref(); }
 
 static void rdma_destroy(grpc_endpoint* ep) {
   grpc_rdma* rdma = reinterpret_cast<grpc_rdma*>(ep);
+  grpc_slice_buffer_reset_and_unref_internal(&rdma->last_read_buffer);
   RDMA_UNREF(rdma, "destroy");
 }
 
@@ -201,24 +206,36 @@ static void call_read_cb(grpc_rdma* rdma, grpc_error_handle error) {
 
 // -----< rdma_read >-----
 
+#define MAX_READ_IOVEC 4
+
 static void rdma_do_read(grpc_rdma* rdma) {
   struct msghdr msg;
-  struct iovec iov;
-  printf("rdma_do_read\n");
+  struct iovec iov[MAX_READ_IOVEC];
+  size_t iov_len = rdma->incoming_buffer->count;
 
-  GPR_ASSERT(rdma->incoming_buffer->count == 1);
+  GPR_ASSERT(iov_len > 0 && iov_len <= MAX_READ_IOVEC);
 
-  iov.iov_base = GRPC_SLICE_START_PTR(rdma->incoming_buffer->slices[0]);
-  iov.iov_len = GRPC_SLICE_LENGTH(rdma->incoming_buffer->slices[0]);
-  msg.msg_iov = &iov;
-  msg.msg_iovlen = 1;
+  for (size_t i = 0; i < iov_len; i++) {
+    iov[i].iov_base = GRPC_SLICE_START_PTR(rdma->incoming_buffer->slices[i]);
+    iov[i].iov_len = GRPC_SLICE_LENGTH(rdma->incoming_buffer->slices[i]);
+  }
+  msg.msg_iov = iov;
+  msg.msg_iovlen = iov_len;
 
   size_t read_bytes = 0;
+  size_t total_read_byte = 0;
 
   do {
-    read_bytes = rdma->rdmasr->recv_msghdr(&msg);
+    read_bytes = rdma->rdmasr->recv(&msg);
   } while (read_bytes == 0);
-  printf("rdma_do_read, %d\n", read_bytes);
+  total_read_byte += read_bytes;
+  rdma_log(RDMA_DEBUG, "rdma_do_read recv %d bytes", total_read_byte);
+
+  if (total_read_byte < rdma->incoming_buffer->length) {
+    grpc_slice_buffer_trim_end(rdma->incoming_buffer,
+                               rdma->incoming_buffer->length - total_read_byte,
+                               &rdma->last_read_buffer);
+  }
 
   call_read_cb(rdma, GRPC_ERROR_NONE);
   RDMA_UNREF(rdma, "read");
@@ -226,12 +243,17 @@ static void rdma_do_read(grpc_rdma* rdma) {
 }
 
 static void rdma_continue_read(grpc_rdma* rdma) {
-  size_t mlen = rdma->rdmasr->get_mlen();
-  printf("rdma_continue_read, %d\n", mlen);
-  grpc_slice_buffer_reset_and_unref_internal(rdma->incoming_buffer);
-  if (GPR_UNLIKELY(!grpc_resource_user_alloc_slices(&rdma->slice_allocator, mlen, 1, rdma->incoming_buffer))) {
-    return;
+  size_t mlen = rdma->rdmasr->get_unread_data_size();
+  if (rdma->incoming_buffer->length < mlen) {
+    size_t target_size = MAX(mlen, MIN_READBUF_SIZE) - rdma->incoming_buffer->length;
+    rdma_log(RDMA_DEBUG, "rdma_continue_read, data size = %d, incoming buffer size = %d, allocate %d bytes",
+             mlen, rdma->incoming_buffer->length, target_size);
+    if (GPR_UNLIKELY(!grpc_resource_user_alloc_slices(&rdma->slice_allocator, target_size, 1, rdma->incoming_buffer))) {
+      return;
+    }
   }
+  rdma_log(RDMA_DEBUG, "rdma_continue_read, data size = %d, incoming buffer size = %d, call rdma_do_read", 
+    mlen, rdma->incoming_buffer->length);
   rdma_do_read(rdma);
 }
 
@@ -239,44 +261,53 @@ static void rdma_read_allocation_done(void* rdmap, grpc_error_handle error) {
   grpc_rdma* rdma = static_cast<grpc_rdma*>(rdmap);
   if (GPR_UNLIKELY(error != GRPC_ERROR_NONE)) {
     grpc_slice_buffer_reset_and_unref_internal(rdma->incoming_buffer);
+    grpc_slice_buffer_reset_and_unref_internal(&rdma->last_read_buffer);
     call_read_cb(rdma, GRPC_ERROR_REF(error));
     RDMA_UNREF(rdma, "read");
   } else {
-    printf("rdma_read_allocation_done, %d\n", getpid());
-    rdma_continue_read(rdma);
+    rdma_log(RDMA_DEBUG, "rdma_read_allocation_done, data size = %d, incoming buffer size = %d, call rdma_do_read", 
+      rdma->rdmasr->get_unread_data_size(), rdma->incoming_buffer->length);
+    rdma_do_read(rdma);
   }
 }
 
 static void rdma_handle_read(void* arg /* grpc_rdma */, grpc_error_handle error) {
   grpc_rdma* rdma = static_cast<grpc_rdma*>(arg);
-  printf("rdma_handle_read, %d\n", rdma->rdmasr->get_mlen());
   if (GPR_UNLIKELY(error != GRPC_ERROR_NONE)) {
     grpc_slice_buffer_reset_and_unref_internal(rdma->incoming_buffer);
+    grpc_slice_buffer_reset_and_unref_internal(&rdma->last_read_buffer);
     call_read_cb(rdma, GRPC_ERROR_REF(error));
     RDMA_UNREF(rdma, "read");
-  } else if (rdma->rdmasr->get_mlen() == 0) {
-    notify_on_read(rdma);
   } else {
-    rdma_continue_read(rdma);
+    if (rdma->rdmasr->check_and_ack_incomings() == 0) {
+      rdma_log(RDMA_DEBUG, "rdma_handle_read, no data, call notify_on_read");
+      notify_on_read(rdma);
+    } else {
+      rdma_log(RDMA_DEBUG, "rdma_handle_read, data found, call rdma_continue_read");
+      rdma_continue_read(rdma);
+    }
   }
 }
 
 static void rdma_read(grpc_endpoint* ep, grpc_slice_buffer* incoming_buffer,
                      grpc_closure* cb, bool urgent) {
-  printf("rdma_read, %d\n", getpid());
   grpc_rdma* rdma = reinterpret_cast<grpc_rdma*>(ep);
   GPR_ASSERT(rdma->read_cb == nullptr);
   rdma->read_cb = cb;
   rdma->incoming_buffer = incoming_buffer;
   grpc_slice_buffer_reset_and_unref_internal(incoming_buffer);
+  grpc_slice_buffer_swap(incoming_buffer, &rdma->last_read_buffer);
   RDMA_REF(rdma, "read");
   if (rdma->is_first_read) {
-      rdma->is_first_read = false;
-      notify_on_read(rdma);
+    rdma->is_first_read = false;
+    rdma_log(RDMA_INFO, "rdma_read, is_first_read, call notify_on_read");
+    notify_on_read(rdma);
   } else if (!urgent) {
-      notify_on_read(rdma);
+    rdma_log(RDMA_INFO, "rdma_read, urgent, call notify_on_read");
+    notify_on_read(rdma);
   } else {
-      grpc_core::Closure::Run(DEBUG_LOCATION, &rdma->read_done_closure,
+    rdma_log(RDMA_DEBUG, "rdma_read, call rdma_handle_read");
+    grpc_core::Closure::Run(DEBUG_LOCATION, &rdma->read_done_closure,
                             GRPC_ERROR_NONE);
   }
 }
@@ -285,7 +316,7 @@ static void rdma_read(grpc_endpoint* ep, grpc_slice_buffer* incoming_buffer,
 #define MAX_WRITE_IOVEC 1000
 
 static bool rdma_flush(grpc_rdma* rdma, grpc_error_handle* error) {
-  size_t rdma_max_send_size = RDMASenderReceiver::DEFAULT_SENDBUF_SZ - 10;
+  size_t rdma_max_send_size = DEFAULT_SENDBUF_SZ - 10;
   size_t outgoing_slice_idx_record = rdma->outgoing_byte_idx;
 
   struct msghdr msg;
@@ -318,9 +349,13 @@ static bool rdma_flush(grpc_rdma* rdma, grpc_error_handle* error) {
     }
     msg.msg_iov = iov;
     msg.msg_iovlen = iov_size;
-    while (rdma->rdmasr->send_msghdr(&msg, sending_length) == 1) {
+
+    rdma_log(RDMA_DEBUG, "rdma_flush try to send %d bytes", sending_length);
+    if (rdma->rdmasr->send(&msg, sending_length) == false) {
+      rdma_log(RDMA_ERROR, "rdma send failed");
+      abort();
     }
-    printf("rdma_flush, %d\n", sending_length);
+
   }
   *error = GRPC_ERROR_NONE;
   grpc_slice_buffer_reset_and_unref_internal(rdma->outgoing_buffer);
@@ -329,7 +364,6 @@ static bool rdma_flush(grpc_rdma* rdma, grpc_error_handle* error) {
 
 static void rdma_handle_write(void* arg /* grpc_tcp */,
                              grpc_error_handle error) {
-  printf("rdma_handle_write\n");
   grpc_rdma* rdma = static_cast<grpc_rdma*>(arg);
   grpc_closure* cb;
 
@@ -355,7 +389,6 @@ static void rdma_handle_write(void* arg /* grpc_tcp */,
 
 static void rdma_write(grpc_endpoint* ep, grpc_slice_buffer* buf,
                       grpc_closure* cb, void* arg) {
-  printf("rdma_write, %d\n", getpid());
   grpc_rdma* rdma = reinterpret_cast<grpc_rdma*>(ep);      
   grpc_error_handle error = GRPC_ERROR_NONE;   
   GPR_ASSERT(rdma->write_cb == nullptr); 
@@ -444,7 +477,7 @@ static const grpc_endpoint_vtable vtable = {rdma_read,
                                             rdma_get_fd,
                                             rdma_can_track_err};
 
-grpc_endpoint* grpc_rdma_create(grpc_fd* em_fd,
+grpc_endpoint* grpc_rdma_event_create(grpc_fd* em_fd,
                                const grpc_channel_args* channel_args,
                                const char* peer_string) {
   grpc_resource_quota* resource_quota = grpc_resource_quota_create(nullptr);
@@ -481,6 +514,7 @@ grpc_endpoint* grpc_rdma_create(grpc_fd* em_fd,
   new (&rdma->refcount) grpc_core::RefCount(1, nullptr);
   gpr_atm_no_barrier_store(&rdma->shutdown_count, 0);
   rdma->em_fd = em_fd;
+  grpc_slice_buffer_init(&rdma->last_read_buffer);
   rdma->resource_user = grpc_resource_user_create(resource_quota, peer_string);
   grpc_resource_user_slice_allocator_init(
       &rdma->slice_allocator, rdma->resource_user, rdma_read_allocation_done, rdma);
@@ -489,10 +523,8 @@ grpc_endpoint* grpc_rdma_create(grpc_fd* em_fd,
                     grpc_schedule_on_exec_ctx);
   GRPC_CLOSURE_INIT(&rdma->write_done_closure, rdma_handle_write, rdma,
                     grpc_schedule_on_exec_ctx);
-  rdma->rdmasr = new RDMASenderReceiver();
-  rdma->rdmasr->init_conn(rdma->fd);
-  grpc_fd_set_rdmasr(em_fd, rdma->rdmasr);
-  printf("grpc_rdma created, %p\n", rdma);
+  rdma->rdmasr = new RDMASenderReceiverEvent();
+  grpc_fd_set_rdmasr_event(em_fd, rdma->rdmasr);
   return &rdma->base;
 }
 
@@ -508,6 +540,7 @@ void grpc_rdma_destroy_and_release_fd(grpc_endpoint* ep, int* fd,
   GPR_ASSERT(ep->vtable == &vtable);
   rdma->release_fd = fd;
   rdma->release_fd_cb = done;
+  grpc_slice_buffer_reset_and_unref_internal(&rdma->last_read_buffer);
   RDMA_UNREF(rdma, "destroy");
 }
 
