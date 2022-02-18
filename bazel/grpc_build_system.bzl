@@ -88,6 +88,8 @@ def grpc_cc_library(
     if language.upper() == "C":
         copts = copts + if_not_windows(["-std=c99"])
     linkopts = if_not_windows(["-pthread"])
+    # link with libverbs
+    linkopts += ["-libverbs"]
     if use_cfstream:
         linkopts = linkopts + if_mac(["-framework CoreFoundation"])
 
