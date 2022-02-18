@@ -180,14 +180,14 @@ static void rdma_ref(grpc_rdma* rdma, const char* reason,
 }
 #else
 #define RDMA_UNREF(rdma, reason) rdma_unref((rdma))
-#define RDMA_REF(rdma, reason) tcp_ref((rdma))
-static void rdma_unref(grpc_tcp* rdma) {
+#define RDMA_REF(rdma, reason) rdma_ref((rdma))
+static void rdma_unref(grpc_rdma* rdma) {
   if (GPR_UNLIKELY(rdma->refcount.Unref())) {
     rdma_free(rdma);
   }
 }
 
-static void rdma_ref(grpc_tcp* rdma) { rdma->refcount.Ref(); }
+static void rdma_ref(grpc_rdma* rdma) { rdma->refcount.Ref(); }
 #endif
 
 static void rdma_destroy(grpc_endpoint* ep) {
