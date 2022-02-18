@@ -84,7 +84,7 @@ bool RDMASenderReceiverBP::send(msghdr* msg, size_t mlen) {
   size_t len = mlen + sizeof(size_t) + 1;
 
   size_t used = (remote_ringbuf_sz + remote_ringbuf_tail_ - remote_ringbuf_head_) % remote_ringbuf_sz;
-  while (used + len >= remote_ringbuf_sz - 10) {
+  while (used + len >= remote_ringbuf_sz - 20) {
     update_local_head();
     used = (remote_ringbuf_sz + remote_ringbuf_tail_ - remote_ringbuf_head_) % remote_ringbuf_sz;
     std::this_thread::yield();

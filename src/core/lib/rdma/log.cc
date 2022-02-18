@@ -8,11 +8,15 @@ rdma_log_severity rdma_min_severity_to_print = RDMA_LOG_SEVERITY_WARNING;
 void SET_RDMA_VERBOSITY() {
     char *verbosity = std::getenv(RDMA_ENV_VAR.c_str());
     if (verbosity) {
-        if (strcmp(verbosity, "DEBUG") == 0) {
-            rdma_min_severity_to_print = RDMA_LOG_SEVERITY_DEBUG;
-        } else if (strcmp(verbosity, "INFO") == 0) {
-            rdma_min_severity_to_print = RDMA_LOG_SEVERITY_INFO;
-        }
+      if (strcmp(verbosity, "DEBUG") == 0) {
+        rdma_min_severity_to_print = RDMA_LOG_SEVERITY_DEBUG;
+      } else if (strcmp(verbosity, "INFO") == 0) {
+        rdma_min_severity_to_print = RDMA_LOG_SEVERITY_INFO;
+      } else if (strcmp(verbosity, "WARNING") == 0) {
+        rdma_min_severity_to_print = RDMA_LOG_SEVERITY_WARNING;
+      } else if (strcmp(verbosity, "ERROR") == 0) {
+        rdma_min_severity_to_print = RDMA_LOG_SEVERITY_ERROR;
+      }
     }
 }
 
