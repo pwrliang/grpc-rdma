@@ -33,15 +33,16 @@ void grpc_set_iomgr_platform_vtable(grpc_iomgr_platform_vtable* vtable) {
   iomgr_platform_vtable = vtable;
 }
 
-platform_t grpc_check_iomgr_platform() {
-  return pt;
-}
+platform_t grpc_check_iomgr_platform() { return pt; }
 
 void grpc_determine_iomgr_platform() {
   if (iomgr_platform_vtable == nullptr) {
     char* type;
     type = getenv("GRPC_PLATFORM_TYPE");
-    if (strcmp(type, "RDMA_BP") == 0) {
+    if (type == NULL) {
+      pt = IOMGR_TCP;
+      printf("select tcp\n");
+    } else if (strcmp(type, "RDMA_BP") == 0) {
       pt = IOMGR_RDMA_BP;
       SET_RDMA_VERBOSITY();
       // printf("select rdma bp\n");
@@ -51,9 +52,6 @@ void grpc_determine_iomgr_platform() {
       SET_RDMA_VERBOSITY();
       // printf("select rdma event\n");
       rdma_log(RDMA_INFO, "select rdma event");
-    } else {
-      pt = IOMGR_TCP;
-      printf("select tcp\n");
     }
     grpc_set_default_iomgr_platform();
   }

@@ -321,7 +321,7 @@ static void rdma_read(grpc_endpoint* ep, grpc_slice_buffer* incoming_buffer,
 #define MAX_WRITE_IOVEC 1000
 
 static bool rdma_flush(grpc_rdma* rdma, grpc_error_handle* error) {
-  size_t rdma_max_send_size = DEFAULT_SENDBUF_SZ - 10;
+  size_t rdma_max_send_size = DEFAULT_SENDBUF_SZ / 2 - 10;
   size_t outgoing_slice_idx_record = rdma->outgoing_byte_idx;
 
   struct msghdr msg;

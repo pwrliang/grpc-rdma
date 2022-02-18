@@ -74,7 +74,9 @@ size_t RDMASenderReceiverBP::recv(msghdr* msg) {
 // caller already checked msg
 bool RDMASenderReceiverBP::send(msghdr* msg, size_t mlen) {
   if (mlen + sizeof(size_t) + 1 >= sendbuf_sz_) {
-    rdma_log(RDMA_ERROR, "RDMASenderReceiverBP::send, mlen > sendbuf size");
+    rdma_log(RDMA_ERROR,
+             "RDMASenderReceiverBP::send, mlen > sendbuf size, %zu vs %zu",
+             mlen + sizeof(size_t) + 1, sendbuf_sz_);
     return false;
   }
 

@@ -753,8 +753,6 @@ static void tcp_do_read(grpc_tcp* tcp) {
       read_bytes = recvmsg(tcp->fd, &msg, 0);
     } while (read_bytes < 0 && errno == EINTR);
 
-    printf("tcp_do_read, %d\n", read_bytes);
-
     /* We have read something in previous reads. We need to deliver those
      * bytes to the upper layer. */
     if (read_bytes <= 0 && total_read_bytes > 0) {
@@ -1475,7 +1473,6 @@ static bool tcp_flush(grpc_tcp* tcp, grpc_error_handle* error) {
 
       sent_length = tcp_send(tcp->fd, &msg);
     }
-    printf("tcp_flush, %d\n", sent_length);
 
     if (sent_length < 0) {
       if (errno == EAGAIN) {

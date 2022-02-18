@@ -2,7 +2,7 @@
 #include "log.h"
 #include "fcntl.h"
 #include <thread>
-
+#include <grpc/impl/codegen/log.h>
 #define IBV_DEV_NAME "mlx5_0"
 
 // -----< RDMASenderReceiver >-----
@@ -35,7 +35,7 @@ RDMASenderReceiver::RDMASenderReceiver()
     exit(-1);
   }
 
-  assert(posix_memalign(&head_recvbuf_, head_recvbuf_sz_, head_recvbuf_sz_) == 0);
+  GPR_ASSERT(posix_memalign(&head_recvbuf_, head_recvbuf_sz_, head_recvbuf_sz_) == 0);
   memset(head_recvbuf_, 0, head_recvbuf_sz_);
   if (local_head_recvbuf_mr_.local_reg(pd, head_recvbuf_, head_recvbuf_sz_)) {
     rdma_log(RDMA_ERROR,
@@ -44,7 +44,7 @@ RDMASenderReceiver::RDMASenderReceiver()
              exit(-1);
   }
 
-  assert(posix_memalign(&head_sendbuf_, head_sendbuf_sz_, head_sendbuf_sz_) == 0);
+  GPR_ASSERT(posix_memalign(&head_sendbuf_, head_sendbuf_sz_, head_sendbuf_sz_) == 0);
   memset(head_sendbuf_, 0, head_sendbuf_sz_);
   if (head_sendbuf_mr_.local_reg(pd, head_sendbuf_, head_sendbuf_sz_)) {
     rdma_log(RDMA_ERROR,
