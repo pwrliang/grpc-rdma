@@ -37,6 +37,7 @@
 #include "src/core/lib/iomgr/ev_epollex_linux.h"
 #include "src/core/lib/iomgr/ev_poll_posix.h"
 #include "src/core/lib/iomgr/ev_epollex_rdma_event_linux.h"
+#include "src/core/lib/iomgr/ev_epollex_rdma_bp_linux.h"
 #include "src/core/lib/iomgr/internal_errqueue.h"
 #include "src/core/lib/iomgr/iomgr_internal.h"
 
@@ -134,7 +135,7 @@ static event_engine_factory g_factories[] = {
     {"epollex", grpc_init_epollex_linux}, {"epoll1", grpc_init_epoll1_linux},
     {"poll", grpc_init_poll_posix},       {"none", init_non_polling},
     {"epollex_rdma_event", grpc_init_epollex_rdma_event_linux},        
-    {ENGINE_TAIL_CUSTOM, nullptr},
+    {"epollex_rdma_bp", grpc_init_epollex_rdma_bp_linux},
     {ENGINE_TAIL_CUSTOM, nullptr},        {ENGINE_TAIL_CUSTOM, nullptr},
 };
 
@@ -174,7 +175,6 @@ static void try_engine(const char* engine) {
                0 == strcmp(engine, g_factories[i].name)))) {
         g_poll_strategy_name = g_factories[i].name;
         gpr_log(GPR_DEBUG, "Using polling engine: %s", g_factories[i].name);
-        printf("Using polling engine: %s\n", g_factories[i].name);
         return;
       }
     }

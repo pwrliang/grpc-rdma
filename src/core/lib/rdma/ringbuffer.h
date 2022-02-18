@@ -12,6 +12,9 @@
 #include <unistd.h>
 #include <cassert>
 
+// the data size of ringbuffer should <= capacity - 1, which means the ringbuffer cannot be full.
+// if data size == capacity, then it is possible that remote_head == remote_tail,
+// then remote cannot tell if there it is full or empty.
 class RingBuffer {
   public:
     RingBuffer(size_t capacity);
@@ -20,9 +23,10 @@ class RingBuffer {
     uint8_t* get_buf() { return buf_; }
     size_t get_capacity() { return capacity_; }
     size_t get_head() { return head_; }
-    size_t update_head(size_t inc);
 
   protected:
+    size_t update_head(size_t inc);
+
     uint8_t* buf_ = nullptr;
     size_t capacity_;
     size_t head_ = 0;
@@ -31,6 +35,21 @@ class RingBuffer {
 class RingBufferBP : public RingBuffer {
   public:
     RingBufferBP(size_t capacity) : RingBuffer(capacity) {}
+
+    // uint8_t check_head() { return buf_[head_]; }
+    bool check_head();
+    size_t check_lens() { return check_lens(head_); }
+
+    size_t read_to_msghdr(msghdr* msg, size_t size) { return read_to_msghdr(msg, head_, size); }
+    
+  protected:
+    uint8_t check_tail(size_t head, size_t mlen);
+    size_t check_mlen(size_t head);
+    size_t check_lens(size_t head);
+    size_t reset_buf_and_update_head(size_t lens);
+
+    // it guarantees to read out data of size expected_read_size 
+    size_t read_to_msghdr(msghdr* msg, size_t head, size_t expected_read_size);
 };
 
 class RingBufferEvent : public RingBuffer {
@@ -38,6 +57,8 @@ class RingBufferEvent : public RingBuffer {
     RingBufferEvent(size_t capcatiy) : RingBuffer(capcatiy) {}
 
     size_t read_to_msghdr(msghdr* msg, size_t size) { return read_to_msghdr(msg, head_, size); }
+
+  protected:
     size_t read_to_msghdr(msghdr* msg, size_t head, size_t expected_read_size);
 };
 

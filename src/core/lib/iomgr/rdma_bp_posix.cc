@@ -4,8 +4,8 @@
 
 #ifdef GRPC_POSIX_SOCKET_TCP
 
-#include "src/core/lib/iomgr/rdma_event_posix.h"
-#include "src/core/lib/iomgr/ev_epollex_rdma_event_linux.h"
+#include "src/core/lib/iomgr/rdma_bp_posix.h"
+#include "src/core/lib/iomgr/ev_epollex_rdma_bp_linux.h"
 
 #include <errno.h>
 #include <limits.h>
@@ -60,7 +60,7 @@ struct grpc_rdma {
   grpc_core::RefCount refcount;
   gpr_atm shutdown_count;
 
-  RDMASenderReceiverEvent* rdmasr;
+  RDMASenderReceiverBP* rdmasr;
 
   // int min_read_chunk_size;
   // int max_read_chunk_size;
@@ -229,7 +229,7 @@ static void rdma_do_read(grpc_rdma* rdma) {
     read_bytes = rdma->rdmasr->recv(&msg);
   } while (read_bytes == 0);
   total_read_byte += read_bytes;
-  rdma_log(RDMA_DEBUG, "rdma_do_read recv %d bytes", total_read_byte);
+  rdma_log(RDMA_INFO, "rdma_do_read recv %d bytes", total_read_byte);
 
   if (total_read_byte < rdma->incoming_buffer->length) {
     grpc_slice_buffer_trim_end(rdma->incoming_buffer,
@@ -246,6 +246,11 @@ static void rdma_continue_read(grpc_rdma* rdma) {
   size_t mlen = rdma->rdmasr->get_unread_data_size();
   if (rdma->incoming_buffer->length < mlen) {
     size_t target_size = MAX(mlen, MIN_READBUF_SIZE) - rdma->incoming_buffer->length;
+    if (target_size == 0 || target_size > 1024 * 1024) {
+      rdma_log(RDMA_ERROR, "rdma_continue_read, data size = %d, incoming buffer size = %d, allocate %d bytes",
+               mlen, rdma->incoming_buffer->length, target_size);
+      abort();
+    }
     rdma_log(RDMA_DEBUG, "rdma_continue_read, data size = %d, incoming buffer size = %d, allocate %d bytes",
              mlen, rdma->incoming_buffer->length, target_size);
     if (GPR_UNLIKELY(!grpc_resource_user_alloc_slices(&rdma->slice_allocator, target_size, 1, rdma->incoming_buffer))) {
@@ -350,7 +355,7 @@ static bool rdma_flush(grpc_rdma* rdma, grpc_error_handle* error) {
     msg.msg_iov = iov;
     msg.msg_iovlen = iov_size;
 
-    rdma_log(RDMA_DEBUG, "rdma_flush try to send %d bytes", sending_length);
+    rdma_log(RDMA_INFO, "rdma_flush try to send %d bytes", sending_length);
     if (rdma->rdmasr->send(&msg, sending_length) == false) {
       rdma_log(RDMA_ERROR, "rdma send failed");
       abort();
@@ -477,7 +482,7 @@ static const grpc_endpoint_vtable vtable = {rdma_read,
                                             rdma_get_fd,
                                             rdma_can_track_err};
 
-grpc_endpoint* grpc_rdma_event_create(grpc_fd* em_fd,
+grpc_endpoint* grpc_rdma_bp_create(grpc_fd* em_fd,
                                const grpc_channel_args* channel_args,
                                const char* peer_string) {
   grpc_resource_quota* resource_quota = grpc_resource_quota_create(nullptr);
@@ -523,18 +528,19 @@ grpc_endpoint* grpc_rdma_event_create(grpc_fd* em_fd,
                     grpc_schedule_on_exec_ctx);
   GRPC_CLOSURE_INIT(&rdma->write_done_closure, rdma_handle_write, rdma,
                     grpc_schedule_on_exec_ctx);
-  rdma->rdmasr = new RDMASenderReceiverEvent();
-  grpc_fd_set_rdmasr_event(em_fd, rdma->rdmasr);
+  rdma->rdmasr = new RDMASenderReceiverBP();
+  rdma->rdmasr->connect(rdma->fd);
+  grpc_fd_set_rdmasr_bp(em_fd, rdma->rdmasr);
   return &rdma->base;
 }
 
-int grpc_rdma_event_fd(grpc_endpoint* ep) {
+int grpc_rdma_bp_fd(grpc_endpoint* ep) {
   grpc_rdma* rdma = reinterpret_cast<grpc_rdma*>(ep);
   GPR_ASSERT(ep->vtable == &vtable);
   return grpc_fd_wrapped_fd(rdma->em_fd);
 }
 
-void grpc_rdma_event_destroy_and_release_fd(grpc_endpoint* ep, int* fd,
+void grpc_rdma_bp_destroy_and_release_fd(grpc_endpoint* ep, int* fd,
                                      grpc_closure* done) {
   grpc_rdma* rdma = reinterpret_cast<grpc_rdma*>(ep);
   GPR_ASSERT(ep->vtable == &vtable);

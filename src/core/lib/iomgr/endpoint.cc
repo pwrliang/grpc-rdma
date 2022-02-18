@@ -23,15 +23,17 @@
 #include "src/core/lib/iomgr/iomgr_internal.h"
 #include "src/core/lib/iomgr/tcp_posix.h"
 #include "src/core/lib/iomgr/rdma_event_posix.h"
+#include "src/core/lib/iomgr/rdma_bp_posix.h"
 
 grpc_core::TraceFlag grpc_tcp_trace(false, "tcp");
-grpc_core::TraceFlag grpc_rdma_trace(false, "rdma");
 
 grpc_endpoint* grpc_endpoint_create(grpc_fd* fd, const grpc_channel_args* args,
                                     const char* peer_string) {
   switch (grpc_check_iomgr_platform()) {
     case IOMGR_RDMA_EVENT:
       return grpc_rdma_event_create(fd, args, peer_string);
+    case IOMGR_RDMA_BP:
+      return grpc_rdma_bp_create(fd, args, peer_string);
     case IOMGR_TCP:
       return grpc_tcp_create(fd, args, peer_string);
     default:

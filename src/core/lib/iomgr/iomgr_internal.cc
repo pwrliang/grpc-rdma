@@ -23,6 +23,7 @@
 #include "src/core/lib/iomgr/iomgr_internal.h"
 #include "src/core/lib/iomgr/timer.h"
 #include "src/core/lib/iomgr/timer_manager.h"
+#include "src/core/lib/rdma/log.h"
 
 static grpc_iomgr_platform_vtable* iomgr_platform_vtable = nullptr;
 
@@ -42,10 +43,14 @@ void grpc_determine_iomgr_platform() {
     type = getenv("GRPC_PLATFORM_TYPE");
     if (strcmp(type, "RDMA_BP") == 0) {
       pt = IOMGR_RDMA_BP;
-      printf("select rdma bp\n");
+      SET_RDMA_VERBOSITY();
+      // printf("select rdma bp\n");
+      rdma_log(RDMA_INFO, "select rdma bp");
     } else if (strcmp(type, "RDMA_EVENT") == 0) {
       pt = IOMGR_RDMA_EVENT;
-      printf("select rdma event\n");
+      SET_RDMA_VERBOSITY();
+      // printf("select rdma event\n");
+      rdma_log(RDMA_INFO, "select rdma event");
     } else {
       pt = IOMGR_TCP;
       printf("select tcp\n");

@@ -49,7 +49,7 @@ void rdma_log(const char* file, int line, rdma_log_severity severity, const char
     char *display_file;
     if (final_slash == nullptr) display_file = file_temp;
     else display_file = final_slash + 1;
-    fprintf(stderr, "[%-8s,%7ld %30s:%4d] %s\n", 
+    fprintf(stderr, "[%-8s,%7ld %30s:%4d]\n%s\n\n", 
         rdma_log_severity_string(severity), tid, display_file, line, message);
 
     free(message);

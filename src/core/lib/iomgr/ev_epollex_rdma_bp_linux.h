@@ -16,20 +16,20 @@
  *
  */
 
-#ifndef GRPC_CORE_LIB_IOMGR_EV_EPOLLEX_RDMA_EVENT_LINUX_H
-#define GRPC_CORE_LIB_IOMGR_EV_EPOLLEX_RDMA_EVENT_LINUX_H
+#ifndef GRPC_CORE_LIB_IOMGR_EV_EPOLLEX_RDMA_BP_LINUX_H
+#define GRPC_CORE_LIB_IOMGR_EV_EPOLLEX_RDMA_BP_LINUX_H
 
 #include <grpc/support/port_platform.h>
 
 #include "src/core/lib/iomgr/ev_posix.h"
 #include "src/core/lib/iomgr/port.h"
 
-const grpc_event_engine_vtable* grpc_init_epollex_rdma_event_linux(
+const grpc_event_engine_vtable* grpc_init_epollex_rdma_bp_linux(
     bool explicitly_requested);
 
-void grpc_fd_set_rdmasr_event(grpc_fd* fd, RDMASenderReceiverEvent* rdmasr);
+void grpc_fd_set_rdmasr_bp(grpc_fd* fd, RDMASenderReceiverBP* rdmasr);
 
-RDMASenderReceiverEvent* grpc_fd_get_rdmasr_event(grpc_fd* fd);
+RDMASenderReceiverBP* grpc_fd_get_rdmasr_bp(grpc_fd* fd);
 
 
-#endif /* GRPC_CORE_LIB_IOMGR_EV_EPOLLEX_RDMA_EVENT_LINUX_H */
+#endif /* GRPC_CORE_LIB_IOMGR_EV_EPOLLEX_RDMA_BP_LINUX_H */

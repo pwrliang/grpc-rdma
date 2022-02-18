@@ -7,12 +7,12 @@
 #include <map>
 #include <mutex>
 #include <vector>
-#include "RDMAUtils.h"
+#include "RDMAConn.h"
 #include "ringbuffer.h"
 #include "log.h"
 
-const size_t DEFAULT_RINGBUF_SZ = 1024ull * 1024 * 256;
-const size_t DEFAULT_SENDBUF_SZ = 1024ull * 1024 * 256;
+const size_t DEFAULT_RINGBUF_SZ = 1024ull * 1024;
+const size_t DEFAULT_SENDBUF_SZ = 1024ull * 1024;
 // we use headbuf_sz to mem align headbuf. don't set it too big
 const size_t DEFAULT_HEADBUF_SZ = 64;
 
@@ -22,16 +22,13 @@ class RDMASenderReceiver {
     RDMASenderReceiver();
     virtual ~RDMASenderReceiver();
     
-    virtual size_t get_unread_data_size() { return 0; }
-    virtual bool send(msghdr* msg, size_t mlen) { return true; }
-    virtual size_t recv(msghdr* msg) { return 0; }
-
+    RDMANode* get_node() { return &node_; }
+    size_t get_unread_data_size() { return unread_data_size_; }
+  
+  protected:
     void update_remote_head();
     void update_local_head();
 
-    RDMANode* get_node() { return &node_; }
-  
-  protected:
     static RDMANode node_;
     static std::atomic<bool> node_opened_;
 
@@ -42,6 +39,7 @@ class RDMASenderReceiver {
     RingBuffer* ringbuf_ = nullptr;
     MemRegion local_ringbuf_mr_, remote_ringbuf_mr_;
     size_t garbage_ = 0;
+    size_t unread_data_size_ = 0;
     unsigned long long int total_recv_sz = 0;
 
     size_t sendbuf_sz_;
@@ -64,13 +62,21 @@ class RDMASenderReceiverBP : public RDMASenderReceiver {
     virtual ~RDMASenderReceiverBP();
 
     void connect(int fd);
-    virtual bool check_incoming();
-    virtual size_t get_unread_data_size();
-    virtual bool send(msghdr* msg, size_t mlen);
-    virtual size_t recv(msghdr* msg);
+    bool connected() { return connected_; }
+
+    bool send(msghdr* msg, size_t mlen);
+    size_t recv(msghdr* msg);
+
+    bool check_incoming();
+
+    size_t check_and_ack_incomings();
 
   protected:
     RingBufferBP* ringbuf_bp_ = nullptr;
+    RDMAConnBP* conn_bp_ = nullptr;
+    bool connected_ = false;
+
+    
 };
 
 ibv_comp_channel* rdma_create_channel(RDMANode* node);
@@ -87,14 +93,13 @@ class RDMASenderReceiverEvent : public RDMASenderReceiver {
 
     // create channel for each rdmasr.
     void connect(int fd, void* user_data); // user_data will be used as cq_context when create srq 
-
     bool connected() { return connected_; }
 
-    virtual bool send(msghdr* msg, size_t mlen);
-    virtual size_t recv(msghdr* msg);
+    bool send(msghdr* msg, size_t mlen);
+    size_t recv(msghdr* msg);
 
     size_t check_and_ack_incomings();
-    virtual size_t get_unread_data_size() { return unread_data_size_; }
+    
     void* get_user_data() { return user_data_; }
     ibv_comp_channel* get_channel() { return channel_; }
 
@@ -105,7 +110,6 @@ class RDMASenderReceiverEvent : public RDMASenderReceiver {
     ibv_comp_channel* channel_ = nullptr;
     std::atomic<int> unprocessed_event_num_;
     std::atomic<int> unacked_event_num_;
-    size_t unread_data_size_ = 0;
     bool connected_ = false;
 
     void* user_data_;
