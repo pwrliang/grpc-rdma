@@ -80,6 +80,8 @@ message Feature {
 
   // The point where the feature is detected.
   Point location = 2;
+
+  bytes data = 3;
 }
 
 // A RouteNote is a message sent while at a given point.

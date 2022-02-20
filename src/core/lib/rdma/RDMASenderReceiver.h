@@ -24,6 +24,7 @@ class RDMASenderReceiver {
     
     RDMANode* get_node() { return &node_; }
     size_t get_unread_data_size() { return unread_data_size_; }
+    virtual size_t get_max_send_size() { return max_send_size_; }
   
   protected:
     void update_remote_head();
@@ -45,6 +46,7 @@ class RDMASenderReceiver {
     size_t sendbuf_sz_;
     uint8_t* sendbuf_ = nullptr;
     MemRegion sendbuf_mr_;
+    size_t max_send_size_ = 0;
     unsigned long long int total_send_sz = 0;
 
     size_t head_recvbuf_sz_;

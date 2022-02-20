@@ -1,0 +1,40 @@
+syntax = "proto3";
+
+package benchmark;
+
+service BENCHMARK {
+    rpc SayHello(Data_Empty) returns (Data_Empty) {}
+
+    rpc BiUnary(Complex) returns (Complex) {}
+
+    rpc ClientStream(stream Complex) returns (Complex) {}
+
+    rpc ServerStream(Complex) returns (stream Complex) {}
+
+    rpc BiStream(stream Complex) returns (stream Complex) {}
+}
+
+message Data_Empty{
+
+}
+
+message Data_Bytes {
+    bytes data1 = 1;
+    bytes data2 = 2;
+}
+
+message Data_Int64 {
+    int64 number1 = 1;
+    int64 number2 = 2;
+}
+
+message Data_String {
+    string str1 = 1;
+    string str2 = 2;
+}
+
+message Complex {
+    Data_Bytes datas = 1;
+    Data_Int64 numbers = 2;
+    Data_String strs = 3;
+}

@@ -80,8 +80,8 @@ class RouteGuideClient {
   void GetFeature() {
     Point point;
     Feature feature;
-    // point = MakePoint(409146138, -746188906);
-    // GetOneFeature(point, &feature);
+    point = MakePoint(409146138, -746188906);
+    GetOneFeature(point, &feature);
     point = MakePoint(0, 0);
     GetOneFeature(point, &feature);
   }
@@ -217,15 +217,15 @@ class RouteGuideClient {
 // Expect only arg: --db_path=path/to/route_guide_db.json.
 int main(int argc, char** argv) {
   
-  // setenv("GRPC_PLATFORM_TYPE", "RDMA_BP", 1);
-  setenv("GRPC_PLATFORM_TYPE", "RDMA_EVENT", 1);
+  setenv("GRPC_PLATFORM_TYPE", "RDMA_BP", 1);
+  // setenv("GRPC_PLATFORM_TYPE", "RDMA_EVENT", 1);
   // setenv("RDMA_VERBOSITY", "INFO", 1);
-  // setenv("RDMA_VERBOSITY", "DEBUG", 1);
+  setenv("RDMA_VERBOSITY", "DEBUG", 1);
 
   // setenv("GRPC_PLATFORM_TYPE", "TCP", 1);
   std::string db = routeguide::GetDbFileContent(argc, argv);
   RouteGuideClient guide(
-      grpc::CreateChannel("10.3.1.6:50051",
+      grpc::CreateChannel("10.3.1.10:50051",
                           grpc::InsecureChannelCredentials()),
       db);
 
@@ -233,10 +233,10 @@ int main(int argc, char** argv) {
   guide.GetFeature();
   std::cout << "-------------- ListFeatures --------------" << std::endl;
   guide.ListFeatures();
-  std::cout << "-------------- RecordRoute --------------" << std::endl;
-  guide.RecordRoute();
-  std::cout << "-------------- RouteChat --------------" << std::endl;
-  guide.RouteChat();
+  // std::cout << "-------------- RecordRoute --------------" << std::endl;
+  // guide.RecordRoute();
+  // std::cout << "-------------- RouteChat --------------" << std::endl;
+  // guide.RouteChat();
 
   return 0;
 }

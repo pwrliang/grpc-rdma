@@ -94,6 +94,7 @@ RDMASenderReceiverEvent::RDMASenderReceiverEvent() {
 
   ringbuf_ = ringbuf_event_;
   unacked_event_num_.store(0);
+  max_send_size_ = sendbuf_sz_ - 1;
 
   rdma_log(RDMA_INFO, "RDMASenderReceiverEvent %p created", this);
 }

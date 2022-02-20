@@ -17,8 +17,9 @@ RDMASenderReceiverBP::RDMASenderReceiverBP() {
   }
 
   ringbuf_ = ringbuf_bp_;
+  max_send_size_ = sendbuf_sz_ - 2 * (sizeof(size_t) + 1) - 1;
 
-  rdma_log(RDMA_INFO, "RDMASenderReceiverBP %p created", this);
+  rdma_log(RDMA_DEBUG, "RDMASenderReceiverBP %p created", this);
 }
 
 RDMASenderReceiverBP::~RDMASenderReceiverBP() {
@@ -36,7 +37,7 @@ void RDMASenderReceiverBP::connect(int fd) {
   conn_bp_->sync_mr(local_ringbuf_mr_, remote_ringbuf_mr_);
   conn_bp_->sync_mr(local_head_recvbuf_mr_, remote_head_recvbuf_mr_);
 
-  rdma_log(RDMA_INFO, "RDMASenderReceiverBP connected");
+  rdma_log(RDMA_DEBUG, "RDMASenderReceiverBP connected");
   connected_ = true;
 }
 
@@ -84,10 +85,11 @@ bool RDMASenderReceiverBP::send(msghdr* msg, size_t mlen) {
   size_t len = mlen + sizeof(size_t) + 1;
 
   size_t used = (remote_ringbuf_sz + remote_ringbuf_tail_ - remote_ringbuf_head_) % remote_ringbuf_sz;
-  while (used + len >= remote_ringbuf_sz - 20) {
+  while (used + len >= remote_ringbuf_sz - sizeof(size_t) - 1) {
     update_local_head();
     used = (remote_ringbuf_sz + remote_ringbuf_tail_ - remote_ringbuf_head_) % remote_ringbuf_sz;
     std::this_thread::yield();
+    // printf("remote_ringbuf_head = %d\n", remote_ringbuf_head_);
   }
 
   *(size_t*)sendbuf_ = mlen;

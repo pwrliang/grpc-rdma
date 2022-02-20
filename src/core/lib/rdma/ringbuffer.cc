@@ -117,9 +117,9 @@ size_t RingBufferBP::read_to_msghdr(msghdr* msg, size_t head,
 
   uint8_t* iov_rbase;
   size_t iov_idx = 0, iov_offset = 0, iov_rlen;
-  size_t mlen = check_mlen(head_), m_offset = 0, m_rlen;
+  size_t mlen = check_mlen(head), m_offset = 0, m_rlen;
   size_t mlens = 0, read_size = 0,
-         buf_offset = (head_ + sizeof(size_t)) % capacity_, n;
+         buf_offset = (head + sizeof(size_t)) % capacity_, n;
   while (read_size < expected_read_size && iov_idx < msg->msg_iovlen &&
          mlen > 0) {
     iov_rlen = msg->msg_iov[iov_idx].iov_len -

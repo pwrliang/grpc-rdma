@@ -496,19 +496,6 @@ static void fd_orphan(grpc_fd* fd, grpc_closure* on_done, int* release_fd,
     fd->rdmasr = nullptr;
     fd->rdma_pollables.clear();
     rdma_log(RDMA_INFO, "fd (%p, %d) is orphaned, rdmasr = %p, rdma_pollables.size() = %d", fd, fd->fd, fd->rdmasr, fd->rdma_pollables.size());
-    // while (!fd->rdma_pollables.empty()) {
-    //   pollable* p = fd->rdma_pollables.back();
-    //   int erased = p->rdma_fds.erase(fd);
-    //   if (erased != 1) {
-    //     rdma_log(RDMA_ERROR, "fd_orphan, pollable %p (attached with fd %d) contains %d fd %d",
-    //              p, fd->fd, erased, fd->fd);
-    //     abort();
-    //   }
-    //   p->rdma_flag = (!p->rdma_fds.empty());
-    //   fd->rdma_pollables.pop_back();
-    //   rdma_log(RDMA_INFO, "fd (%p, %d) is orphaning, fd: rdmasr = %p, rdma_pollable size = %d; delete pollable %p: rdma_fds size = %d, rdma_flag = %d",
-    //            fd, fd->fd, fd->rdmasr, fd->rdma_pollables.size(), p, p->rdma_fds.size(), p->rdma_flag);
-    // }
   }
 
   /* If release_fd is not NULL, we should be relinquishing control of the file
@@ -698,7 +685,6 @@ static grpc_error_handle pollable_add_fd(pollable* p, grpc_fd* fd) {
     p->rdma_flag = true;
     if (p->rdma_fds.find(fd) != p->rdma_fds.end()) {
       rdma_log(RDMA_WARNING, "pollable_add_fd, fd %d already exist in pollable %p", fd->fd, p);
-      // abort();
     } else {
       p->rdma_fds.insert(fd);
       fd->rdma_pollables.push_back(p);
@@ -1016,7 +1002,7 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
   int r;
 
   if (p->rdma_flag) {
-    rdma_log(RDMA_INFO, "pollable %p epoll starts", p);
+    rdma_log(RDMA_DEBUG, "pollable %p epoll starts", p);
     timeout = 0;
     bool found_rdma_incoming = false;
     grpc_fd* fd;
@@ -1032,12 +1018,13 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
         }
         if (fd->rdmasr->check_incoming()) {
           found_rdma_incoming = true;
+          rdma_log(RDMA_DEBUG, "fd %d become readable", fd->fd);
           fd_become_readable(fd);
         }
       }
       
     } while (((r < 0 && errno == EINTR) || r == 0) && !found_rdma_incoming);
-    rdma_log(RDMA_INFO, "pollable %p ends, r = %d, found_read_incoming = %d", p, r, found_rdma_incoming);
+    rdma_log(RDMA_DEBUG, "pollable %p ends, r = %d, found_read_incoming = %d", p, r, found_rdma_incoming);
   } else {
     if (timeout != 0) {
       GRPC_SCHEDULING_START_BLOCKING_REGION;
