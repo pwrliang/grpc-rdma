@@ -148,20 +148,7 @@ static pollable* pollable_ref(pollable* p,
   return p;
 }
 static void pollable_unref(pollable* p, const grpc_core::DebugLocation& dbg_loc,
-                           const char* reason) {
-  if (p == nullptr) return;
-  if (GPR_UNLIKELY(p != nullptr && p->refs.Unref(dbg_loc, reason))) {
-    GRPC_FD_TRACE("pollable_unref: Closing epfd: %d", p->epfd);
-    close(p->epfd);
-    grpc_wakeup_fd_destroy(&p->wakeup);
-    gpr_mu_destroy(&p->owner_orphan_mu);
-    gpr_mu_destroy(&p->mu);
-    p->rdma_fds.clear();
-    p->rdma_flag = false;
-    rdma_log(RDMA_INFO, "pollable %p is closed, rdma_fds size = %d, rdma_flag = %d", p, p->rdma_fds.size(), p->rdma_flag);
-    gpr_free(p);
-  }
-}
+                           const char* reason);
 #define POLLABLE_REF(p, r) pollable_ref((p), DEBUG_LOCATION, (r))
 #define POLLABLE_UNREF(p, r) pollable_unref((p), DEBUG_LOCATION, (r))
 
@@ -276,8 +263,29 @@ struct grpc_fd {
   RDMASenderReceiverBP* rdmasr = nullptr;
   // fd is created by new, inside fd_create
 
-  std::vector<pollable*> rdma_pollables;
+  // std::vector<pollable*> rdma_pollables;
+  std::set<pollable*> rdma_pollables;
 };
+
+static void pollable_unref(pollable* p, const grpc_core::DebugLocation& dbg_loc,
+                           const char* reason) {
+  if (p == nullptr) return;
+  if (GPR_UNLIKELY(p != nullptr && p->refs.Unref(dbg_loc, reason))) {
+    GRPC_FD_TRACE("pollable_unref: Closing epfd: %d", p->epfd);
+    close(p->epfd);
+    grpc_wakeup_fd_destroy(&p->wakeup);
+    gpr_mu_destroy(&p->owner_orphan_mu);
+    gpr_mu_destroy(&p->mu);
+    for (std::set<grpc_fd*>::iterator it = p->rdma_fds.begin(); it != p->rdma_fds.end(); it++) {
+      grpc_fd* fd = *it;
+      fd->rdma_pollables.erase(p);
+    }
+    p->rdma_fds.clear();
+    p->rdma_flag = false;
+    rdma_log(RDMA_INFO, "pollable %p is closed, rdma_fds size = %d, rdma_flag = %d", p, p->rdma_fds.size(), p->rdma_flag);
+    gpr_free(p);
+  }
+}
 
 static void fd_global_init(void);
 static void fd_global_shutdown(void);
@@ -400,6 +408,13 @@ static void ref_by(grpc_fd* fd, int n) {
 /* Uninitialize and add to the freelist */
 static void fd_destroy(void* arg, grpc_error_handle /*error*/) {
   grpc_fd* fd = static_cast<grpc_fd*>(arg);
+
+  for (std::set<pollable*>::iterator it = fd->rdma_pollables.begin(); it != fd->rdma_pollables.end(); it++) {
+    pollable* p = *it;
+    p->rdma_fds.erase(fd);
+  }
+  fd->rdma_pollables.clear();
+
   fd->destroy(true);
 
   /* Add the fd to the freelist */
@@ -494,6 +509,10 @@ static void fd_orphan(grpc_fd* fd, grpc_closure* on_done, int* release_fd,
 
   if (fd->rdmasr) {
     fd->rdmasr = nullptr;
+    for (std::set<pollable*>::iterator it = fd->rdma_pollables.begin(); it != fd->rdma_pollables.end(); it++) {
+      pollable* p = *it;
+      p->rdma_fds.erase(fd);
+    }
     fd->rdma_pollables.clear();
     rdma_log(RDMA_INFO, "fd (%p, %d) is orphaned, rdmasr = %p, rdma_pollables.size() = %d", fd, fd->fd, fd->rdmasr, fd->rdma_pollables.size());
   }
@@ -687,7 +706,8 @@ static grpc_error_handle pollable_add_fd(pollable* p, grpc_fd* fd) {
       rdma_log(RDMA_WARNING, "pollable_add_fd, fd %d already exist in pollable %p", fd->fd, p);
     } else {
       p->rdma_fds.insert(fd);
-      fd->rdma_pollables.push_back(p);
+      // fd->rdma_pollables.push_back(p);
+      fd->rdma_pollables.insert(p);
       rdma_log(RDMA_INFO, "pollable %p add fd (%p, %d), pollable: rdma_fds size = %d, rdma_flag = %d; fd: rdmasr = %p, rdma_pollable size = %d",
                p, fd, fd->fd, p->rdma_fds.size(), p->rdma_flag, fd->rdmasr, fd->rdma_pollables.size());
     }

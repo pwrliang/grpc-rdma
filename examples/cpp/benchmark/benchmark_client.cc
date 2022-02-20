@@ -174,7 +174,7 @@ class BenchmarkClient {
       printf("\nbatch starts: batch size = %d, data size = %d\n", batch_size, data_size);
       if (!SyncBiUnary(batch_size, data_size / 2, data_size * 2)) return;
       if (!SyncClientStream(batch_size, data_size)) return;
-      if (!SyncBiStream(batch_size, data_size / 2, data_size * 2)) return;
+      // if (!SyncBiStream(batch_size, data_size / 2, data_size * 2)) return;
     }
 
   private:
@@ -197,8 +197,8 @@ DEFINE_bool(sync_enable, true, "");
 DEFINE_bool(async_enable, false, "");
 DEFINE_string(platform, "TCP", "which transport protocol used");
 DEFINE_string(verbosity, "WARNING", "");
-DEFINE_string(data_sizes, "1024,2048", "");
-DEFINE_string(batch_sizes, "100,200", "");
+DEFINE_string(data_sizes, "1024", "");
+DEFINE_string(batch_sizes, "1000", "");
 
 int main(int argc, char** argv) {
   ::gflags::ParseCommandLineFlags(&argc, &argv, true);

@@ -151,14 +151,7 @@ static void rdma_free(grpc_rdma* rdma) {
                  "rdma_unref_orphan");
   grpc_slice_buffer_destroy_internal(&rdma->last_read_buffer);
   grpc_resource_user_unref(rdma->resource_user);
-  /* The lock is not really necessary here, since all refs have been released */
-  // gpr_mu_lock(&rdma->tb_mu);
-  // grpc_core::TracedBuffer::Shutdown(
-  //     &rdma->tb_head, rdma->outgoing_buffer_arg,
-  //     GRPC_ERROR_CREATE_FROM_STATIC_STRING("endpoint destroyed"));
-  // gpr_mu_unlock(&rdma->tb_mu);
-  // rdma->outgoing_buffer_arg = nullptr;
-  // gpr_mu_destroy(&rdma->tb_mu);
+  // printf("\nrdma_free\n\n");
   delete rdma;
 }
 
@@ -274,6 +267,18 @@ static void rdma_read_allocation_done(void* rdmap, grpc_error_handle error) {
   }
 }
 
+// when there is no data in rdma, call it, test if remote socket closed
+int tcp_do_read(grpc_rdma* rdma) {
+  uint8_t buf[16];
+
+  int ret;
+  do {
+    ret = recv(rdma->fd, buf, 16, 0);
+  } while (ret < 0 && errno == EINTR);
+
+  return ret;
+}
+
 static void rdma_handle_read(void* arg /* grpc_rdma */, grpc_error_handle error) {
   grpc_rdma* rdma = static_cast<grpc_rdma*>(arg);
   if (GPR_UNLIKELY(error != GRPC_ERROR_NONE)) {
@@ -283,8 +288,25 @@ static void rdma_handle_read(void* arg /* grpc_rdma */, grpc_error_handle error)
     RDMA_UNREF(rdma, "read");
   } else {
     if (rdma->rdmasr->check_and_ack_incomings() == 0) {
-      rdma_log(RDMA_DEBUG, "rdma_handle_read, no data, call notify_on_read");
-      notify_on_read(rdma);
+
+      switch (tcp_do_read(rdma)) {
+        case 0:
+          rdma_log(RDMA_INFO, "rdma_handle_read, end of stream");
+          call_read_cb(rdma, rdma_annotate_error(
+                              GRPC_ERROR_CREATE_FROM_STATIC_STRING("Socket closed"),rdma));
+          RDMA_UNREF(rdma, "read");
+          break;
+        case -1:
+          if (errno == EAGAIN) {
+            rdma_log(RDMA_WARNING, "rdma_handle_read, rdma_handle_read is called but no data to RDMA, call notify_on_read");
+            notify_on_read(rdma);
+            break;
+          } // else go to default
+        default:
+          rdma_log(RDMA_ERROR, "rdma_handle_read, unexpected error happened");
+          abort();
+      }
+      return;
     } else {
       rdma_log(RDMA_DEBUG, "rdma_handle_read, data found, call rdma_continue_read");
       rdma_continue_read(rdma);
@@ -533,6 +555,7 @@ grpc_endpoint* grpc_rdma_bp_create(grpc_fd* em_fd,
   rdma->rdmasr = new RDMASenderReceiverBP();
   rdma->rdmasr->connect(rdma->fd);
   grpc_fd_set_rdmasr_bp(em_fd, rdma->rdmasr);
+  rdma_log(RDMA_INFO, "rdmasr %p is created, attached to fd %d", rdma->rdmasr, rdma->fd);
   return &rdma->base;
 }
 
