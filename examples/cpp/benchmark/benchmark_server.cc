@@ -50,23 +50,36 @@ class SyncServeice final : public BENCHMARK::Service {
       return Status::OK;
     }
 
-    // Status ClientStream(ServerContext* context, ServerReader<Data>* reader, Data* reply) override {
-    //   Data_Bytes request;
-    //   size_t data_size = 0;
-    //   size_t batch_size = 0;
-    //   while (reader->Read(&request)) {
-    //     batch_size++;
-    //     // data_size = request.data().length();
-    //     if (data_size == 0) {
-    //       data_size = request.data().length();
-    //     } else if (data_size != request.ByteSizeLong()) {
-    //       return Status::CANCELLED;
-    //     }
-    //   }
-    //   reply->set_number1(batch_size);
-    //   reply->set_number2(data_size);
-    //   return Status::OK;
-    // }
+    Status ClientStream(ServerContext* context, ServerReader<Complex>* reader, Complex* reply) override {
+      Complex request;
+      size_t total_data_size = 0;
+      size_t batch_size = 0;
+      while (reader->Read(&request)) {
+        batch_size++;
+        total_data_size += request.datas().data1().length();
+      }
+      reply->mutable_numbers()->set_number1(total_data_size);
+      reply->mutable_numbers()->set_number2(batch_size);
+      return Status::OK;
+    }
+
+    Status BiStream(ServerContext* context, ServerReaderWriter<Complex, Complex>* stream) override {
+      Complex request, reply;
+      int batch_size = 0;
+      while (stream->Read(&request)) {
+        batch_size++;
+        printf("%d read done\n", batch_size);
+        std::unique_lock<std::mutex> lock(mu_);
+        reply.mutable_numbers()->set_number1(request.datas().data1().length());
+        reply.mutable_datas()->mutable_data1()->resize(request.numbers().number1());
+        stream->Write(reply);
+        printf("%d write done\n\n", batch_size);
+      }
+      return Status::OK;
+    }
+  
+  private:
+    std::mutex mu_;
 };
 
 class BenchmarkServer {

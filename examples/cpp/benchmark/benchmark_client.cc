@@ -52,59 +52,129 @@ class BenchmarkClient {
       return status.ok();
     }
 
-    bool SyncBiUnary(size_t request_size, size_t reply_size) {
-      Complex request, reply;
-      ClientContext context;
-      request.mutable_datas()->mutable_data1()->resize(request_size);
-      request.mutable_numbers()->set_number1(reply_size);
-      Status status = stub_->BiUnary(&context, request, &reply);
-      if (!status.ok()) {
-        printf("SyncBiUnary failed, status is not ok, request size = %d, reply size = %d\n", 
-                request_size, reply_size);
-        return false;
+    bool SyncBiUnary(size_t batch_size, size_t _request_size_, size_t _reply_size_) {
+      Complex request;
+      size_t min_request_size = _request_size_ / 2, max_request_size = _request_size_ * 2;
+      size_t min_reply_size = _reply_size_ / 2, max_reply_size = _reply_size_ * 2;
+      size_t request_size, reply_size;
+      for (size_t i = 0; i < batch_size; i++) {
+        ClientContext context;
+        Complex reply;
+        request_size = random(min_request_size, max_request_size);
+        reply_size = random(min_reply_size, max_reply_size);
+        request.mutable_datas()->mutable_data1()->resize(request_size);
+        request.mutable_numbers()->set_number1(reply_size);
+        if (!stub_->BiUnary(&context, request, &reply).ok()) {
+          printf("SyncBiUnary failed: not ok, i = %d, batch size = %d, request size in [%d, %d], reply size in [%d, %d]\n",
+            i, batch_size, min_request_size, max_request_size, min_reply_size, max_reply_size);
+          return false;
+        }
+        if (reply.datas().data1().length() != reply_size) {
+          printf("SyncBiUnary failed: expected reply size = %d, actual reply size = %d, i = %d, batch size = %d, request size in [%d, %d], reply size in [%d, %d]\n",
+            reply_size, reply.datas().data1().length(), i, batch_size, min_request_size, max_request_size, min_reply_size, max_reply_size);
+          return false;
+        }
       }
-      if (reply.datas().data1().length() != reply_size) {
-        printf("SyncBiUnary failed, status is ok, request size = %d, reply size = %d, %d\n", 
-                request_size, reply_size, reply.numbers().number1());
-        return false;
-      }
-      // printf("succeed\n");
+      printf("SyncBiUnary succeed: batch size = %d, request size in [%d, %d], reply size in [%d, %d]\n",
+              batch_size, min_request_size, max_request_size, min_reply_size, max_reply_size);
       return true;
+
     }
 
-    // bool SyncClientStream(size_t data_size, size_t batch_size) {
-    //   ClientContext context;
-    //   Data_Bytes request;
-    //   Data_Int64 reply;
-    //   std::unique_ptr<ClientWriter<Data_Bytes>> writer(stub_->ClientStream(&context, &reply));
-    //   request.mutable_data()->resize(data_size);
-    //   while (batch_size--) {
-    //     if (writer->Write(request)) {
-    //       printf("ClientStream failed");
-    //       exit(-1);
-    //     }
-    //   }
-    //   writer->WritesDone();
-    //   Status status = writer->Finish();
-    //   if (status.ok() && reply.number1() == batch_size && reply.number2() == data_size) return true;
-    //   return false;
-    // }
+    bool SyncClientStream(size_t batch_size, size_t _request_size_) {
+      ClientContext context;
+      Complex request, reply;
+      size_t min_request_size = _request_size_ / 2, max_request_size = _request_size_ * 2;
+      size_t request_size;
+      size_t total_request_size = 0;
+      std::unique_ptr<ClientWriter<Complex>> writer(stub_->ClientStream(&context, &reply));
+      for (size_t i = 0; i < batch_size; i++) {
+        request_size = random(min_request_size, max_request_size);
+        request.mutable_datas()->mutable_data1()->resize(request_size);
+        if (!writer->Write(request)) {
+          printf("SyncClientStream failed: the stream has been closed, i = %d, batch size = %d, request size = %d, total request size so far = %lld\n",
+                  i, batch_size, request_size, total_request_size);
+          return false;
+        }
+        total_request_size += request_size;
+      }
+      writer->WritesDone();
+      if (!writer->Finish().ok()) {
+        printf("SyncClientStream failed: no ok after write done, batch size = %d, request size in [%d, %d]\n",
+                batch_size, min_request_size, max_request_size);
+        return false;
+      }
+      if (reply.numbers().number1() == total_request_size && reply.numbers().number2() == batch_size) {
+        printf("SyncClientStream succeed: batch size = %d, request size in [%d, %d]\n",
+                batch_size, min_request_size, max_request_size);
+        return true;
+      } else {
+        printf("SyncClientStream failed: batch size = %d, reply batch size = %d, request size in [%d, %d], total request size = %lld, reply total reqeust size = %lld\n",
+                batch_size, reply.numbers().number1(), min_request_size, max_request_size, total_request_size, reply.numbers().number2());
+        return false;
+      }
+    }
 
-    // bool SyncServerStream(size_t data_size, size_t batch_size) {
+    bool SyncBiStream(size_t batch_size, size_t _request_size_, size_t _reply_size_) {
+      ClientContext context;
+      size_t min_request_size = _request_size_ / 2, max_request_size = _request_size_ * 2;
+      size_t min_reply_size = _reply_size_ / 2, max_reply_size = _reply_size_ * 2;
+      size_t request_size, reply_size;
+      size_t expected_total_request_size = 0, expected_total_reply_size = 0;
 
-    // }
+      std::shared_ptr<ClientReaderWriter<Complex, Complex>> stream(stub_->BiStream(&context));
+
+      std::thread writer([&]() {
+        Complex request;
+        for (int i = 0; i < batch_size; i++) {
+          request_size = random(min_request_size, max_request_size);
+          reply_size = random(min_reply_size, max_reply_size);
+          request.mutable_datas()->mutable_data1()->resize(request_size);
+          request.mutable_numbers()->set_number1(reply_size);
+          stream->Write(request);
+          expected_total_request_size += request_size;
+          expected_total_reply_size += reply_size;
+          printf("write %d done\n", i + 1);
+        }
+        stream->WritesDone();
+      });
+
+      Complex reply;
+      size_t actual_total_request_size = 0, actual_total_reply_size = 0, actual_batch_size = 0;
+      while (stream->Read(&reply)) {
+        actual_batch_size++;
+        actual_total_reply_size += reply.datas().data1().length();
+        actual_total_request_size += reply.numbers().number1();
+        printf("\t read %d done\n", actual_batch_size);
+      }
+
+      writer.join();
+      if (!stream->Finish().ok()) {
+        printf("SyncBiStream failed: not ok, batch size = %d, request size in [%d, %d], reply size in [%d, %d]\n",
+                batch_size, min_request_size, max_request_size, min_reply_size, max_reply_size);
+        return false;
+      }
+      if (actual_batch_size == batch_size &&
+          actual_total_request_size == expected_total_request_size &&
+          actual_total_reply_size == expected_total_reply_size) {
+        printf("SyncBiStream succeed, batch size = %d, request size in [%d, %d], reply size in [%d, %d]\n",
+                batch_size, min_request_size, max_request_size, min_reply_size, max_reply_size);
+        return true;
+      } else {
+        printf("SyncBiStream failed: batch size = %d, reply batch size = %d\n", batch_size, actual_batch_size);
+        printf("\t request size in [%d, %d], total request size = %d, reply total request size = %d\n", 
+                min_request_size, max_request_size, expected_total_request_size, actual_total_request_size);
+        printf("\t reply size in [%d, %d], total reply size = %d, reply total reply size = %d\n", 
+                min_reply_size, max_reply_size, expected_total_reply_size, actual_total_reply_size);
+        return false;
+      }
+    }
 
     void BatchOperations(const size_t batch_size, const size_t data_size) {
-      int rest_batch_size = batch_size;
-      while (rest_batch_size-- > 0) {
-        if (!SyncBiUnary(random(data_size / 2, data_size * 2), random(data_size / 2, data_size * 2))) break;
-      }
-      if (rest_batch_size < 0) {
-        printf("BatchOperations succeed, data size = %d, batch size = %d\n", data_size, batch_size);
-      } else {
-        printf("BatchOperations failed, data size = %d, batch size = %d, finished %d\n", 
-                data_size, batch_size, batch_size - rest_batch_size - 1);
-      }
+      printf("\nbatch starts: batch size = %d, data size = %d\n", batch_size, data_size);
+      if (!SyncBiUnary(batch_size, data_size / 2, data_size * 2)) return;
+      if (!SyncClientStream(batch_size, data_size)) return;
+      if (!SyncBiStream(batch_size, data_size / 2, data_size * 2)) return;
     }
 
   private:
