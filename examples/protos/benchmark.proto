@@ -26,6 +26,7 @@ message Data_Bytes {
 message Data_Int64 {
     int64 number1 = 1;
     int64 number2 = 2;
+    int64 number3 = 3;
 }
 
 message Data_String {

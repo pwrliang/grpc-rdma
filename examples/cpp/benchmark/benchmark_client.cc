@@ -13,6 +13,8 @@
 #include <gflags/gflags.h>
 #include <gflags/gflags_declare.h>
 
+#include "benchmark_utils.h"
+
 #ifdef BAZEL_BUILD
 #include "examples/protos/benchmark.grpc.pb.h"
 #else
@@ -31,15 +33,6 @@ using benchmark::Data_Bytes;
 using benchmark::Data_String;
 using benchmark::Data_Int64;
 using benchmark::Complex;
-
-int random(int min, int max) {
-  static bool first = true;
-  if (first) {
-    srand(time(NULL));  // seeding for the first time only!
-    first = false;
-  }
-  return min + rand() % ((max + 1) - min);
-}
 
 class BenchmarkClient {
   public:
@@ -104,15 +97,40 @@ class BenchmarkClient {
                 batch_size, min_request_size, max_request_size);
         return false;
       }
-      if (reply.numbers().number1() == total_request_size && reply.numbers().number2() == batch_size) {
-        printf("SyncClientStream succeed: batch size = %d, request size in [%d, %d]\n",
-                batch_size, min_request_size, max_request_size);
-        return true;
-      } else {
-        printf("SyncClientStream failed: batch size = %d, reply batch size = %d, request size in [%d, %d], total request size = %lld, reply total reqeust size = %lld\n",
-                batch_size, reply.numbers().number1(), min_request_size, max_request_size, total_request_size, reply.numbers().number2());
+      if (reply.numbers().number1() != total_request_size) { // ack
+        printf("SyncClientStream failed: batch size = %d, request size in [%d, %d], total request size = %lld, reply total reqeust size = %lld\n",
+                batch_size, min_request_size, max_request_size, total_request_size, reply.numbers().number1());
         return false;
       }
+      printf("SyncClientStream succeed: batch size = %d, request size in [%d, %d], total request size = %lld\n",
+                batch_size, min_request_size, max_request_size, total_request_size);
+      return true;
+    }
+
+    bool SyncServerStream(size_t batch_size, size_t _reply_size_) {
+      ClientContext context;
+      Complex request, reply;
+      size_t min_reply_size = _reply_size_ / 2, max_reply_size = _reply_size_ * 2;
+      size_t actual_batch_size = 0;
+      size_t total_reply_size;
+      request.mutable_numbers()->set_number1(batch_size);
+      request.mutable_numbers()->set_number2(min_reply_size);
+      request.mutable_numbers()->set_number3(max_reply_size);
+      std::unique_ptr<ClientReader<Complex>> reader(stub_->ServerStream(&context, request));
+      while (reader->Read(&reply)) {
+        size_t actual_min_reply = reply.numbers().number1();
+        size_t actual_max_reply = reply.numbers().number2();
+        if (actual_min_reply != min_reply_size || actual_max_reply != max_reply_size) {
+          printf("SyncServerStream failed, A\n");
+        }
+        actual_batch_size++;
+      }
+      if (!reader->Finish().ok()) {
+        printf("SyncServerStream failed, not ok, batch size = %d, reply size in [%d, %d]\n", batch_size, min_reply_size, max_reply_size);
+        return false;
+      }
+      printf("SyncServerStream succeed, batch size = %d, reply size in [%d, %d]\n", batch_size, min_reply_size, max_reply_size);
+      return true;
     }
 
     bool SyncBiStream(size_t batch_size, size_t _request_size_, size_t _reply_size_) {
@@ -134,7 +152,7 @@ class BenchmarkClient {
           stream->Write(request);
           expected_total_request_size += request_size;
           expected_total_reply_size += reply_size;
-          printf("write %d done\n", i + 1);
+          // printf("write %d done\n", i + 1);
         }
         stream->WritesDone();
       });
@@ -145,7 +163,7 @@ class BenchmarkClient {
         actual_batch_size++;
         actual_total_reply_size += reply.datas().data1().length();
         actual_total_request_size += reply.numbers().number1();
-        printf("\t read %d done\n", actual_batch_size);
+        // printf("\t read %d done\n", actual_batch_size);
       }
 
       writer.join();
@@ -172,33 +190,23 @@ class BenchmarkClient {
 
     void BatchOperations(const size_t batch_size, const size_t data_size) {
       printf("\nbatch starts: batch size = %d, data size = %d\n", batch_size, data_size);
-      if (!SyncBiUnary(batch_size, data_size / 2, data_size * 2)) return;
-      if (!SyncClientStream(batch_size, data_size)) return;
-      // if (!SyncBiStream(batch_size, data_size / 2, data_size * 2)) return;
+      // if (!SyncBiUnary(batch_size, data_size / 2, data_size * 2)) return;
+      // if (!SyncClientStream(batch_size, data_size)) return;
+      // if (!SyncServerStream(batch_size, data_size)) return;
+      if (!SyncBiStream(batch_size, data_size / 2, data_size * 2)) return;
     }
 
   private:
     std::unique_ptr<BENCHMARK::Stub> stub_;
 };
 
-std::vector<int> Split2Int(const std::string& str, char delim) {
-  std::vector<int> ints;
-  size_t start;
-  size_t end = 0;
-  while ((start = str.find_first_not_of(delim, end)) != std::string::npos) {
-    end = str.find(delim, start);
-    ints.push_back(stoi(str.substr(start, end - start)));
-  }
-  return ints;
-}
-
 DEFINE_string(server_address, "localhost:50051", "");
 DEFINE_bool(sync_enable, true, "");
 DEFINE_bool(async_enable, false, "");
-DEFINE_string(platform, "TCP", "which transport protocol used");
-DEFINE_string(verbosity, "WARNING", "");
-DEFINE_string(data_sizes, "1024", "");
-DEFINE_string(batch_sizes, "1000", "");
+DEFINE_string(platform, "RDMA_BP", "which transport protocol used");
+DEFINE_string(verbosity, "INFO", "");
+DEFINE_string(data_sizes, "1024*1024*4", "");
+DEFINE_string(batch_sizes, "100000", "");
 
 int main(int argc, char** argv) {
   ::gflags::ParseCommandLineFlags(&argc, &argv, true);

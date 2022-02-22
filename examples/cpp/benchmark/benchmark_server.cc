@@ -15,6 +15,7 @@
 #include <grpcpp/grpcpp.h>
 #include <gflags/gflags.h>
 #include <gflags/gflags_declare.h>
+#include "benchmark_utils.h"
 
 #ifdef BAZEL_BUILD
 #include "examples/protos/benchamrk.grpc.pb.h"
@@ -53,13 +54,29 @@ class SyncServeice final : public BENCHMARK::Service {
     Status ClientStream(ServerContext* context, ServerReader<Complex>* reader, Complex* reply) override {
       Complex request;
       size_t total_data_size = 0;
-      size_t batch_size = 0;
+      // size_t batch_size = 0;
       while (reader->Read(&request)) {
-        batch_size++;
+        // batch_size++;
         total_data_size += request.datas().data1().length();
       }
       reply->mutable_numbers()->set_number1(total_data_size);
-      reply->mutable_numbers()->set_number2(batch_size);
+      // reply->mutable_numbers()->set_number2(batch_size);
+      return Status::OK;
+    }
+
+    Status ServerStream(ServerContext* context, const Complex* request, ServerWriter<Complex>* writer) override {
+      size_t batch_size = request->numbers().number1();
+      size_t min_request_size = request->numbers().number2();
+      size_t max_request_size = request->numbers().number3();
+      size_t request_size;
+      Complex reply;
+      for (size_t i = 0; i < batch_size; i++) {
+        request_size = random(min_request_size, max_request_size);
+        reply.mutable_datas()->mutable_data1()->resize(request_size);
+        reply.mutable_numbers()->set_number1(min_request_size);
+        reply.mutable_numbers()->set_number2(max_request_size);
+        writer->Write(reply);
+      }
       return Status::OK;
     }
 
@@ -68,12 +85,12 @@ class SyncServeice final : public BENCHMARK::Service {
       int batch_size = 0;
       while (stream->Read(&request)) {
         batch_size++;
-        printf("%d read done\n", batch_size);
+        if (batch_size % 1000 == 0) printf("%d read done\n", batch_size);
         std::unique_lock<std::mutex> lock(mu_);
         reply.mutable_numbers()->set_number1(request.datas().data1().length());
         reply.mutable_datas()->mutable_data1()->resize(request.numbers().number1());
         stream->Write(reply);
-        printf("%d write done\n\n", batch_size);
+        if (batch_size % 1000 == 0) printf("%d write done\n\n", batch_size);
       }
       return Status::OK;
     }
@@ -128,13 +145,13 @@ class BenchmarkServer {
     std::vector<std::unique_ptr<ServerCompletionQueue>> async_cqs_;
 };
 
-DEFINE_string(server_address, "localhost:50051", "");
+DEFINE_string(server_address, "0.0.0.0:50051", "");
 DEFINE_bool(sync_enable, true, "");
 DEFINE_bool(async_enable, false, "");
 DEFINE_int32(async_cq_num, 1, "");
 DEFINE_int32(async_thread_num, 1, "");
-DEFINE_string(platform, "TCP", "which transport protocol used");
-DEFINE_string(verbosity, "WARNING", "");
+DEFINE_string(platform, "RDMA_BP", "which transport protocol used");
+DEFINE_string(verbosity, "INFO", "");
 
 int main(int argc, char** argv) {
   ::gflags::ParseCommandLineFlags(&argc, &argv, true);

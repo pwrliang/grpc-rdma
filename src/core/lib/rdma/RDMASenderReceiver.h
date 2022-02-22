@@ -11,8 +11,8 @@
 #include "ringbuffer.h"
 #include "log.h"
 
-const size_t DEFAULT_RINGBUF_SZ = 1024ull * 1024;
-const size_t DEFAULT_SENDBUF_SZ = 1024ull * 1024;
+const size_t DEFAULT_RINGBUF_SZ = 1024ull * 1024 * 16;
+const size_t DEFAULT_SENDBUF_SZ = 1024ull * 1024 * 16;
 // we use headbuf_sz to mem align headbuf. don't set it too big
 const size_t DEFAULT_HEADBUF_SZ = 64;
 

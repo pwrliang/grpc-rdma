@@ -46,7 +46,7 @@ bool RDMASenderReceiverBP::check_incoming() {
 }
 
 size_t RDMASenderReceiverBP::check_and_ack_incomings() {
-  unread_data_size_ = ringbuf_bp_->check_lens();
+  unread_data_size_ = ringbuf_bp_->check_mlens();
   return unread_data_size_;
 }
 
@@ -63,7 +63,7 @@ size_t RDMASenderReceiverBP::recv(msghdr* msg) {
   unread_data_size_ = 0;
   garbage_ += read_size;
   total_recv_sz += read_size;
-  if (garbage_ >= ringbuf_sz_ / 2) {
+  if (garbage_ > 0) { //garbage_ >= ringbuf_sz_ / 2
     update_remote_head();
     garbage_ = 0;
   }
@@ -103,7 +103,7 @@ bool RDMASenderReceiverBP::send(msghdr* msg, size_t mlen) {
     if (nwritten <= sendbuf_sz_) {
       memcpy(start, iov_base, iov_len);
     } else {
-      rdma_log(RDMA_ERROR, "RDMASenderReceiverBP::send, mlen incorrect");
+      rdma_log(RDMA_ERROR, "RDMASenderReceiverBP::send, nwritten = %d, sendbuf size = %d", nwritten, sendbuf_sz_);
       return false;
     }
     start += iov_len;

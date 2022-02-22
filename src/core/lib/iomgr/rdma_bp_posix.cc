@@ -237,11 +237,6 @@ static void rdma_continue_read(grpc_rdma* rdma) {
   size_t mlen = rdma->rdmasr->get_unread_data_size();
   if (rdma->incoming_buffer->length < mlen) {
     size_t target_size = MAX(mlen, MIN_READBUF_SIZE) - rdma->incoming_buffer->length;
-    if (target_size == 0 || target_size > 1024 * 1024) {
-      rdma_log(RDMA_ERROR, "rdma_continue_read, data size = %d, incoming buffer size = %d, allocate %d bytes",
-               mlen, rdma->incoming_buffer->length, target_size);
-      abort();
-    }
     rdma_log(RDMA_DEBUG, "rdma_continue_read, data size = %d, incoming buffer size = %d, allocate %d bytes",
              mlen, rdma->incoming_buffer->length, target_size);
     if (GPR_UNLIKELY(!grpc_resource_user_alloc_slices(&rdma->slice_allocator, target_size, 1, rdma->incoming_buffer))) {
@@ -308,7 +303,8 @@ static void rdma_handle_read(void* arg /* grpc_rdma */, grpc_error_handle error)
       }
       return;
     } else {
-      rdma_log(RDMA_DEBUG, "rdma_handle_read, data found, call rdma_continue_read");
+      rdma_log(RDMA_INFO, "rdma_handle_read, found %d bytes data, call rdma_continue_read", 
+                rdma->rdmasr->get_unread_data_size());
       rdma_continue_read(rdma);
     }
   }
@@ -365,9 +361,6 @@ static bool rdma_flush(grpc_rdma* rdma, grpc_error_handle* error) {
       if (sending_length + iov_len > rdma_max_send_size) {
         iov[iov_size].iov_len = rdma_max_send_size - sending_length;
         slice_offset += iov[iov_size].iov_len;
-        // sending_length += iov[iov_size].iov_len;
-        // iov_size++;
-        // break;
       } else {
         iov[iov_size].iov_len = iov_len;
         outgoing_slice_idx++;
