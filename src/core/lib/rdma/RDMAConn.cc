@@ -24,7 +24,7 @@ void INIT_SR(ibv_send_wr* sr, ibv_sge* sge, ibv_wr_opcode opcode, void* rt_addr,
   static int id = 0;
   memset(sr, 0, sizeof(ibv_send_wr));
   sr->next = NULL;
-  sr->wr_id = id++;
+  sr->wr_id = 0;
   sr->sg_list = sge;
   sr->num_sge = num_sge;
   sr->opcode = opcode;
@@ -289,7 +289,9 @@ void RDMAConn::poll_send_completion() {
   }
 }
 
-void RDMAConn::post_send_and_poll_completion(ibv_send_wr* sr) {
+void RDMAConn::post_send_and_poll_completion(ibv_send_wr* sr, bool update_remote, uint8_t* remote_addr) {
+  // std::unique_lock<std::mutex> lck(mtx_);
+
   struct ibv_send_wr* bad_wr = nullptr;
 
   if (ibv_post_send(qp_, sr, &bad_wr) != 0) {
@@ -298,11 +300,26 @@ void RDMAConn::post_send_and_poll_completion(ibv_send_wr* sr) {
   }
 
   poll_send_completion();
+
+  if (!update_remote) { // send message
+    test_send_to[test_send_id++] = sr->wr.rdma.remote_addr - (uint64_t)remote_addr;
+     test_send_to_len[test_send_id-1] = 0;
+    for(size_t i = 0; i < sr->num_sge; i++) {
+      test_send_to_len[test_send_id-1] += sr->sg_list[i].length;
+    }
+    
+  } else {
+    if (test_update_remote == 0) {
+      test_update_remote = sr->wr.rdma.remote_addr;
+    } else if (test_update_remote != sr->wr.rdma.remote_addr) {
+      exit(-1);
+    }
+  }
 }
 
 void RDMAConn::post_send_and_poll_completion(MemRegion& remote_mr, size_t remote_tail, 
                                              MemRegion& local_mr, size_t local_offset,
-                                             size_t sz, ibv_wr_opcode opcode) {
+                                             size_t sz, ibv_wr_opcode opcode, bool update_remote) {
   if (remote_mr.is_local() || local_mr.is_remote()) {
     rdma_log(RDMA_ERROR, "RDMAConnEvent::rdma_write, MemRegion incorrect");
     exit(-1);
@@ -317,18 +334,16 @@ void RDMAConn::post_send_and_poll_completion(MemRegion& remote_mr, size_t remote
   INIT_SR(&sr1, &sge1, opcode, (uint8_t*)remote_mr.addr() + remote_tail, remote_mr.rkey(), 1, r_len);
   rdma_log(RDMA_INFO, "RDMAConn::post_send_and_poll_completion, send %d data to remote %d",
            r_len, remote_tail);
-  post_send_and_poll_completion(&sr1);
-  // printf("RDMAConn::post_send_and_poll_completion, send %d data to remote %d\n",
-  //          r_len, remote_tail);
+  post_send_and_poll_completion(&sr1, update_remote, (uint8_t*)remote_mr.addr());
+  // if (record) test_send_to[test_send_id++] = remote_tail;
 
   if (r_len < sz) {
     INIT_SGE(&sge2, (uint8_t*)local_mr.addr() + local_offset + r_len, sz - r_len, local_mr.lkey());
     INIT_SR(&sr2, &sge2, opcode, remote_mr.addr(), remote_mr.rkey(), 1, sz - r_len);
     rdma_log(RDMA_INFO, "RDMAConn::post_send_and_poll_completion, send %d data to remote %d",
              sz - r_len, 0);
-    post_send_and_poll_completion(&sr2);
-    // printf("RDMAConn::post_send_and_poll_completion, send %d data to remote %d\n",
-    //          sz - r_len, 0);
+    post_send_and_poll_completion(&sr2, update_remote, (uint8_t*)remote_mr.addr());
+    // if (record) test_send_to[test_send_id++] = 0;
   } 
 }
 

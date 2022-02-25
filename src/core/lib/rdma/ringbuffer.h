@@ -47,8 +47,11 @@ class RingBufferBP : public RingBuffer {
     // uint8_t check_head() { return buf_[head_]; }
     bool check_head();
     size_t check_mlens() { return check_mlens(head_); }
+    size_t check_mlen() { return check_mlen(head_); }
 
     size_t read_to_msghdr(msghdr* msg, size_t size) { return read_to_msghdr(msg, head_, size); }
+
+    void print_ringbuf();
     
   protected:
     uint8_t check_tail(size_t head, size_t mlen);

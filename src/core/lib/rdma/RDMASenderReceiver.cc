@@ -72,7 +72,7 @@ void RDMASenderReceiver::update_remote_head() {
   reinterpret_cast<size_t*>(head_sendbuf_)[0] = ringbuf_->get_head();
   conn_->post_send_and_poll_completion(remote_head_recvbuf_mr_, 0,
                                        head_sendbuf_mr_, 0, 
-                                       head_sendbuf_sz_, IBV_WR_RDMA_WRITE);
+                                       head_sendbuf_sz_, IBV_WR_RDMA_WRITE, true);
   rdma_log(RDMA_INFO, "RDMASenderReceiver::update_remote_head, %d", reinterpret_cast<size_t*>(head_sendbuf_)[0]);
 }
 

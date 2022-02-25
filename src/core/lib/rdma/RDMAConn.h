@@ -33,16 +33,21 @@ class RDMAConn {
     ~RDMAConn();
 
     virtual void poll_send_completion();
-    virtual void post_send_and_poll_completion(ibv_send_wr* sr);
+    virtual void post_send_and_poll_completion(ibv_send_wr* sr, bool update_remote, uint8_t *remote_addr);
     virtual void post_send_and_poll_completion(MemRegion& remote_mr, size_t remote_tail, 
                                        MemRegion& local_mr, size_t local_offset,
-                                       size_t sz, ibv_wr_opcode opcode);
+                                       size_t sz, ibv_wr_opcode opcode, bool update_remote);
     // after qp was created, sync data with remote
     virtual int sync();
 
     int modify_state(state_t st);
     int sync_data(char *local, char *remote, const size_t sz);
     int sync_mr(MemRegion &local, MemRegion &remote);
+
+    size_t test_send_to[1024 * 1024 * 16];
+      size_t test_send_to_len[1024 * 1024 * 16];
+    size_t test_send_id = 0;
+    size_t test_update_remote = 0;
 
   protected:
     state_t state_;
@@ -57,6 +62,7 @@ class RDMAConn {
     uint32_t qp_num_rt_;
     uint16_t lid_rt_;
     union ibv_gid gid_rt_;
+    std::mutex mtx_;
 };
 
 class RDMAConnBP : public RDMAConn {

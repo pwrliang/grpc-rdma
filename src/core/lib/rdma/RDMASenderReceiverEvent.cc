@@ -179,7 +179,7 @@ bool RDMASenderReceiverEvent::send(msghdr* msg, size_t mlen) {
   }
 
   conn_event_->post_send_and_poll_completion(remote_ringbuf_mr_, remote_ringbuf_tail_,
-                                             sendbuf_mr_, 0, mlen, IBV_WR_RDMA_WRITE_WITH_IMM);
+                                             sendbuf_mr_, 0, mlen, IBV_WR_RDMA_WRITE_WITH_IMM, false);
   remote_ringbuf_tail_ = (remote_ringbuf_tail_ + mlen) % remote_ringbuf_sz;
   total_send_sz += mlen;
   return true;

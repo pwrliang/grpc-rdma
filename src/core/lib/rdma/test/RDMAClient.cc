@@ -54,7 +54,7 @@ class RDMAClient {
     int port_;
 };
 
-#define SEND_BUF_SZ (8*1000*1000)
+#define SEND_BUF_SZ (80)
 #define BATCH_SZ (1000000)
 
 static long long total_send_size = 0;
@@ -78,7 +78,7 @@ static void send_diagnosis(RDMASenderReceiverBP* rdmasr) {
 
     // timeout
     sender_stop = true;
-    printf("sender stopped, send size = %d\n", send_size);
+    printf("\n\nsender stopped, send size = %d\n", send_size);
     // while (sender_stop) {
     //   std::this_thread::yield();
     // }
@@ -100,7 +100,7 @@ static void recv_diagnosis(RDMASenderReceiverBP* rdmasr) {
 
     // timeout
     recver_stop = true;
-    printf("recver stopped\n");
+    printf("\n\nrecver stopped\n");
     // printf("recver stopped\n");
     // while (recver_stop) {
     //   std::this_thread::yield();
@@ -155,13 +155,14 @@ void send_thread_bp(RDMASenderReceiverBP* rdmasr) {
 int main(int argc, char *argv[]) {
 
   RDMAClient client;
-  int fd = client.connect("10.3.1.13", 50050);
+  int fd = client.connect("10.3.1.19", 50050);
 
   RDMASenderReceiverBP rdmasr;
   rdmasr.connect(fd);
   printf("connection established\n");
 
   std::thread send_thread(send_thread_bp, &rdmasr);
+  // send_thread_bp(&rdmasr);
 
   struct msghdr recv_msg;
   struct iovec recv_iov;
@@ -217,6 +218,8 @@ int main(int argc, char *argv[]) {
 
   recver_alive = false;
   delete recv_buf;
+
+
   send_thread.join();
 
   return 0;

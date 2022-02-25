@@ -47,22 +47,14 @@ void RDMASenderReceiverBP::diagnosis() {
   size_t used = (remote_ringbuf_sz + remote_ringbuf_tail_ - remote_ringbuf_head_) % remote_ringbuf_sz;
   printf("recv: ringbuf head = %d, garbage = %d, check_incoming = %d\n", 
           ringbuf_->head_, garbage_, check_incoming());
-  if (check_incoming()) {
-    size_t head = ringbuf_bp_->head_;
-    size_t mlen = *(size_t*)(&ringbuf_bp_->buf_[head]);
-    size_t last = ringbuf_bp_->buf_[(head + 8) % ringbuf_sz_];
-    for (size_t i = 1, cur; i < mlen; i++) {
-      // if (ringbuf_bp_->buf_[head+8+i] == ((((last-2)%254)+1)%254)+2) last = buf_[]
-      cur = ringbuf_bp_->buf_[(head + 8 + i) % ringbuf_sz_];
-      if ((last - 1) % 254 == cur - 2) last = cur;
-      else {
-        printf("uncontinuous from %d\n", (head + 8 + i) % ringbuf_sz_);
-        break;
-      }
-    }
-  }
+  ringbuf_bp_->print_ringbuf();
   printf("send: remote_ringbuf_tail = %d, remote_ringbuf_head = %d, used = %d\n",
           remote_ringbuf_tail_, remote_ringbuf_head_, used);
+  printf("last 20 heads: ");
+  for (size_t i = 1; i <= 20 && i <= test_send_id; i++) {
+    printf("%d ", test_send_to[test_send_id - i]);
+  }
+  printf("\n");
   
 }
 
@@ -71,7 +63,8 @@ bool RDMASenderReceiverBP::check_incoming() {
 }
 
 size_t RDMASenderReceiverBP::check_and_ack_incomings() {
-  unread_data_size_ = ringbuf_bp_->check_mlens();
+  // unread_data_size_ = ringbuf_bp_->check_mlens();
+  unread_data_size_ = ringbuf_bp_->check_mlen();
   return unread_data_size_;
 }
 
@@ -88,7 +81,7 @@ size_t RDMASenderReceiverBP::recv(msghdr* msg) {
   unread_data_size_ = 0;
   garbage_ += read_size;
   total_recv_sz += read_size;
-  if (garbage_ >= ringbuf_sz_ / 2) { //garbage_ >= ringbuf_sz_ / 2
+  if (garbage_ >= 0) { //garbage_ >= ringbuf_sz_ / 2
     update_remote_head();
     garbage_ = 0;
   }
@@ -139,8 +132,9 @@ bool RDMASenderReceiverBP::send(msghdr* msg, size_t mlen) {
   }
 
   test_send_to[test_send_id++] = remote_ringbuf_tail_;
+
   conn_bp_->post_send_and_poll_completion(remote_ringbuf_mr_, remote_ringbuf_tail_,
-                                          sendbuf_mr_, 0, len, IBV_WR_RDMA_WRITE);
+                                          sendbuf_mr_, 0, len, IBV_WR_RDMA_WRITE, false);
   remote_ringbuf_tail_ = (remote_ringbuf_tail_ + len) % remote_ringbuf_sz;
   total_send_sz += len;
   return true;
