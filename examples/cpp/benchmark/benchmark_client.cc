@@ -39,7 +39,7 @@ using benchmark::Complex;
 int world_size, world_rank;
 
 void MPI_summary(int64_t time, const char* prefix) {
-  MPI_Barrier(MPI_COMM_WORLD);
+  // MPI_Barrier(MPI_COMM_WORLD);
   if (world_rank != 0) {
     MPI_Send(&time, 1, MPI_INT64_T, 0, 0, MPI_COMM_WORLD);
     return;
@@ -228,8 +228,8 @@ DEFINE_bool(sync_enable, true, "");
 DEFINE_bool(async_enable, false, "");
 DEFINE_string(platform, "TCP", "which transport protocol used");
 DEFINE_string(verbosity, "ERROR", "");
-DEFINE_string(data_sizes, "1024*1024", "");
-DEFINE_string(batch_sizes, "1000", "");
+DEFINE_string(data_sizes, "1024*1024,1024*1024*3", "");
+DEFINE_string(batch_sizes, "1000,10000,100000", "");
 
 int main(int argc, char** argv) {
   MPI_Init(&argc, &argv);

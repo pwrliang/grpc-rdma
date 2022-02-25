@@ -193,7 +193,7 @@ static void* thread_handler_bp(void* args) {
           // printf("%d-th send %d bytes\n", id, n);
           iov.iov_base = (uint8_t*)(iov.iov_base) + n;
         }
-        printf("%d-th send %d bytes\n\n", id, read_size);
+        // printf("%d-th send %d bytes\n\n", id, read_size);
 
         id++;
       }

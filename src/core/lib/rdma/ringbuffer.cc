@@ -113,7 +113,7 @@ size_t RingBufferBP::read_to_msghdr(msghdr* msg, size_t head,
     exit(-1);
   }
 
-  print_ringbuf();
+  // print_ringbuf();
 
   uint8_t* iov_rbase;
   size_t iov_idx = 0, iov_offset = 0, iov_rlen;
@@ -165,7 +165,7 @@ size_t RingBufferBP::read_to_msghdr(msghdr* msg, size_t head,
     exit(-1);
   }
 
-  printf("\nringbuf: head = %d, read_size = %d, mlens = %d\n", head_, read_size, mlens);
+  // printf("\nringbuf: head = %d, read_size = %d, mlens = %d\n", head_, read_size, mlens);
   
 
   test_recv_head[test_recv_id] = head_;

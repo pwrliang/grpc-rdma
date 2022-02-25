@@ -47,7 +47,7 @@ void RDMASenderReceiverBP::diagnosis() {
   size_t used = (remote_ringbuf_sz + remote_ringbuf_tail_ - remote_ringbuf_head_) % remote_ringbuf_sz;
   printf("recv: ringbuf head = %d, garbage = %d, check_incoming = %d\n", 
           ringbuf_->head_, garbage_, check_incoming());
-  ringbuf_bp_->print_ringbuf();
+  // ringbuf_bp_->print_ringbuf();
   printf("send: remote_ringbuf_tail = %d, remote_ringbuf_head = %d, used = %d\n",
           remote_ringbuf_tail_, remote_ringbuf_head_, used);
   printf("last 20 heads: ");

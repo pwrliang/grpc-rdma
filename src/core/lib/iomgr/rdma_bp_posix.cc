@@ -316,10 +316,10 @@ static void rdma_handle_read(void* arg /* grpc_rdma */, grpc_error_handle error)
     } else {
       rdma_log(RDMA_INFO, "rdma_handle_read, found %d bytes data, call rdma_continue_read", 
                 rdma->rdmasr->get_unread_data_size());
-      if (tcp_do_read(rdma) == 0) {
-        printf("stream end for fd: %d, %d\n", rdma->fd, rdma->rdmasr->get_unread_data_size());
-        // grpc_fd_set_readable(rdma->em_fd);
-      }
+      // if (tcp_do_read(rdma) == 0) {
+      //   printf("stream end for fd: %d, %d\n", rdma->fd, rdma->rdmasr->get_unread_data_size());
+      //   // grpc_fd_set_readable(rdma->em_fd);
+      // }
       rdma_continue_read(rdma);
     }
   }
@@ -351,50 +351,110 @@ static void rdma_read(grpc_endpoint* ep, grpc_slice_buffer* incoming_buffer,
 // -----< rdma_write >-----
 #define MAX_WRITE_IOVEC 1000
 
-// static bool rdma_flush(grpc_rdma* rdma, grpc_error_handle* error) {
-//   size_t rdma_max_send_size = rdma->rdmasr->get_max_send_size();
+static bool rdma_flush(grpc_rdma* rdma, grpc_error_handle* error) {
+  size_t rdma_max_send_size = rdma->rdmasr->get_max_send_size();
 
+  struct msghdr msg;
+  struct iovec iov[MAX_WRITE_IOVEC];
+  size_t iov_size;
+  size_t sending_length, total_sent_length = 0;
+  size_t outgoing_slice_idx = 0, slice_offset = 0;
+  while (outgoing_slice_idx < rdma->outgoing_buffer->count) {
+    sending_length = 0;
+    for (iov_size = 0;
+         outgoing_slice_idx < rdma->outgoing_buffer->count && 
+         iov_size < MAX_WRITE_IOVEC && 
+         sending_length < rdma_max_send_size;
+         iov_size++) {
+      iov[iov_size].iov_base =
+          GRPC_SLICE_START_PTR(
+              rdma->outgoing_buffer->slices[outgoing_slice_idx]) +
+          slice_offset;
+      size_t iov_len =
+          GRPC_SLICE_LENGTH(rdma->outgoing_buffer->slices[outgoing_slice_idx]) -
+          slice_offset;
+      if (sending_length + iov_len > rdma_max_send_size) {
+        iov[iov_size].iov_len = rdma_max_send_size - sending_length;
+        slice_offset += iov[iov_size].iov_len;
+      } else {
+        iov[iov_size].iov_len = iov_len;
+        outgoing_slice_idx++;
+        slice_offset = 0;
+      }
+      sending_length += iov[iov_size].iov_len;
+    }
+    msg.msg_iov = iov;
+    msg.msg_iovlen = iov_size;
+    total_sent_length += sending_length;
+
+    rdma_log(RDMA_INFO, "rdma_flush try to send %d bytes, %d, %d, %d", 
+             sending_length, iov_size, total_sent_length, rdma->outgoing_buffer->length);
+    // if (rdma->rdmasr->send(&msg, sending_length) == false) {
+    //   rdma_log(RDMA_ERROR, "rdma send failed");
+    //   abort();
+    // }
+    while (rdma->rdmasr->send(&msg, sending_length) == false) {}
+
+  }
+  *error = GRPC_ERROR_NONE;
+  grpc_slice_buffer_reset_and_unref_internal(rdma->outgoing_buffer);
+  return true;
+}
+
+// static bool rdma_flush(grpc_rdma* rdma, grpc_error_handle* error) {
 //   struct msghdr msg;
 //   struct iovec iov[MAX_WRITE_IOVEC];
 //   size_t iov_size;
-//   size_t sending_length, total_sent_length = 0;
-//   size_t outgoing_slice_idx = 0, slice_offset = 0;
-//   while (outgoing_slice_idx < rdma->outgoing_buffer->count) {
+//   ssize_t sent_length = 0;
+//   size_t sending_length;
+//   size_t trailing;
+//   size_t unwind_slice_idx;
+//   size_t unwind_byte_idx;
+
+//   size_t outgoing_slice_idx = 0;
+//   size_t total_sent_length = 0;
+//   size_t max_send_size = rdma->rdmasr->get_max_send_size();
+
+//   while (true) {
 //     sending_length = 0;
+//     unwind_slice_idx = outgoing_slice_idx;
+//     unwind_byte_idx = rdma->outgoing_byte_idx;
 //     for (iov_size = 0;
-//          outgoing_slice_idx < rdma->outgoing_buffer->count && 
-//          iov_size < MAX_WRITE_IOVEC && 
-//          sending_length < rdma_max_send_size;
+//          outgoing_slice_idx != rdma->outgoing_buffer->count && 
+//          iov_size != MAX_WRITE_IOVEC &&
+//          sending_length < max_send_size;
 //          iov_size++) {
-//       iov[iov_size].iov_base =
-//           GRPC_SLICE_START_PTR(
-//               rdma->outgoing_buffer->slices[outgoing_slice_idx]) +
-//           slice_offset;
-//       size_t iov_len =
-//           GRPC_SLICE_LENGTH(rdma->outgoing_buffer->slices[outgoing_slice_idx]) -
-//           slice_offset;
-//       if (sending_length + iov_len > rdma_max_send_size) {
-//         iov[iov_size].iov_len = rdma_max_send_size - sending_length;
-//         slice_offset += iov[iov_size].iov_len;
+//       iov[iov_size].iov_base = 
+//         GRPC_SLICE_START_PTR(rdma->outgoing_buffer->slices[outgoing_slice_idx]) +  
+//         rdma->outgoing_byte_idx;
+//       size_t iov_len = 
+//         GRPC_SLICE_LENGTH(rdma->outgoing_buffer->slices[outgoing_slice_idx]) -
+//         rdma->outgoing_byte_idx;
+//       if (sending_length + iov_len > max_send_size) {
+//         iov[iov_size].iov_len = max_send_size - sending_length;
+//         rdma->outgoing_byte_idx += iov[iov_size].iov_len;
 //       } else {
 //         iov[iov_size].iov_len = iov_len;
 //         outgoing_slice_idx++;
-//         slice_offset = 0;
+//         rdma->outgoing_byte_idx = 0;
 //       }
 //       sending_length += iov[iov_size].iov_len;
 //     }
+//     GPR_ASSERT(iov_size > 0);
+
 //     msg.msg_iov = iov;
 //     msg.msg_iovlen = iov_size;
-//     total_sent_length += sending_length;
 
 //     rdma_log(RDMA_INFO, "rdma_flush try to send %d bytes, %d, %d, %d", 
 //              sending_length, iov_size, total_sent_length, rdma->outgoing_buffer->length);
-//     // if (rdma->rdmasr->send(&msg, sending_length) == false) {
-//     //   rdma_log(RDMA_ERROR, "rdma send failed");
-//     //   abort();
-//     // }
-//     if (rdma->rdmasr->send(&msg, sending_length) == false) {
 
+//     if (rdma->rdmasr->send(&msg, sending_length) == false) {
+//       // not enough space in remote
+//       rdma->outgoing_byte_idx = unwind_byte_idx;
+//       for (size_t idx = 0; idx < unwind_slice_idx; idx++) {
+//         grpc_slice_buffer_remove_first(rdma->outgoing_buffer);
+//       }
+//       return false;
 //     }
 
 //   }
@@ -402,68 +462,6 @@ static void rdma_read(grpc_endpoint* ep, grpc_slice_buffer* incoming_buffer,
 //   grpc_slice_buffer_reset_and_unref_internal(rdma->outgoing_buffer);
 //   return true;
 // }
-
-static bool rdma_flush(grpc_rdma* rdma, grpc_error_handle* error) {
-  struct msghdr msg;
-  struct iovec iov[MAX_WRITE_IOVEC];
-  size_t iov_size;
-  ssize_t sent_length = 0;
-  size_t sending_length;
-  size_t trailing;
-  size_t unwind_slice_idx;
-  size_t unwind_byte_idx;
-
-  size_t outgoing_slice_idx = 0;
-  size_t total_sent_length = 0;
-  size_t max_send_size = rdma->rdmasr->get_max_send_size();
-
-  while (true) {
-    sending_length = 0;
-    unwind_slice_idx = outgoing_slice_idx;
-    unwind_byte_idx = rdma->outgoing_byte_idx;
-    for (iov_size = 0;
-         outgoing_slice_idx != rdma->outgoing_buffer->count && 
-         iov_size != MAX_WRITE_IOVEC &&
-         sending_length < max_send_size;
-         iov_size++) {
-      iov[iov_size].iov_base = 
-        GRPC_SLICE_START_PTR(rdma->outgoing_buffer->slices[outgoing_slice_idx]) +  
-        rdma->outgoing_byte_idx;
-      size_t iov_len = 
-        GRPC_SLICE_LENGTH(rdma->outgoing_buffer->slices[outgoing_slice_idx]) -
-        rdma->outgoing_byte_idx;
-      if (sending_length + iov_len > max_send_size) {
-        iov[iov_size].iov_len = max_send_size - sending_length;
-        rdma->outgoing_byte_idx += iov[iov_size].iov_len;
-      } else {
-        iov[iov_size].iov_len = iov_len;
-        outgoing_slice_idx++;
-        rdma->outgoing_byte_idx = 0;
-      }
-      sending_length += iov[iov_size].iov_len;
-    }
-    GPR_ASSERT(iov_size > 0);
-
-    msg.msg_iov = iov;
-    msg.msg_iovlen = iov_size;
-
-    rdma_log(RDMA_INFO, "rdma_flush try to send %d bytes, %d, %d, %d", 
-             sending_length, iov_size, total_sent_length, rdma->outgoing_buffer->length);
-
-    if (rdma->rdmasr->send(&msg, sending_length) == false) {
-      // not enough space in remote
-      rdma->outgoing_byte_idx = unwind_byte_idx;
-      for (size_t idx = 0; idx < unwind_slice_idx; idx++) {
-        grpc_slice_buffer_remove_first(rdma->outgoing_buffer);
-      }
-      return false;
-    }
-
-  }
-  *error = GRPC_ERROR_NONE;
-  grpc_slice_buffer_reset_and_unref_internal(rdma->outgoing_buffer);
-  return true;
-}
 
 static void rdma_handle_write(void* arg /* grpc_tcp */,
                              grpc_error_handle error) {

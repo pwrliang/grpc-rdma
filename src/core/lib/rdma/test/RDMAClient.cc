@@ -54,7 +54,7 @@ class RDMAClient {
     int port_;
 };
 
-#define SEND_BUF_SZ (80)
+#define SEND_BUF_SZ (1024 * 1024 * 6)
 #define BATCH_SZ (1000000)
 
 static long long total_send_size = 0;

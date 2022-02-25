@@ -117,7 +117,7 @@ struct pollable {
 
   bool rdma_flag;
 
-  gpr_mu rdma_mu;
+  // gpr_mu rdma_mu;
 };
 
 static const char* pollable_type_string(pollable_type t) {
@@ -205,14 +205,14 @@ struct grpc_fd {
     write_closure.DestroyEvent();
     error_closure.DestroyEvent();
     rdmasr = nullptr;
-    for (std::set<pollable*>::iterator it = rdma_pollables.begin(); it != rdma_pollables.end(); it++) {
-      pollable* p = *it;
-      gpr_mu_lock(&p->rdma_mu);
-      p->rdma_fds.erase(self);
-      gpr_mu_unlock(&p->rdma_mu);
-      p->rdma_flag = !(p->rdma_fds.empty());
-      printf("destroy fd (%p, %d) from pollable: %p, %d, %d\n", self, fd, p, p->rdma_fds.size(), p->rdma_flag);
-    }
+    // for (std::set<pollable*>::iterator it = rdma_pollables.begin(); it != rdma_pollables.end(); it++) {
+    //   pollable* p = *it;
+    //   // gpr_mu_lock(&p->rdma_mu);
+    //   p->rdma_fds.erase(self);
+    //   // gpr_mu_unlock(&p->rdma_mu);
+    //   p->rdma_flag = !(p->rdma_fds.empty());
+    //   printf("destroy fd (%p, %d) from pollable: %p, %d, %d\n", self, fd, p, p->rdma_fds.size(), p->rdma_flag);
+    // }
     rdma_pollables.clear();
     rdma_log(RDMA_INFO, "fd (%p, %d) is destroyed, rdmasr = %p, rdma_pollables size = %d",
              this, fd, rdmasr, rdma_pollables.size());
@@ -286,12 +286,12 @@ static void pollable_unref(pollable* p, const grpc_core::DebugLocation& dbg_loc,
     grpc_wakeup_fd_destroy(&p->wakeup);
     gpr_mu_destroy(&p->owner_orphan_mu);
     gpr_mu_destroy(&p->mu);
-    for (std::set<grpc_fd*>::iterator it = p->rdma_fds.begin(); it != p->rdma_fds.end(); it++) {
-      grpc_fd* fd = *it;
-      fd->rdma_pollables.erase(p);
-      printf("unref pollable %p from fd: %p, %d, %d\n", p, fd, fd->fd, fd->rdma_pollables.size());
-    }
-    gpr_mu_destroy(&p->rdma_mu);
+    // for (std::set<grpc_fd*>::iterator it = p->rdma_fds.begin(); it != p->rdma_fds.end(); it++) {
+    //   grpc_fd* fd = *it;
+    //   fd->rdma_pollables.erase(p);
+    //   printf("unref pollable %p from fd: %p, %d, %d\n", p, fd, fd->fd, fd->rdma_pollables.size());
+    // }
+    // gpr_mu_destroy(&p->rdma_mu);
     p->rdma_fds.clear();
     p->rdma_flag = false;
     rdma_log(RDMA_INFO, "pollable %p is closed, rdma_fds size = %d, rdma_flag = %d", p, p->rdma_fds.size(), p->rdma_flag);
@@ -514,14 +514,14 @@ static void fd_orphan(grpc_fd* fd, grpc_closure* on_done, int* release_fd,
   fd->on_done_closure = on_done;
 
   if (fd->rdmasr) {
-    for (std::set<pollable*>::iterator it = fd->rdma_pollables.begin(); it != fd->rdma_pollables.end(); it++) {
-      pollable* p = *it;
-      gpr_mu_lock(&p->rdma_mu);
-      p->rdma_fds.erase(fd);
-      gpr_mu_unlock(&p->rdma_mu);
-      p->rdma_flag = !(p->rdma_fds.empty());
-      printf("orphan fd (%p, %d) from pollable: %p, %d, %d\n", fd, fd->fd, p, p->rdma_fds.size(), p->rdma_flag);
-    }
+    // for (std::set<pollable*>::iterator it = fd->rdma_pollables.begin(); it != fd->rdma_pollables.end(); it++) {
+    //   pollable* p = *it;
+    //   // gpr_mu_lock(&p->rdma_mu);
+    //   p->rdma_fds.erase(fd);
+    //   // gpr_mu_unlock(&p->rdma_mu);
+    //   p->rdma_flag = !(p->rdma_fds.empty());
+    //   printf("orphan fd (%p, %d) from pollable: %p, %d, %d\n", fd, fd->fd, p, p->rdma_fds.size(), p->rdma_flag);
+    // }
     fd->rdma_pollables.clear();
     fd->rdmasr = nullptr;
     rdma_log(RDMA_INFO, "fd (%p, %d) is orphaned, rdmasr = %p, rdma_pollables.size() = %d", fd, fd->fd, fd->rdmasr, fd->rdma_pollables.size());
@@ -677,7 +677,7 @@ static grpc_error_handle pollable_create(pollable_type type, pollable** p) {
   (*p)->event_count = 0;
   new (&(*p)->rdma_fds) std::set<grpc_fd*>();
   (*p)->rdma_flag = false;
-  gpr_mu_init(&(*p)->rdma_mu);
+  // gpr_mu_init(&(*p)->rdma_mu);
   rdma_log(RDMA_INFO, "pollable %p is created, rdma_fds size = %d, rdma_flag = %d", *p, (*p)->rdma_fds.size(), (*p)->rdma_flag);
 
   return GRPC_ERROR_NONE;
@@ -716,9 +716,9 @@ static grpc_error_handle pollable_add_fd(pollable* p, grpc_fd* fd) {
     if (p->rdma_fds.find(fd) != p->rdma_fds.end()) {
       rdma_log(RDMA_WARNING, "pollable_add_fd, fd %d already exist in pollable %p", fd->fd, p);
     } else {
-      gpr_mu_lock(&p->rdma_mu);
+      // gpr_mu_lock(&p->rdma_mu);
       p->rdma_fds.insert(fd);
-      gpr_mu_unlock(&p->rdma_mu);
+      // gpr_mu_unlock(&p->rdma_mu);
       fd->rdma_pollables.insert(p);
       rdma_log(RDMA_INFO, "pollable %p add fd (%p, %d), pollable: rdma_fds size = %d, rdma_flag = %d; fd: rdmasr = %p, rdma_pollable size = %d",
                p, fd, fd->fd, p->rdma_fds.size(), p->rdma_flag, fd->rdmasr, fd->rdma_pollables.size());
@@ -1043,12 +1043,13 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
     do {
       r = epoll_wait(p->epfd, p->events, MAX_EPOLL_EVENTS, timeout);
 
-      gpr_mu_lock(&p->rdma_mu);
+      // gpr_mu_lock(&p->rdma_mu);
       for (std::set<grpc_fd*>::iterator it = p->rdma_fds.begin(); it != p->rdma_fds.end(); it++) {
         fd = *it;
         if (fd->rdmasr == nullptr) {
           rdma_log(RDMA_WARNING, "pollable_epoll, found nullptr from fd %d of pollable %p", fd->fd, p);
-          p->rdma_fds.erase(fd);
+          // p->rdma_fds.erase(fd);
+          continue;
         }
         if (fd->rdmasr->check_incoming()) {
           found_rdma_incoming = true;
@@ -1056,7 +1057,7 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
           fd_become_readable(fd);
         }
       }
-      gpr_mu_unlock(&p->rdma_mu);
+      // gpr_mu_unlock(&p->rdma_mu);
       
     // } while (!found_rdma_incoming);
     } while (((r < 0 && errno == EINTR) || r == 0) && !found_rdma_incoming);

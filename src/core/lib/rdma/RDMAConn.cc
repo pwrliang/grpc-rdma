@@ -10,6 +10,10 @@
 #include <sys/epoll.h>
 #include <sys/socket.h>
 #include <sys/types.h>
+#include <condition_variable>
+#include <mutex>
+#include <chrono>
+#include <thread>
 #include "fcntl.h"
 
 void INIT_SGE(ibv_sge* sge, void* lc_addr, size_t sz, uint32_t lkey) {
@@ -290,7 +294,7 @@ void RDMAConn::poll_send_completion() {
 }
 
 void RDMAConn::post_send_and_poll_completion(ibv_send_wr* sr, bool update_remote, uint8_t* remote_addr) {
-  // std::unique_lock<std::mutex> lck(mtx_);
+  std::unique_lock<std::mutex> lck(mtx_);
 
   struct ibv_send_wr* bad_wr = nullptr;
 
