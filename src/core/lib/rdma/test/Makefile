@@ -1,5 +1,7 @@
 CC=gcc
-CFLAGS=-Wall -pthread -std=c++11 -g -c -I../
+CXX = g++
+CFLAGS=-Wall -Wformat=0 -pthread -std=c++11 -g -c -I../
+CXXFLAGS += -std=c++11 -g
 VPATH=../
 DEPS = RDMASenderReceiver.h RDMAConn.h RDMAUtils.h ringbuffer.h log.h SockUtils.h thpool.h
 
@@ -11,15 +13,15 @@ LDFLAGS += -pthread -ldl -lm -libverbs -g
 all: RDMAServer RDMAClient
 
 %.o: %.cc $(DEPS)
-	$(CXX) -c -o $@ $< $(CFLAGS)
+	$(CXX) -g -gdwarf-4 -c -o $@ $<
 
 RDMAServer: $(objects) RDMAServer.o
-	$(CXX) $^ $(LDFLAGS) -o $@
+	$(CXX) -g -gdwarf-4 $^ $(LDFLAGS) -o $@
 
 RDMAClient: $(objects) RDMAClient.o
-	$(CXX) $^ $(LDFLAGS) -o $@
+	$(CXX) -g -gdwarf-4 $^ $(LDFLAGS) -o $@
 
 .PHONY: clean
 
 clean:
-	-rm *.o
+	rm -f *.o RDMAServer RDMAClient

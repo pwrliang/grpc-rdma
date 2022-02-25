@@ -88,10 +88,25 @@ size_t RingBufferBP::check_mlens(size_t head) {
  
 size_t RingBufferBP::reset_buf_and_update_head(size_t lens) {
   if (head_ + lens > capacity_) {
-    memset(buf_ + head_, 0, capacity_ - head_);
-    memset(buf_, 0, lens + head_ - capacity_);
+    // memset(buf_ + head_, 0, capacity_ - head_);
+    // for (size_t i = 0; i < capacity_ - head_; i++) {
+    //   buf_[head_ + i] = 0;
+    // }
+    // bzero(buf_ + head_, capacity_ - head_);
+    memcpy(buf_ + head_, zeros, capacity_ - head_);
+    // memset(buf_, 0, lens + head_ - capacity_);
+    // for (size_t i = 0; i < lens + head_ - capacity_; i++) {
+    //   buf_[i] = 0;
+    // } 
+    // bzero(buf_, lens + head_ - capacity_);
+    memcpy(buf_, zeros, lens + head_ - capacity_);
   } else {
-    memset(buf_ + head_, 0, lens);
+    // memset(buf_ + head_, 0, lens);
+    // for (size_t i = 0; i < lens; i++) {
+    //   buf_[head_ + i] = 0;
+    // }
+    // bzero(buf_ + head_, lens);
+    memcpy(buf_ + head_, zeros, lens);
   }
   return update_head(lens);
 }
@@ -163,7 +178,11 @@ size_t RingBufferBP::read_to_msghdr(msghdr* msg, size_t head,
     exit(-1);
   }
 
-  reset_buf_and_update_head(read_size);
+  test_recv_head[test_recv_id] = head_;
+  test_recv_read_size[test_recv_id++] = read_size;
+
+  // reset_buf_and_update_head(read_size);
+  update_head(read_size);
 
   return mlens;
 }

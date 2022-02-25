@@ -244,6 +244,8 @@ static void on_read(void* arg, grpc_error_handle err) {
               addr_str.c_str());
     }
 
+    printf("accept connection from %s\n", addr_str.c_str());
+
     std::string name = absl::StrCat("tcp-server-connection:", addr_str);
     grpc_fd* fdobj = grpc_fd_create(fd, name.c_str(), true);
 

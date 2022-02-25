@@ -3,10 +3,14 @@
 #include "thpool.h"
 #include <netinet/tcp.h>
 #include <sys/socket.h>
+#include <condition_variable>
+#include <mutex>
+#include <chrono>
+#include <thread>
 
 #define MAX_CONN_NUM 10
 #define MAX_THREAD_NUM 10
-#define DEFAULT_PORT 50051
+#define DEFAULT_PORT 50050
 #define MAX_BUF_SZ  (1024 * 1024 * 8)
 
 class RDMAServer;
@@ -98,6 +102,41 @@ class RDMAServer {
     thread_handler handler_;
 };
 
+static size_t send_recv_timeout_s = 10;
+std::condition_variable send_recv_timer;
+std::mutex send_recv_mtx;
+bool send_recv_timer_start = false, sender_recver_stop = false, sender_recver_alive = true;
+int send1recv2=0;
+size_t send_size;
+
+static void send_recv_diagnosis(RDMASenderReceiverBP* rdmasr) {
+  std::unique_lock<std::mutex> lck(send_recv_mtx);
+
+  while (sender_recver_alive) {
+    while (!send_recv_timer_start) { std::this_thread::yield(); }
+
+    if (send_recv_timer.wait_for(lck, std::chrono::seconds(send_recv_timeout_s)) == std::cv_status::no_timeout) {
+      continue;
+    }
+
+    // timeout
+    sender_recver_stop = true;
+    switch (send1recv2) {
+      case 1:
+        printf("sender stopped, send size = %d\n", send_size);
+        break;
+      case 2:
+        printf("recver stopped\n");
+        break;
+    }
+    // printf("sender or recver stopped\n");
+    // while (sender_recver_stop) {
+    //   std::this_thread::yield();
+    // }
+    rdmasr->diagnosis();
+    while (sender_recver_stop) {}
+  }
+}
 
 static void* thread_handler_bp(void* args) {
       thread_handler_args *hargs = (thread_handler_args *)args;
@@ -112,9 +151,21 @@ static void* thread_handler_bp(void* args) {
       msg.msg_iovlen = 1;
       uint8_t *recv_buf = new uint8_t[1024 * 1024 * 16];
 
+      std::thread diagnosis(send_recv_diagnosis, rdmasr);
+
       size_t id = 0;
       while (true) {
-        while (rdmasr->check_incoming() == false || rdmasr->check_and_ack_incomings() == 0) {}
+
+        send1recv2 = 2;
+        send_recv_timer_start = true;
+        while (rdmasr->check_incoming() == false || rdmasr->check_and_ack_incomings() == 0) {
+          while(sender_recver_stop) { 
+            std::this_thread::yield(); 
+          }
+        }
+        send_recv_timer_start = false;
+        send_recv_timer.notify_one();
+
         int check_size = rdmasr->check_and_ack_incomings();
         iov.iov_base = recv_buf;
         iov.iov_len = check_size;
@@ -127,12 +178,19 @@ static void* thread_handler_bp(void* args) {
           size_t n = MIN(send_length, rdmasr->get_max_send_size());
           send_length -= n;
           iov.iov_len = n;
-          if (rdmasr->send(&msg, n) == false) {
-            printf("%d-th send failed\n", id);
-            exit(-1);
-          } else {
-            // printf("%d-th send %d bytes\n", id, n);
+
+          send1recv2 = 1;
+          send_size = n;
+          send_recv_timer_start = true;
+          while (rdmasr->send(&msg, n) == false) {
+            while(sender_recver_stop) { 
+              std::this_thread::yield(); 
+            }
           }
+          send_recv_timer_start = false;
+          send_recv_timer.notify_one();
+
+          // printf("%d-th send %d bytes\n", id, n);
           iov.iov_base = (uint8_t*)(iov.iov_base) + n;
         }
         // printf("%d-th send %d bytes\n\n", id, read_size);
@@ -140,6 +198,8 @@ static void* thread_handler_bp(void* args) {
         id++;
       }
 
+      sender_recver_alive = false;
+      diagnosis.join();
       delete recv_buf;
       return nullptr;
     }

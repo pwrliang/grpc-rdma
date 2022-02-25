@@ -93,6 +93,7 @@ struct pollable {
   grpc_core::RefCount refs;
 
   int epfd;
+  int test_epfd_pid;
   grpc_wakeup_fd wakeup;
 
   // The following are relevant only for type PO_FD
@@ -150,6 +151,8 @@ static void pollable_unref(pollable* p, const grpc_core::DebugLocation& dbg_loc,
     grpc_wakeup_fd_destroy(&p->wakeup);
     gpr_mu_destroy(&p->owner_orphan_mu);
     gpr_mu_destroy(&p->mu);
+    p->test_epfd_pid = 0;
+    printf("pollable unref, epfd = %d, pid = %d\n", p->epfd, p->test_epfd_pid);
     gpr_free(p);
   }
 }
@@ -606,6 +609,8 @@ static grpc_error_handle pollable_create(pollable_type type, pollable** p) {
   (*p)->root_worker = nullptr;
   (*p)->event_cursor = 0;
   (*p)->event_count = 0;
+  (*p)->test_epfd_pid = 0;
+  printf("pollable create, epfd = %d, pid = %d\n", epfd, (*p)->test_epfd_pid);
   return GRPC_ERROR_NONE;
 }
 
@@ -866,6 +871,16 @@ static void pollset_shutdown(grpc_pollset* pollset, grpc_closure* closure) {
 static grpc_error_handle pollable_process_events(grpc_pollset* pollset,
                                                  pollable* pollable_obj,
                                                  bool drain) {
+  int pid = getpid();
+  if (pollable_obj->test_epfd_pid == 0) {
+    pollable_obj->test_epfd_pid = pid;
+    printf("pollable process events: epfd = %d, pid = %d\n", pollable_obj->epfd, pid);
+  }
+  if (pid != pollable_obj->test_epfd_pid) {
+    printf("pollable process events: different pid %d -> %d for pollable epfd = %d\n", 
+      pollable_obj->test_epfd_pid, pid, pollable_obj->epfd);
+    abort();
+  }
   GPR_TIMER_SCOPE("pollable_process_events", 0);
   static const char* err_desc = "pollset_process_events";
   // Use a simple heuristic to determine how many fd events to process
@@ -934,6 +949,15 @@ static void pollset_destroy(grpc_pollset* pollset) {
 }
 
 static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
+  int pid = getpid();
+  if (p->test_epfd_pid == 0) {
+    p->test_epfd_pid = pid;
+    printf("pollable epoll: epfd = %d, pid = %d\n", p->epfd, pid);
+  }
+  if (pid != p->test_epfd_pid) {
+    printf("pollable epoll: different pid %d -> %d for pollable epfd = %d\n", p->test_epfd_pid, pid, p->epfd);
+    abort();
+  }
   GPR_TIMER_SCOPE("pollable_epoll", 0);
   int timeout = poll_deadline_to_millis_timeout(deadline);
 

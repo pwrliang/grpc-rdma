@@ -308,21 +308,27 @@ void RDMAConn::post_send_and_poll_completion(MemRegion& remote_mr, size_t remote
     exit(-1);
   }
 
-  struct ibv_send_wr sr;
-  struct ibv_sge sge;
+  struct ibv_send_wr sr1, sr2;
+  struct ibv_sge sge1, sge2;
   size_t remote_cap = remote_mr.length();
   size_t r_len = MIN(remote_cap - remote_tail, sz);
-  INIT_SGE(&sge, (uint8_t*)local_mr.addr() + local_offset, r_len, local_mr.lkey());
-  INIT_SR(&sr, &sge, opcode, (uint8_t*)remote_mr.addr() + remote_tail, remote_mr.rkey(), 1, r_len);
+  
+  INIT_SGE(&sge1, (uint8_t*)local_mr.addr() + local_offset, r_len, local_mr.lkey());
+  INIT_SR(&sr1, &sge1, opcode, (uint8_t*)remote_mr.addr() + remote_tail, remote_mr.rkey(), 1, r_len);
   rdma_log(RDMA_INFO, "RDMAConn::post_send_and_poll_completion, send %d data to remote %d",
            r_len, remote_tail);
-  post_send_and_poll_completion(&sr);
+  post_send_and_poll_completion(&sr1);
+  // printf("RDMAConn::post_send_and_poll_completion, send %d data to remote %d\n",
+  //          r_len, remote_tail);
+
   if (r_len < sz) {
-    INIT_SGE(&sge, (uint8_t*)local_mr.addr() + local_offset + r_len, sz - r_len, local_mr.lkey());
-    INIT_SR(&sr, &sge, opcode, remote_mr.addr(), remote_mr.rkey(), 1, sz - r_len);
+    INIT_SGE(&sge2, (uint8_t*)local_mr.addr() + local_offset + r_len, sz - r_len, local_mr.lkey());
+    INIT_SR(&sr2, &sge2, opcode, remote_mr.addr(), remote_mr.rkey(), 1, sz - r_len);
     rdma_log(RDMA_INFO, "RDMAConn::post_send_and_poll_completion, send %d data to remote %d",
              sz - r_len, 0);
-    post_send_and_poll_completion(&sr);
+    post_send_and_poll_completion(&sr2);
+    // printf("RDMAConn::post_send_and_poll_completion, send %d data to remote %d\n",
+    //          sz - r_len, 0);
   } 
 }
 

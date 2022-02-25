@@ -47,20 +47,16 @@ class SyncServeice final : public BENCHMARK::Service {
 
     Status BiUnary(ServerContext* context, const Complex* request, Complex* reply) override {
       reply->mutable_datas()->mutable_data1()->resize(request->numbers().number1());
-      // printf("%d, %d\n", reply->numbers().number1(), reply->mutable_datas()->mutable_data1()->length());
       return Status::OK;
     }
 
     Status ClientStream(ServerContext* context, ServerReader<Complex>* reader, Complex* reply) override {
       Complex request;
       size_t total_data_size = 0;
-      // size_t batch_size = 0;
       while (reader->Read(&request)) {
-        // batch_size++;
         total_data_size += request.datas().data1().length();
       }
       reply->mutable_numbers()->set_number1(total_data_size);
-      // reply->mutable_numbers()->set_number2(batch_size);
       return Status::OK;
     }
 
@@ -85,12 +81,12 @@ class SyncServeice final : public BENCHMARK::Service {
       int batch_size = 0;
       while (stream->Read(&request)) {
         batch_size++;
-        if (batch_size % 1000 == 0) printf("%d read done\n", batch_size);
+        // if (batch_size % 1000 == 0) printf("%d read done\n", batch_size);
         std::unique_lock<std::mutex> lock(mu_);
         reply.mutable_numbers()->set_number1(request.datas().data1().length());
         reply.mutable_datas()->mutable_data1()->resize(request.numbers().number1());
         stream->Write(reply);
-        if (batch_size % 1000 == 0) printf("%d write done\n\n", batch_size);
+        // if (batch_size % 1000 == 0) printf("%d write done\n\n", batch_size);
       }
       return Status::OK;
     }
@@ -150,8 +146,8 @@ DEFINE_bool(sync_enable, true, "");
 DEFINE_bool(async_enable, false, "");
 DEFINE_int32(async_cq_num, 1, "");
 DEFINE_int32(async_thread_num, 1, "");
-DEFINE_string(platform, "RDMA_BP", "which transport protocol used");
-DEFINE_string(verbosity, "INFO", "");
+DEFINE_string(platform, "TCP", "which transport protocol used");
+DEFINE_string(verbosity, "ERROR", "");
 
 int main(int argc, char** argv) {
   ::gflags::ParseCommandLineFlags(&argc, &argv, true);

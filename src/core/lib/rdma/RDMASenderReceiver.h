@@ -56,8 +56,17 @@ class RDMASenderReceiver {
     size_t head_sendbuf_sz_;
     void* head_sendbuf_ = nullptr;
     MemRegion head_sendbuf_mr_;
+    
+    size_t test_send_id = 0;
+    size_t test_send_to[1024*1024*16];
 };
 
+
+/*
+ * 1. update_remote_head after garbage >= ringbuf_size_ / 2, so sendbuf_size_ <= ringbuf_size_ / 2.
+ * 2. reset ringbuf fisrt, then update head.
+ * 3. mlen: length of pure data; len: mlen + sizeof(size_t) + 1.
+ */
 class RDMASenderReceiverBP : public RDMASenderReceiver {
   public:
     RDMASenderReceiverBP();
@@ -66,12 +75,15 @@ class RDMASenderReceiverBP : public RDMASenderReceiver {
     void connect(int fd);
     bool connected() { return connected_; }
 
-    bool send(msghdr* msg, size_t mlen);
-    size_t recv(msghdr* msg);
+    virtual bool send(msghdr* msg, size_t mlen);
+    virtual size_t recv(msghdr* msg);
 
+    // this should be thread safe, 
     bool check_incoming();
 
     size_t check_and_ack_incomings();
+
+    void diagnosis();
 
   protected:
     RingBufferBP* ringbuf_bp_ = nullptr;
@@ -97,8 +109,8 @@ class RDMASenderReceiverEvent : public RDMASenderReceiver {
     void connect(int fd, void* user_data); // user_data will be used as cq_context when create srq 
     bool connected() { return connected_; }
 
-    bool send(msghdr* msg, size_t mlen);
-    size_t recv(msghdr* msg);
+    virtual bool send(msghdr* msg, size_t mlen);
+    virtual size_t recv(msghdr* msg);
 
     size_t check_and_ack_incomings();
     
