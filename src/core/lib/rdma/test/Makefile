@@ -3,7 +3,7 @@ CXX = g++
 CFLAGS=-Wall -Wformat=0 -pthread -std=c++11 -g -c -I../
 CXXFLAGS += -std=c++11 -g
 VPATH=../
-DEPS = RDMASenderReceiver.h RDMAConn.h RDMAUtils.h ringbuffer.h log.h SockUtils.h thpool.h
+DEPS = RDMASenderReceiver.h RDMAConn.h RDMAUtils.h ringbuffer.h log.h SockUtils.h thpool.h Utils.h
 
 objects = RDMASenderReceiverBP.o RDMASenderReceiverEvent.o RDMASenderReceiver.o \
 			RDMAConnBP.o RDMAConnEvent.o RDMAConn.o \

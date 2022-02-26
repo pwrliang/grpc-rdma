@@ -72,30 +72,6 @@ size_t RingBufferBP::check_mlen(size_t head) {
   return mlen;
 }
 
-void RingBufferBP::check_mlen_0() {
-  size_t mlen;
-
-  if (head_ + sizeof(size_t) <= capacity_) {
-    mlen = *(size_t*)(buf_ + head_);
-    if (mlen && mlen + sizeof(size_t) + 1 < capacity_ &&
-        check_tail(head_, mlen) != 1) {
-      printf("case 1, %d\n", check_tail(head_, mlen));
-      return;
-    }
-    return;
-  }
-
-  size_t r = capacity_ - head_;
-  size_t l = sizeof(size_t) - r;
-  memcpy(&mlen, buf_ + head_, r);
-  memcpy((uint8_t*)(&mlen) + r, buf_, l);
-  if (mlen && mlen + sizeof(size_t) + 1 < capacity_ &&
-      check_tail(head_, mlen) != 1) {
-    printf("case 2\n");
-    return;
-  }
-}
-
 size_t RingBufferBP::check_mlens(size_t head) {
   size_t mlen, mlens = 0;
   while ((mlen = check_mlen(head)) > 0) {
@@ -186,10 +162,6 @@ size_t RingBufferBP::read_to_msghdr(msghdr* msg, size_t head,
   }
 
   // printf("\nringbuf: head = %d, read_size = %d, mlens = %d\n", head_, read_size, mlens);
-  
-
-  test_recv_head[test_recv_id] = head_;
-  test_recv_read_size[test_recv_id++] = read_size;
 
   reset_buf_and_update_head(read_size);
   // update_head(read_size);

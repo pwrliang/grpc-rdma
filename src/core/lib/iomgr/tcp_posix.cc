@@ -386,7 +386,6 @@ struct grpc_tcp {
   int* release_fd;
 
   grpc_closure read_done_closure;
-  int test_read_pid = 0;
 
   grpc_closure write_done_closure;
   grpc_closure error_closure;
@@ -892,15 +891,6 @@ static void tcp_continue_read(grpc_tcp* tcp) {
 
 static void tcp_handle_read(void* arg /* grpc_tcp */, grpc_error_handle error) {
   grpc_tcp* tcp = static_cast<grpc_tcp*>(arg);
-  int pid = getpid();
-  if (tcp->test_read_pid == 0) {
-    tcp->test_read_pid = pid;
-    printf("fd %d read closure pid = %d\n", tcp->fd, tcp->test_read_pid);
-  }
-  if (tcp->test_read_pid != pid) {
-    printf("different pid %d -> %d for fd %d\n", tcp->test_read_pid, pid, tcp->fd);
-    abort();
-  }
   if (GRPC_TRACE_FLAG_ENABLED(grpc_tcp_trace)) {
     gpr_log(GPR_INFO, "TCP:%p got_read: %s", tcp,
             grpc_error_std_string(error).c_str());

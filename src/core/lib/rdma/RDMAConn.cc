@@ -130,6 +130,46 @@ int modify_qp_to_rts(struct ibv_qp* qp) {
 
 // -----< RDMAConn >-----
 
+RDMAConn::RDMAConn(int fd, RDMANode* node)
+  : fd_(fd), node_(node) {
+  ibv_context* ctx = node_->get_ctx();
+  ibv_pd* pd = node_->get_pd();
+  ibv_port_attr port_attr = node_->get_port_attr();
+  ibv_device_attr dev_attr = node_->get_device_attr();
+  union ibv_gid gid = node_->get_gid();
+
+  scq_ = ibv_create_cq(ctx, dev_attr.max_cqe, NULL, NULL, 0);
+  if (!scq_) {
+    rdma_log(RDMA_ERROR,
+      "RDMAConn::RDMAConn, failed to create send CQ");
+    exit(-1);
+  }
+  rcq_ = ibv_create_cq(ctx, dev_attr.max_cqe, NULL, NULL, 0);
+  if (!rcq_) {
+    rdma_log(RDMA_ERROR,
+      "RDMAConn::RDMAConn, failed to create recv CQ");
+    exit(-1);
+  }
+
+  memset(&qp_attr_, 0, sizeof(qp_attr_));
+  qp_attr_.recv_cq = rcq_;
+  qp_attr_.send_cq = scq_;
+  qp_attr_.qp_type = IBV_QPT_RC;
+  qp_attr_.sq_sig_all = 0;
+  qp_attr_.cap.max_send_wr = DEFAULT_MAX_SEND_WR;
+  qp_attr_.cap.max_recv_wr = DEFAULT_MAX_RECV_WR;
+  qp_attr_.cap.max_send_sge = DEFAULT_MAX_SEND_SGE;
+  qp_attr_.cap.max_recv_sge = DEFAULT_MAX_RECV_SGE;
+  qp_ = ibv_create_qp(pd, &qp_attr_);
+  if (!qp_) {
+    rdma_log(RDMA_ERROR,
+             "RDMAConnEvent::RDMAConnEvent, failed to create QP for a connection");
+    exit(-1);
+  }
+
+  sync();
+} 
+
 RDMAConn::~RDMAConn() {
   if (rcq_ && rcq_ == scq_) {
     ibv_destroy_cq(rcq_);
@@ -293,8 +333,8 @@ void RDMAConn::poll_send_completion() {
   }
 }
 
-void RDMAConn::post_send_and_poll_completion(ibv_send_wr* sr, bool update_remote, uint8_t* remote_addr) {
-  std::unique_lock<std::mutex> lck(mtx_);
+void RDMAConn::post_send_and_poll_completion(ibv_send_wr* sr, bool update_remote) {
+  // std::unique_lock<std::mutex> lck(mtx_);
 
   struct ibv_send_wr* bad_wr = nullptr;
 
@@ -304,21 +344,6 @@ void RDMAConn::post_send_and_poll_completion(ibv_send_wr* sr, bool update_remote
   }
 
   poll_send_completion();
-
-  if (!update_remote) { // send message
-    test_send_to[test_send_id++] = sr->wr.rdma.remote_addr - (uint64_t)remote_addr;
-     test_send_to_len[test_send_id-1] = 0;
-    for(size_t i = 0; i < sr->num_sge; i++) {
-      test_send_to_len[test_send_id-1] += sr->sg_list[i].length;
-    }
-    
-  } else {
-    if (test_update_remote == 0) {
-      test_update_remote = sr->wr.rdma.remote_addr;
-    } else if (test_update_remote != sr->wr.rdma.remote_addr) {
-      exit(-1);
-    }
-  }
 }
 
 void RDMAConn::post_send_and_poll_completion(MemRegion& remote_mr, size_t remote_tail, 
@@ -338,16 +363,14 @@ void RDMAConn::post_send_and_poll_completion(MemRegion& remote_mr, size_t remote
   INIT_SR(&sr1, &sge1, opcode, (uint8_t*)remote_mr.addr() + remote_tail, remote_mr.rkey(), 1, r_len);
   rdma_log(RDMA_INFO, "RDMAConn::post_send_and_poll_completion, send %d data to remote %d",
            r_len, remote_tail);
-  post_send_and_poll_completion(&sr1, update_remote, (uint8_t*)remote_mr.addr());
-  // if (record) test_send_to[test_send_id++] = remote_tail;
+  post_send_and_poll_completion(&sr1, update_remote);
 
   if (r_len < sz) {
     INIT_SGE(&sge2, (uint8_t*)local_mr.addr() + local_offset + r_len, sz - r_len, local_mr.lkey());
     INIT_SR(&sr2, &sge2, opcode, remote_mr.addr(), remote_mr.rkey(), 1, sz - r_len);
     rdma_log(RDMA_INFO, "RDMAConn::post_send_and_poll_completion, send %d data to remote %d",
              sz - r_len, 0);
-    post_send_and_poll_completion(&sr2, update_remote, (uint8_t*)remote_mr.addr());
-    // if (record) test_send_to[test_send_id++] = 0;
+    post_send_and_poll_completion(&sr2, update_remote);
   } 
 }
 

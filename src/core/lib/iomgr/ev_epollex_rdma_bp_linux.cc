@@ -513,7 +513,7 @@ static void fd_orphan(grpc_fd* fd, grpc_closure* on_done, int* release_fd,
 
   fd->on_done_closure = on_done;
 
-  if (fd->rdmasr) {
+  // if (fd->rdmasr) {
     // for (std::set<pollable*>::iterator it = fd->rdma_pollables.begin(); it != fd->rdma_pollables.end(); it++) {
     //   pollable* p = *it;
     //   // gpr_mu_lock(&p->rdma_mu);
@@ -522,10 +522,10 @@ static void fd_orphan(grpc_fd* fd, grpc_closure* on_done, int* release_fd,
     //   p->rdma_flag = !(p->rdma_fds.empty());
     //   printf("orphan fd (%p, %d) from pollable: %p, %d, %d\n", fd, fd->fd, p, p->rdma_fds.size(), p->rdma_flag);
     // }
-    fd->rdma_pollables.clear();
-    fd->rdmasr = nullptr;
-    rdma_log(RDMA_INFO, "fd (%p, %d) is orphaned, rdmasr = %p, rdma_pollables.size() = %d", fd, fd->fd, fd->rdmasr, fd->rdma_pollables.size());
-  }
+    // fd->rdma_pollables.clear();
+    // fd->rdmasr = nullptr;
+    // rdma_log(RDMA_INFO, "fd (%p, %d) is orphaned, rdmasr = %p, rdma_pollables.size() = %d", fd, fd->fd, fd->rdmasr, fd->rdma_pollables.size());
+  // }
 
   /* If release_fd is not NULL, we should be relinquishing control of the file
      descriptor fd->fd (but we still own the grpc_fd structure). */
@@ -718,12 +718,12 @@ static grpc_error_handle pollable_add_fd(pollable* p, grpc_fd* fd) {
     } else {
       // gpr_mu_lock(&p->rdma_mu);
       p->rdma_fds.insert(fd);
-      // gpr_mu_unlock(&p->rdma_mu);
-      fd->rdma_pollables.insert(p);
+      // // gpr_mu_unlock(&p->rdma_mu);
+      // fd->rdma_pollables.insert(p);
       rdma_log(RDMA_INFO, "pollable %p add fd (%p, %d), pollable: rdma_fds size = %d, rdma_flag = %d; fd: rdmasr = %p, rdma_pollable size = %d",
                p, fd, fd->fd, p->rdma_fds.size(), p->rdma_flag, fd->rdmasr, fd->rdma_pollables.size());
-      printf("pollable_add_fd, p: %p, %d, %d, fd: %p, %d, %d\n", 
-              p, p->rdma_fds.size(), p->rdma_flag, fd, fd->fd, fd->rdma_pollables.size());
+      // printf("pollable_add_fd, p: %p, %d, %d, fd: %p, %d, %d\n", 
+      //         p, p->rdma_fds.size(), p->rdma_flag, fd, fd->fd, fd->rdma_pollables.size());
     }
   }
 
@@ -1038,7 +1038,7 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
   if (p->rdma_flag) {
     rdma_log(RDMA_DEBUG, "pollable %p epoll starts", p);
     timeout = 0;
-    bool found_rdma_incoming = false;
+    bool rdma_found = false;
     grpc_fd* fd;
     do {
       r = epoll_wait(p->epfd, p->events, MAX_EPOLL_EVENTS, timeout);
@@ -1049,19 +1049,24 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
         if (fd->rdmasr == nullptr) {
           rdma_log(RDMA_WARNING, "pollable_epoll, found nullptr from fd %d of pollable %p", fd->fd, p);
           // p->rdma_fds.erase(fd);
-          continue;
+          // continue;
+          abort();
         }
         if (fd->rdmasr->check_incoming()) {
-          found_rdma_incoming = true;
+          rdma_found = true;
           rdma_log(RDMA_DEBUG, "fd %d become readable", fd->fd);
           fd_become_readable(fd);
+        }
+        if (fd->rdmasr->if_write_again()) {
+          rdma_found = true;
+          fd_become_writable(fd);
         }
       }
       // gpr_mu_unlock(&p->rdma_mu);
       
     // } while (!found_rdma_incoming);
-    } while (((r < 0 && errno == EINTR) || r == 0) && !found_rdma_incoming);
-    rdma_log(RDMA_DEBUG, "pollable %p ends, r = %d, found_read_incoming = %d", p, r, found_rdma_incoming);
+    } while (((r < 0 && errno == EINTR) || r == 0) && !rdma_found);
+    rdma_log(RDMA_DEBUG, "pollable %p ends, r = %d, found_read_incoming = %d", p, r, rdma_found);
   } else {
     if (timeout != 0) {
       GRPC_SCHEDULING_START_BLOCKING_REGION;

@@ -39,7 +39,7 @@ using benchmark::Complex;
 int world_size, world_rank;
 
 void MPI_summary(int64_t time, const char* prefix) {
-  // MPI_Barrier(MPI_COMM_WORLD);
+  MPI_Barrier(MPI_COMM_WORLD);
   if (world_rank != 0) {
     MPI_Send(&time, 1, MPI_INT64_T, 0, 0, MPI_COMM_WORLD);
     return;
@@ -51,6 +51,8 @@ void MPI_summary(int64_t time, const char* prefix) {
   }
   printf("%s: world size = %d, total time duration = %lld ms, average time duration = %lld ms\n",
           prefix, world_size, total_time, total_time / world_size);
+  // printf("%s: time duration = %lld ms\n",
+  //         prefix, time);        
 }
 
 class BenchmarkClient {
@@ -64,6 +66,8 @@ class BenchmarkClient {
       if (!status.ok()) {
         printf("SyncSayHello failed: not ok\n");
         abort();
+      } else {
+        printf("SyncSayHello succeed\n");
       }
     }
 
@@ -87,6 +91,7 @@ class BenchmarkClient {
           printf("SyncBiUnary failed: actual reply size != expected reply size\n");
           abort();
         }
+        // printf("SyncBiUnary succeed\n");
       }
     }
 
@@ -188,34 +193,34 @@ class BenchmarkClient {
 
     void BatchOperations(const size_t batch_size, const size_t data_size) {
       auto t0 = std::chrono::high_resolution_clock::now();
-      std::stringstream ss;
+      std::stringstream ss("SyncBiUnary, ");
 
       SyncBiUnary(batch_size, data_size / 2, data_size * 2);
       auto t1 = std::chrono::high_resolution_clock::now();
       size_t ms = std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count();
-      ss.str("SyncBiUnary, ");
-      ss << "batch size = " << batch_size << ", data size = " << data_size;
+      ss.str("");
+      ss << "SyncBiUnary, batch size = " << batch_size << ", data size = " << data_size;
       MPI_summary(ms, ss.str().c_str());
 
       SyncClientStream(batch_size, data_size);
       auto t2 = std::chrono::high_resolution_clock::now();
       ms = std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count();
-      ss.str("SyncClientStream, ");
-      ss << "batch size = " << batch_size << ", data size = " << data_size;
+      ss.str("");
+      ss << "SyncClientStream, batch size = " << batch_size << ", data size = " << data_size;
       MPI_summary(ms, ss.str().c_str());
 
       SyncServerStream(batch_size, data_size);
       auto t3 = std::chrono::high_resolution_clock::now();
       ms = std::chrono::duration_cast<std::chrono::microseconds>(t3 - t2).count();
-      ss.str("SyncServerStream, ");
-      ss << "batch size = " << batch_size << ", data size = " << data_size;
+      ss.str("");
+      ss << "SyncServerStream, batch size = " << batch_size << ", data size = " << data_size;
       MPI_summary(ms, ss.str().c_str());
 
       SyncBiStream(batch_size, data_size / 2, data_size * 2);
       auto t4 = std::chrono::high_resolution_clock::now();
       ms = std::chrono::duration_cast<std::chrono::microseconds>(t4 - t3).count();
-      ss.str("SyncBiStream, ");
-      ss << "batch size = " << batch_size << ", data size = " << data_size;
+      ss.str("");
+      ss << "SyncBiStream, batch size = " << batch_size << ", data size = " << data_size;
       MPI_summary(ms, ss.str().c_str());
     }
 
@@ -228,8 +233,8 @@ DEFINE_bool(sync_enable, true, "");
 DEFINE_bool(async_enable, false, "");
 DEFINE_string(platform, "TCP", "which transport protocol used");
 DEFINE_string(verbosity, "ERROR", "");
-DEFINE_string(data_sizes, "1024*1024,1024*1024*3", "");
-DEFINE_string(batch_sizes, "1000,10000,100000", "");
+DEFINE_string(data_sizes, "1024*1024,4*1024*1024", "");
+DEFINE_string(batch_sizes, "1000,10000,20000,50000,100000", "");
 
 int main(int argc, char** argv) {
   MPI_Init(&argc, &argv);
@@ -257,6 +262,7 @@ int main(int argc, char** argv) {
 
   for (int data_size : data_sizes) {
     for (int batch_size : batch_sizes) {
+      printf("\n");
       client.BatchOperations(batch_size, data_size);
     }
   }

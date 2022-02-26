@@ -14,8 +14,9 @@
 
 // -----< RDMAConnEvent >-----
 
-RDMAConnEvent::RDMAConnEvent(int fd, RDMANode* node, ibv_comp_channel* channel, RDMASenderReceiverEvent* rdmasr)
-  : RDMAConn(fd, node) {
+RDMAConnEvent::RDMAConnEvent(int fd, RDMANode* node, ibv_comp_channel* channel, RDMASenderReceiverEvent* rdmasr) {
+  fd_ = fd;
+  node_ = node;
   ibv_context* ctx = node_->get_ctx();
   ibv_pd* pd = node_->get_pd();
   ibv_port_attr port_attr = node_->get_port_attr();

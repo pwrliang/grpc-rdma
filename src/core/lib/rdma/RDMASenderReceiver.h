@@ -25,8 +25,11 @@ class RDMASenderReceiver {
     RDMANode* get_node() { return &node_; }
     size_t get_unread_data_size() { return unread_data_size_; }
     virtual size_t get_max_send_size() { return max_send_size_; }
+    bool if_write_again() { return write_again_.exchange(false); } 
+    void write_again() { write_again_.store(true); }
   
   protected:
+    virtual void connect(int fd);
     void update_remote_head();
     void update_local_head();
 
@@ -34,10 +37,11 @@ class RDMASenderReceiver {
     static std::atomic<bool> node_opened_;
 
     int fd_;
-    RDMAConn* conn_ = nullptr;
+    RDMAConn* conn_data_ = nullptr; // no ownership 
+    RDMAConn* conn_head_ = nullptr; 
 
     size_t ringbuf_sz_, remote_ringbuf_head_ = 0, remote_ringbuf_tail_ = 0;
-    RingBuffer* ringbuf_ = nullptr;
+    RingBuffer* ringbuf_ = nullptr; // no ownership 
     MemRegion local_ringbuf_mr_, remote_ringbuf_mr_;
     size_t garbage_ = 0;
     size_t unread_data_size_ = 0;
@@ -48,6 +52,7 @@ class RDMASenderReceiver {
     MemRegion sendbuf_mr_;
     size_t max_send_size_ = 0;
     unsigned long long int total_send_sz = 0;
+    std::atomic<bool> write_again_;
 
     size_t head_recvbuf_sz_;
     void* head_recvbuf_ = nullptr;
@@ -56,9 +61,6 @@ class RDMASenderReceiver {
     size_t head_sendbuf_sz_;
     void* head_sendbuf_ = nullptr;
     MemRegion head_sendbuf_mr_;
-    
-    size_t test_send_id = 0;
-    size_t test_send_to[1024*1024*16];
 };
 
 
@@ -72,7 +74,7 @@ class RDMASenderReceiverBP : public RDMASenderReceiver {
     RDMASenderReceiverBP();
     virtual ~RDMASenderReceiverBP();
 
-    void connect(int fd);
+    virtual void connect(int fd);
     bool connected() { return connected_; }
 
     virtual bool send(msghdr* msg, size_t mlen);
@@ -81,19 +83,14 @@ class RDMASenderReceiverBP : public RDMASenderReceiver {
     // this should be thread safe, 
     bool check_incoming();
 
-    void check_mlen_0() { ringbuf_bp_->check_mlen_0(); }
-
     size_t check_and_ack_incomings();
-
 
     void diagnosis();
 
   protected:
     RingBufferBP* ringbuf_bp_ = nullptr;
-    RDMAConnBP* conn_bp_ = nullptr;
+    RDMAConnBP* conn_data_bp_ = nullptr;
     bool connected_ = false;
-
-    
 };
 
 ibv_comp_channel* rdma_create_channel(RDMANode* node);
@@ -123,7 +120,7 @@ class RDMASenderReceiverEvent : public RDMASenderReceiver {
     friend void* rdma_check_incoming(struct epoll_event* ev);
   protected:
     RingBufferEvent* ringbuf_event_ = nullptr;
-    RDMAConnEvent* conn_event_ = nullptr;
+    RDMAConnEvent* conn_data_event_ = nullptr;
     ibv_comp_channel* channel_ = nullptr;
     std::atomic<int> unprocessed_event_num_;
     std::atomic<int> unacked_event_num_;

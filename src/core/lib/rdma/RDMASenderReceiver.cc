@@ -19,6 +19,8 @@ RDMASenderReceiver::RDMASenderReceiver()
     node_.open(IBV_DEV_NAME);
   }
 
+  write_again_.store(false);
+
   if (sendbuf_sz_ >= ringbuf_sz_ / 2) {
     sendbuf_sz_ = ringbuf_sz_ / 2 - 1;
     rdma_log(RDMA_WARNING, "RDMASenderReceiver::RDMASenderReceiver, "
@@ -52,7 +54,6 @@ RDMASenderReceiver::RDMASenderReceiver()
              "head_sendbuf_mr");
     exit(-1);
   }
-
 }
 
 RDMASenderReceiver::~RDMASenderReceiver() {
@@ -60,17 +61,25 @@ RDMASenderReceiver::~RDMASenderReceiver() {
   free(head_recvbuf_);
   free(head_sendbuf_);
   ringbuf_ = nullptr;
-  conn_ = nullptr;
+  conn_data_ = nullptr;
+  if (conn_head_) {
+    delete conn_data_;
+  }
+}
+
+void RDMASenderReceiver::connect(int fd) {
+  conn_head_ = new RDMAConn(fd, &node_);
+  conn_head_->sync_mr(local_head_recvbuf_mr_, remote_head_recvbuf_mr_);
 }
 
 void RDMASenderReceiver::update_remote_head() {
-  if (!ringbuf_ || !conn_) {
+  if (!ringbuf_ || !conn_head_) {
     rdma_log(RDMA_ERROR, "RDMASenderReceiver::update_remote_head, ringbuf or connector has not been initialized");
     exit(-1);
   }
 
   reinterpret_cast<size_t*>(head_sendbuf_)[0] = ringbuf_->get_head();
-  conn_->post_send_and_poll_completion(remote_head_recvbuf_mr_, 0,
+  conn_head_->post_send_and_poll_completion(remote_head_recvbuf_mr_, 0,
                                        head_sendbuf_mr_, 0, 
                                        head_sendbuf_sz_, IBV_WR_RDMA_WRITE, true);
   rdma_log(RDMA_INFO, "RDMASenderReceiver::update_remote_head, %d", reinterpret_cast<size_t*>(head_sendbuf_)[0]);

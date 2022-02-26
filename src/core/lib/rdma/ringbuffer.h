@@ -36,8 +36,6 @@ class RingBuffer {
     size_t capacity_;
     size_t head_ = 0;
 
-    size_t test_recv_head[1024 * 1024 * 16], test_recv_read_size[1024 * 1024 * 16];
-    size_t test_recv_id = 0;
 };
 
 class RingBufferBP : public RingBuffer {
@@ -48,7 +46,6 @@ class RingBufferBP : public RingBuffer {
     bool check_head();
     size_t check_mlens() { return check_mlens(head_); }
     size_t check_mlen() { return check_mlen(head_); }
-    void check_mlen_0();
 
     size_t read_to_msghdr(msghdr* msg, size_t size) { return read_to_msghdr(msg, head_, size); }
 

@@ -100,8 +100,8 @@ RDMASenderReceiverEvent::RDMASenderReceiverEvent() {
 }
 
 RDMASenderReceiverEvent::~RDMASenderReceiverEvent() {
-  if (conn_event_) {
-    delete conn_event_;
+  if (conn_data_event_) {
+    delete conn_data_event_;
   }
   if (ringbuf_event_) {
     delete ringbuf_event_;
@@ -109,23 +109,23 @@ RDMASenderReceiverEvent::~RDMASenderReceiverEvent() {
 }
 
 void RDMASenderReceiverEvent::connect(int fd, void* user_data) {
+  RDMASenderReceiver::connect(fd);
   channel_ = rdma_create_channel(&node_);
   user_data_ = user_data;
-  conn_event_ = new RDMAConnEvent(fd, &node_, channel_, this);
-  conn_ = conn_event_;
-  conn_event_->sync_mr(local_ringbuf_mr_, remote_ringbuf_mr_);
-  conn_event_->sync_mr(local_head_recvbuf_mr_, remote_head_recvbuf_mr_);
+  conn_data_event_ = new RDMAConnEvent(fd, &node_, channel_, this);
+  conn_data_ = conn_data_event_;
+  conn_data_event_->sync_mr(local_ringbuf_mr_, remote_ringbuf_mr_);
 
-  ibv_req_notify_cq(conn_event_->rcq_, 0);
+  ibv_req_notify_cq(conn_data_event_->rcq_, 0);
 
-  conn_event_->post_recvs(ringbuf_event_->get_buf(), ringbuf_sz_, local_ringbuf_mr_.lkey(), DEFAULT_MAX_POST_RECV);
+  conn_data_event_->post_recvs(ringbuf_event_->get_buf(), ringbuf_sz_, local_ringbuf_mr_.lkey(), DEFAULT_MAX_POST_RECV);
 
   rdma_log(RDMA_INFO, "RDMASenderReceiverEvent connected, channel fd = %d", channel_->fd);
   connected_ = true;
 }
 
 size_t RDMASenderReceiverEvent::check_and_ack_incomings() {
-  unread_data_size_ += conn_event_->poll_recv_completions_and_post_recvs(ringbuf_event_->get_buf(), ringbuf_sz_, local_ringbuf_mr_.lkey());
+  unread_data_size_ += conn_data_event_->poll_recv_completions_and_post_recvs(ringbuf_event_->get_buf(), ringbuf_sz_, local_ringbuf_mr_.lkey());
   return unread_data_size_;
 }
 
@@ -178,7 +178,7 @@ bool RDMASenderReceiverEvent::send(msghdr* msg, size_t mlen) {
     start += iov_len;
   }
 
-  conn_event_->post_send_and_poll_completion(remote_ringbuf_mr_, remote_ringbuf_tail_,
+  conn_data_event_->post_send_and_poll_completion(remote_ringbuf_mr_, remote_ringbuf_tail_,
                                              sendbuf_mr_, 0, mlen, IBV_WR_RDMA_WRITE_WITH_IMM, false);
   remote_ringbuf_tail_ = (remote_ringbuf_tail_ + mlen) % remote_ringbuf_sz;
   total_send_sz += mlen;

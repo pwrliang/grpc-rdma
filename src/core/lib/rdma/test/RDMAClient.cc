@@ -1,4 +1,5 @@
 #include "../RDMASenderReceiver.h"
+#include "Utils.h"
 #include <unistd.h>
 #include <thread>
 #include "netinet/tcp.h"
@@ -10,15 +11,6 @@
 #include <mutex>
 #include <chrono>
 
-
-int random(int min, int max) {
-  static bool first = true;
-  if (first) {
-    srand(time(NULL));  // seeding for the first time only!
-    first = false;
-  }
-  return min + rand() % ((max + 1) - min);
-}
 
 class RDMAClient {
   public:
@@ -155,7 +147,7 @@ void send_thread_bp(RDMASenderReceiverBP* rdmasr) {
 int main(int argc, char *argv[]) {
 
   RDMAClient client;
-  int fd = client.connect("10.3.1.8", 50050);
+  int fd = client.connect("10.3.1.6", 50050);
 
   RDMASenderReceiverBP rdmasr;
   rdmasr.connect(fd);

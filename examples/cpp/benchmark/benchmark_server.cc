@@ -53,7 +53,10 @@ class SyncServeice final : public BENCHMARK::Service {
     Status ClientStream(ServerContext* context, ServerReader<Complex>* reader, Complex* reply) override {
       Complex request;
       size_t total_data_size = 0;
+      int id = 0;
       while (reader->Read(&request)) {
+        id++;
+        if (id % 1000 == 0) printf("ClientStream: %d-th read done\n", id);
         total_data_size += request.datas().data1().length();
       }
       reply->mutable_numbers()->set_number1(total_data_size);
@@ -78,15 +81,15 @@ class SyncServeice final : public BENCHMARK::Service {
 
     Status BiStream(ServerContext* context, ServerReaderWriter<Complex, Complex>* stream) override {
       Complex request, reply;
-      int batch_size = 0;
+      int id = 0;
       while (stream->Read(&request)) {
-        batch_size++;
-        // if (batch_size % 1000 == 0) printf("%d read done\n", batch_size);
+        id++;
+        if (id % 1000 == 0) printf("BiStream: %d-th read done\n", id);
         std::unique_lock<std::mutex> lock(mu_);
         reply.mutable_numbers()->set_number1(request.datas().data1().length());
         reply.mutable_datas()->mutable_data1()->resize(request.numbers().number1());
         stream->Write(reply);
-        // if (batch_size % 1000 == 0) printf("%d write done\n\n", batch_size);
+        if (id % 1000 == 0) printf("BiStream: %d-th write done\n", id);
       }
       return Status::OK;
     }
