@@ -100,7 +100,7 @@ int main(int argc, char* argv[]) {
   std::queue<std::vector<char>> sent_data;
   recv_msg.msg_iov = &recv_iov;
   recv_msg.msg_iovlen = 1;
-  std::atomic_int sent_count;
+  std::atomic_uint64_t sent_count;
   sent_count.store(0);
 
   LastN lastN, lastNrecv;
@@ -130,7 +130,7 @@ int main(int argc, char* argv[]) {
         {
           std::lock_guard<std::mutex> lg(mutex);
           if (sent_data.empty()) {
-            printf("Queue is empty, msg_len: %zu sent cnt: %d recv cnt: %zu\n",
+            printf("Queue is empty, msg_len: %zu sent cnt: %llu recv cnt: %zu\n",
                    msg_size, sent_count.load(), recv_count);
             printf("Sender len\n");
             lastN.print();
@@ -182,15 +182,15 @@ int main(int argc, char* argv[]) {
     send_msg.msg_iov = &send_iov;
     send_msg.msg_iovlen = 1;
 
-    printf("Send: %d\n", send_data_sz);
-    while (!rdmasr.send(&send_msg, send_data_sz))
-      ;
     {
       std::lock_guard<std::mutex> lg(mutex);
       sent_data.push(data_to_send);
     }
     sent_count++;
     lastN.add(send_data_sz);
+
+    while (!rdmasr.send(&send_msg, send_data_sz))
+      ;
   }
 
   return 0;
