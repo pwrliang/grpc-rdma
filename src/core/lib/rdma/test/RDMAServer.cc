@@ -158,7 +158,7 @@ static void* thread_handler_bp(void* args) {
 
         send1recv2 = 2;
         send_recv_timer_start = true;
-        while (rdmasr->check_incoming() == false || rdmasr->check_and_ack_incomings() == 0) {
+        while (rdmasr->check_and_ack_incomings() == 0) {
           while(sender_recver_stop) { 
             std::this_thread::yield(); 
           }
@@ -171,7 +171,6 @@ static void* thread_handler_bp(void* args) {
         iov.iov_len = check_size;
         // printf("%d-th data incoming %d\n", id, check_size);
         int read_size = rdmasr->recv(&msg);
-        // printf("%d-th recv %d bytes\n", id, read_size);
 
         int send_length = read_size;
         while (send_length > 0) {

@@ -49,11 +49,9 @@ size_t RingBufferBP::check_mlen(size_t head) {
 
   if (head + sizeof(size_t) <= capacity_) {
     mlen = *(size_t*)(buf_ + head);
+    if (mlen == 0) return 0;
     if (mlen && mlen + sizeof(size_t) + 1 < capacity_ &&
         check_tail(head, mlen) != 1) {
-      return 0;
-    }
-    if (mlen > capacity_ / 2 + 100) {
       return 0;
     }
     return *(size_t*)(buf_ + head);
@@ -63,6 +61,7 @@ size_t RingBufferBP::check_mlen(size_t head) {
   size_t l = sizeof(size_t) - r;
   memcpy(&mlen, buf_ + head, r);
   memcpy((uint8_t*)(&mlen) + r, buf_, l);
+  if (mlen == 0) return 0;
   if (mlen && mlen + sizeof(size_t) + 1 < capacity_ &&
       check_tail(head, mlen) != 1) {
     return 0;
@@ -70,11 +69,31 @@ size_t RingBufferBP::check_mlen(size_t head) {
   memcpy(&mlen, buf_ + head, r);
   memcpy((uint8_t*)(&mlen) + r, buf_, l);
 
-  if (mlen > capacity_ / 2 + 100) {
-    return 0;
+  return mlen;
+}
+
+void RingBufferBP::check_mlen_0() {
+  size_t mlen;
+
+  if (head_ + sizeof(size_t) <= capacity_) {
+    mlen = *(size_t*)(buf_ + head_);
+    if (mlen && mlen + sizeof(size_t) + 1 < capacity_ &&
+        check_tail(head_, mlen) != 1) {
+      printf("case 1, %d\n", check_tail(head_, mlen));
+      return;
+    }
+    return;
   }
 
-  return mlen;
+  size_t r = capacity_ - head_;
+  size_t l = sizeof(size_t) - r;
+  memcpy(&mlen, buf_ + head_, r);
+  memcpy((uint8_t*)(&mlen) + r, buf_, l);
+  if (mlen && mlen + sizeof(size_t) + 1 < capacity_ &&
+      check_tail(head_, mlen) != 1) {
+    printf("case 2\n");
+    return;
+  }
 }
 
 size_t RingBufferBP::check_mlens(size_t head) {
@@ -120,6 +139,7 @@ size_t RingBufferBP::read_to_msghdr(msghdr* msg, size_t head,
   size_t mlen = check_mlen(head), m_offset = 0, m_rlen;
   size_t mlens = 0, read_size = 0,
          buf_offset = (head + sizeof(size_t)) % capacity_, n;
+  assert(mlen > 0);
   while (mlens < expected_mlens && iov_idx < msg->msg_iovlen &&
          mlen > 0) {
     iov_rlen = msg->msg_iov[iov_idx].iov_len -

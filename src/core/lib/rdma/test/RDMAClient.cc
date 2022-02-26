@@ -155,14 +155,13 @@ void send_thread_bp(RDMASenderReceiverBP* rdmasr) {
 int main(int argc, char *argv[]) {
 
   RDMAClient client;
-  int fd = client.connect("10.3.1.19", 50050);
+  int fd = client.connect("10.3.1.8", 50050);
 
   RDMASenderReceiverBP rdmasr;
   rdmasr.connect(fd);
   printf("connection established\n");
 
   std::thread send_thread(send_thread_bp, &rdmasr);
-  // send_thread_bp(&rdmasr);
 
   struct msghdr recv_msg;
   struct iovec recv_iov;

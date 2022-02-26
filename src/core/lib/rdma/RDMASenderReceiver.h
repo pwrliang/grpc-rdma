@@ -81,7 +81,10 @@ class RDMASenderReceiverBP : public RDMASenderReceiver {
     // this should be thread safe, 
     bool check_incoming();
 
+    void check_mlen_0() { ringbuf_bp_->check_mlen_0(); }
+
     size_t check_and_ack_incomings();
+
 
     void diagnosis();
 
