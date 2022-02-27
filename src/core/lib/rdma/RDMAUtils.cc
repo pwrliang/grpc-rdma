@@ -12,6 +12,8 @@
 #include <sys/types.h>
 #include "fcntl.h"
 
+// -----< MemRegion >-----
+
 int MemRegion::remote_reg(void* mem, uint32_t rkey, size_t len) {
   dereg();
 
@@ -50,6 +52,9 @@ void MemRegion::dereg() {
   flag = 0;
   remote = true;
 }
+
+
+// -----< RDMANode >-----
 
 int RDMANode::open(const char* name) {
   ibv_device** dev_list = NULL;
@@ -118,4 +123,52 @@ void RDMANode::close() {
     ib_ctx = NULL;
   }
   memset(&port_attr, 0, sizeof(port_attr));
+}
+
+
+// -----< RDMATimer >-----
+
+
+void RDMATimer::RDMATimerFunc(RDMATimer* args) {
+  std::unique_lock<std::mutex> lck(args->mtx_);
+
+  while (true) {
+    
+    args->start_.wait(lck);
+
+    if (!args->alive_) break;
+
+    if (args->timer_.wait_for(lck, std::chrono::seconds(args->timeout_s_)) == std::cv_status::no_timeout) {
+      continue;
+    }
+
+    // timeout
+    args->stop_ = true;
+    args->cb_();
+    args->stop_ = false;
+
+  }
+
+}
+
+RDMATimer::RDMATimer(size_t timeout_s, cb_func cb) 
+  : timeout_s_(timeout_s), cb_(cb) {
+  alive_.store(true);
+  thread_ = new std::thread(RDMATimerFunc, this);
+}
+
+RDMATimer::~RDMATimer() {
+  alive_ = false;
+  start_.notify_all();
+
+  thread_->join();
+}
+
+
+void RDMATimer::start() {
+  start_.notify_one();
+}
+
+void RDMATimer::stop() {
+  timer_.notify_one();
 }

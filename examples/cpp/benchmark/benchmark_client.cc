@@ -51,8 +51,6 @@ void MPI_summary(int64_t time, const char* prefix) {
   }
   printf("%s: world size = %d, total time duration = %lld ms, average time duration = %lld ms\n",
           prefix, world_size, total_time, total_time / world_size);
-  // printf("%s: time duration = %lld ms\n",
-  //         prefix, time);        
 }
 
 class BenchmarkClient {
@@ -259,13 +257,14 @@ int main(int argc, char** argv) {
   BenchmarkClient client(grpc::CreateChannel(server_address, grpc::InsecureChannelCredentials()));
 
   client.SyncSayHello();
+  client.SyncSayHello();
 
-  for (int data_size : data_sizes) {
-    for (int batch_size : batch_sizes) {
-      printf("\n");
-      client.BatchOperations(batch_size, data_size);
-    }
-  }
+  // for (int data_size : data_sizes) {
+  //   for (int batch_size : batch_sizes) {
+  //     printf("\n");
+  //     client.BatchOperations(batch_size, data_size);
+  //   }
+  // }
 
   return 0;
 }

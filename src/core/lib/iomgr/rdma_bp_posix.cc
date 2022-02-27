@@ -141,13 +141,13 @@ static void notify_on_write(grpc_rdma* rdma) {
 
 static void rdma_shutdown(grpc_endpoint* ep, grpc_error_handle why) {
   grpc_rdma* rdma = reinterpret_cast<grpc_rdma*>(ep);
-  // printf("rdma shutdown, shutdown fd %d\n", grpc_fd_wrapped_fd(rdma->em_fd));
+  printf("rdma shutdown, shutdown fd %d\n", grpc_fd_wrapped_fd(rdma->em_fd));
   grpc_fd_shutdown(rdma->em_fd, why);
   grpc_resource_user_shutdown(rdma->resource_user);
 }
 
 static void rdma_free(grpc_rdma* rdma) {
-  // printf("rdma free, orphan fd %d\n", grpc_fd_wrapped_fd(rdma->em_fd));
+  printf("rdma free, orphan fd %d\n", grpc_fd_wrapped_fd(rdma->em_fd));
   grpc_fd_orphan(rdma->em_fd, rdma->release_fd_cb, rdma->release_fd,
                  "rdma_unref_orphan");
   grpc_slice_buffer_destroy_internal(&rdma->last_read_buffer);
@@ -347,56 +347,6 @@ static void rdma_read(grpc_endpoint* ep, grpc_slice_buffer* incoming_buffer,
 
 // -----< rdma_write >-----
 #define MAX_WRITE_IOVEC 1000
-
-// static bool rdma_flush(grpc_rdma* rdma, grpc_error_handle* error) {
-//   size_t rdma_max_send_size = rdma->rdmasr->get_max_send_size();
-
-//   struct msghdr msg;
-//   struct iovec iov[MAX_WRITE_IOVEC];
-//   size_t iov_size;
-//   size_t sending_length, total_sent_length = 0;
-//   size_t outgoing_slice_idx = 0, slice_offset = 0;
-//   while (outgoing_slice_idx < rdma->outgoing_buffer->count) {
-//     sending_length = 0;
-//     for (iov_size = 0;
-//          outgoing_slice_idx < rdma->outgoing_buffer->count && 
-//          iov_size < MAX_WRITE_IOVEC && 
-//          sending_length < rdma_max_send_size;
-//          iov_size++) {
-//       iov[iov_size].iov_base =
-//           GRPC_SLICE_START_PTR(
-//               rdma->outgoing_buffer->slices[outgoing_slice_idx]) +
-//           slice_offset;
-//       size_t iov_len =
-//           GRPC_SLICE_LENGTH(rdma->outgoing_buffer->slices[outgoing_slice_idx]) -
-//           slice_offset;
-//       if (sending_length + iov_len > rdma_max_send_size) {
-//         iov[iov_size].iov_len = rdma_max_send_size - sending_length;
-//         slice_offset += iov[iov_size].iov_len;
-//       } else {
-//         iov[iov_size].iov_len = iov_len;
-//         outgoing_slice_idx++;
-//         slice_offset = 0;
-//       }
-//       sending_length += iov[iov_size].iov_len;
-//     }
-//     msg.msg_iov = iov;
-//     msg.msg_iovlen = iov_size;
-//     total_sent_length += sending_length;
-
-//     rdma_log(RDMA_INFO, "rdma_flush try to send %d bytes, %d, %d, %d", 
-//              sending_length, iov_size, total_sent_length, rdma->outgoing_buffer->length);
-//     // if (rdma->rdmasr->send(&msg, sending_length) == false) {
-//     //   rdma_log(RDMA_ERROR, "rdma send failed");
-//     //   abort();
-//     // }
-//     while (rdma->rdmasr->send(&msg, sending_length) == false) {}
-
-//   }
-//   *error = GRPC_ERROR_NONE;
-//   grpc_slice_buffer_reset_and_unref_internal(rdma->outgoing_buffer);
-//   return true;
-// }
 
 static bool rdma_flush(grpc_rdma* rdma, grpc_error_handle* error) {
   struct msghdr msg;
@@ -628,7 +578,7 @@ grpc_endpoint* grpc_rdma_bp_create(grpc_fd* em_fd,
   rdma->rdmasr->connect(rdma->fd);
   grpc_fd_set_rdmasr_bp(em_fd, rdma->rdmasr);
   rdma_log(RDMA_INFO, "rdmasr %p is created, attached to fd %d", rdma->rdmasr, rdma->fd);
-  // printf("rdma created, attached to fd: %p, %d\n", rdma->em_fd, rdma->fd);
+  printf("rdma created, attached to fd: %p, %d\n", rdma->em_fd, rdma->fd);
   return &rdma->base;
 }
 
