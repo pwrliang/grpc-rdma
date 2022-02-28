@@ -162,19 +162,16 @@ class BenchmarkServer {
   }
 
   void AsyncHandleAll(ServerCompletionQueue* notification_cq,
-                      CompletionQueue* call_cq, int thread_id) {
-    new CallData(&async_service_, call_cq, notification_cq, thread_id,
+                      CompletionQueue* call_cq, int thread_id, int cq_id) {
+    new CallData(&async_service_, call_cq, notification_cq, thread_id, cq_id,
                  SAYHELLO);
-    new CallData(&async_service_, call_cq, notification_cq, thread_id, BIUNARY);
+    new CallData(&async_service_, call_cq, notification_cq, thread_id, cq_id,
+                 BIUNARY);
 
     auto deadline = gpr_time_from_millis(10, GPR_TIMESPAN);
     void* tag = nullptr;
     bool ok;
     grpc::CompletionQueue::NextStatus status;
-    // while ((status = notification_cq->AsyncNext(&tag, &ok, deadline)) !=
-    // grpc::CompletionQueue::SHUTDOWN) {
-
-    // }
     bool alive = true;
     while (alive) {
       switch (notification_cq->AsyncNext(&tag, &ok, deadline)) {
@@ -194,12 +191,11 @@ class BenchmarkServer {
     }
   }
 
-  static void AsyncThreadRunThis(BenchmarkServer* server, int thread_id) {}
-
   void Run() {
-    // if (async_enable_) {
-
-    // }
+    if (sync_enable_ && async_enable_) {
+      std::cout << "sync_enable_ and async_enable_ are true";
+      exit(1);
+    }
     if (sync_enable_) {
       // for (size_t i = 0; i < sync_threads_num_; i++) {
       //   sync_threads_.emplace_back(std::thread(SyncThreadRunThis, this, i));
@@ -207,7 +203,25 @@ class BenchmarkServer {
       SyncThreadRunThis(this, 0);
     }
     if (async_enable_) {
-      for (size_t i = 0; i < async_threads_num_; i++) async_threads_[i].join();
+      std::cout << "Async, thread: " << async_threads_num_
+                << " cq: " << async_cqs_num_ << std::endl;
+      if (async_threads_num_ < async_cqs_num_) {
+        std::cerr << "Too few async threads" << std::endl;
+        exit(1);
+      }
+      for (size_t i = 0; i < async_threads_num_; i++) {
+        async_threads_.emplace_back(
+            [&](int tid) {
+              int cq_idx = tid % async_cqs_.size();
+              auto& server_cq = async_cqs_[cq_idx];
+              AsyncHandleAll(server_cq.get(), server_cq.get(), tid, cq_idx);
+            },
+            i);
+      }
+
+      for (auto& th : async_threads_) {
+        th.join();
+      }
     }
     // if (sync_enable_) {
     //   for (size_t i = 0; i < sync_threads_num_; i++) sync_threads_[i].join();
@@ -250,12 +264,13 @@ class BenchmarkServer {
     } BiStreamPackage;
 
     CallData(BENCHMARK::AsyncService* service, CompletionQueue* call_cq,
-             ServerCompletionQueue* notification_cq, int thread_id,
+             ServerCompletionQueue* notification_cq, int thread_id, int cq_id,
              ServiceType type)
         : service_(service),
           call_cq_(call_cq),
           notification_cq_(notification_cq),
           thread_id_(thread_id),
+          cq_id_(cq_id),
           type_(type),
           status_(CREATE) {
       switch (type) {
@@ -315,7 +330,10 @@ class BenchmarkServer {
         return;
       }
       if (status_ == PROCESS) {
-        new CallData(service_, call_cq_, notification_cq_, thread_id_, type_);
+        new CallData(service_, call_cq_, notification_cq_, thread_id_, cq_id_,
+                     type_);
+        std::cout << "Thread " << thread_id_ << " is processing cq: " << cq_id_
+                  << std::endl;
         switch (type_) {
           case SAYHELLO:
             ProcessSayHello();
@@ -428,6 +446,7 @@ class BenchmarkServer {
     ServerCompletionQueue* notification_cq_ = nullptr;
     ServerContext ctx_;
     int thread_id_;
+    int cq_id_;
     ServiceType type_;
     CallStatus status_;
 
@@ -457,8 +476,8 @@ DEFINE_string(server_address, "0.0.0.0:50051", "");
 DEFINE_bool(sync_enable, true, "");
 DEFINE_int32(sync_thread_num, 1, "");
 DEFINE_bool(async_enable, false, "");
-DEFINE_int32(async_cq_num, 0, "");
-DEFINE_int32(async_thread_num, 0, "");
+DEFINE_int32(async_cq_num, 2, "");
+DEFINE_int32(async_thread_num, 4, "");
 DEFINE_string(platform, "TCP", "which transport protocol used");
 DEFINE_string(verbosity, "ERROR", "");
 

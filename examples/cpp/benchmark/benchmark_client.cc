@@ -284,6 +284,52 @@ class BenchmarkClient {
     }
   }
 
+  struct AsyncClientCall {
+    Data_Empty reply;
+    ClientContext context;
+    Status status;
+
+    std::unique_ptr<grpc::ClientAsyncResponseReader<Data_Empty>>
+        response_reader;
+    int idx;
+    int total;
+  };
+
+  void AsyncSayHello() {
+    grpc::CompletionQueue cq;
+    std::thread recv_th = std::thread([&]() {
+      void* got_tag;
+      bool ok = false;
+      int n_recv = 0;
+      while (cq.Next(&got_tag, &ok)) {
+        AsyncClientCall* call = static_cast<AsyncClientCall*>(got_tag);
+        GPR_ASSERT(ok);
+
+        if (call->status.ok()) {
+          n_recv++;
+          std::cout << "Greeter received: " << call->idx
+                    << " rest: " << call->total - n_recv << std::endl;
+        } else
+          std::cout << "RPC failed" << std::endl;
+
+        delete call;
+      }
+    });
+    int total = 1000;
+    for (int i = 0; i < total; i++) {
+      Data_Empty dataEmpty;
+      AsyncClientCall* call = new AsyncClientCall;
+      call->idx = i;
+      call->total = total;
+      call->response_reader =
+          stub_->PrepareAsyncSayHello(&call->context, dataEmpty, &cq);
+      call->response_reader->StartCall();
+      call->response_reader->Finish(&call->reply, &call->status, (void*)call);
+    }
+    std::cout << "Press control-c to quit" << std::endl << std::endl;
+    recv_th.join();
+  }
+
  private:
   std::unique_ptr<BENCHMARK::Stub> stub_;
 };
@@ -320,9 +366,10 @@ int main(int argc, char** argv) {
 
   BenchmarkClient client(
       grpc::CreateChannel(server_address, grpc::InsecureChannelCredentials()));
-  client.SyncSayHello();
+  //  client.SyncSayHello();
 
-  client.Test();
+  //  client.Test();
+  client.AsyncSayHello();
   //    client.SyncSayHello();
   //
   //    for (int data_size: data_sizes) {
