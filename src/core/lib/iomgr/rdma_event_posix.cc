@@ -153,14 +153,7 @@ static void rdma_free(grpc_rdma* rdma) {
                  "rdma_unref_orphan");
   grpc_slice_buffer_destroy_internal(&rdma->last_read_buffer);
   grpc_resource_user_unref(rdma->resource_user);
-  /* The lock is not really necessary here, since all refs have been released */
-  // gpr_mu_lock(&rdma->tb_mu);
-  // grpc_core::TracedBuffer::Shutdown(
-  //     &rdma->tb_head, rdma->outgoing_buffer_arg,
-  //     GRPC_ERROR_CREATE_FROM_STATIC_STRING("endpoint destroyed"));
-  // gpr_mu_unlock(&rdma->tb_mu);
-  // rdma->outgoing_buffer_arg = nullptr;
-  // gpr_mu_destroy(&rdma->tb_mu);
+  delete rdma->rdmasr;
   delete rdma;
 }
 

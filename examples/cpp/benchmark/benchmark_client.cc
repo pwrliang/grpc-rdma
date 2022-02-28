@@ -231,8 +231,10 @@ DEFINE_bool(sync_enable, true, "");
 DEFINE_bool(async_enable, false, "");
 DEFINE_string(platform, "TCP", "which transport protocol used");
 DEFINE_string(verbosity, "ERROR", "");
-DEFINE_string(data_sizes, "1024*1024,4*1024*1024", "");
-DEFINE_string(batch_sizes, "1000,10000,20000,50000,100000", "");
+// DEFINE_string(data_sizes, "1024*1024,4*1024*1024", "");
+DEFINE_string(data_sizes, "1024", "");
+// DEFINE_string(batch_sizes, "1000,10000,20000,50000,100000", "");
+DEFINE_string(batch_sizes, "1000", "");
 
 int main(int argc, char** argv) {
   MPI_Init(&argc, &argv);
@@ -257,14 +259,14 @@ int main(int argc, char** argv) {
   BenchmarkClient client(grpc::CreateChannel(server_address, grpc::InsecureChannelCredentials()));
 
   client.SyncSayHello();
-  client.SyncSayHello();
+  // client.SyncSayHello();
 
-  // for (int data_size : data_sizes) {
-  //   for (int batch_size : batch_sizes) {
-  //     printf("\n");
-  //     client.BatchOperations(batch_size, data_size);
-  //   }
-  // }
+  for (int data_size : data_sizes) {
+    for (int batch_size : batch_sizes) {
+      printf("\n");
+      client.BatchOperations(batch_size, data_size);
+    }
+  }
 
   return 0;
 }

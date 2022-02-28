@@ -152,6 +152,7 @@ static void rdma_free(grpc_rdma* rdma) {
                  "rdma_unref_orphan");
   grpc_slice_buffer_destroy_internal(&rdma->last_read_buffer);
   grpc_resource_user_unref(rdma->resource_user);
+  delete rdma->rdmasr;
   delete rdma;
 }
 
