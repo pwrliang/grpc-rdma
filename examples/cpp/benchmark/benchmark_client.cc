@@ -40,21 +40,19 @@ using benchmark::Complex;
 
 int world_size, world_rank;
 
-void MPI_summary(int64_t time, const char *prefix) {
-    MPI_Barrier(MPI_COMM_WORLD);
-    if (world_rank != 0) {
-        MPI_Send(&time, 1, MPI_INT64_T, 0, 0, MPI_COMM_WORLD);
-        return;
-    }
-    int64_t total_time = time, _time_;
-    for (int i = 1; i < world_size; i++) {
-        MPI_Recv(&_time_, 1, MPI_INT64_T, i, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-        total_time += _time_;
-    }
-    printf("%s: world size = %d, total time duration = %lld ms, average time duration = %lld ms\n",
-           prefix, world_size, total_time, total_time / world_size);
-    // printf("%s: time duration = %lld ms\n",
-    //         prefix, time);
+void MPI_summary(int64_t time, const char* prefix) {
+  MPI_Barrier(MPI_COMM_WORLD);
+  if (world_rank != 0) {
+    MPI_Send(&time, 1, MPI_INT64_T, 0, 0, MPI_COMM_WORLD);
+    return;
+  }
+  int64_t total_time = time, _time_;
+  for (int i = 1; i < world_size; i++) {
+    MPI_Recv(&_time_, 1, MPI_INT64_T, i, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+    total_time += _time_;
+  }
+  printf("%s: world size = %d, total time duration = %lld ms, average time duration = %lld ms\n",
+          prefix, world_size, total_time, total_time / world_size);
 }
 
 class BenchmarkClient {
@@ -272,8 +270,10 @@ DEFINE_bool(sync_enable, true, "");
 DEFINE_bool(async_enable, false, "");
 DEFINE_string(platform, "TCP", "which transport protocol used");
 DEFINE_string(verbosity, "ERROR", "");
-DEFINE_string(data_sizes, "1024*1024,4*1024*1024", "");
-DEFINE_string(batch_sizes, "1000,10000,20000,50000,100000", "");
+// DEFINE_string(data_sizes, "1024*1024,4*1024*1024", "");
+DEFINE_string(data_sizes, "1024", "");
+// DEFINE_string(batch_sizes, "1000,10000,20000,50000,100000", "");
+DEFINE_string(batch_sizes, "1000", "");
 
 int main(int argc, char **argv) {
     MPI_Init(&argc, &argv);
@@ -296,6 +296,7 @@ int main(int argc, char **argv) {
     setenv("RDMA_VERBOSITY", verbosity.c_str(), 1);
 
     BenchmarkClient client(grpc::CreateChannel(server_address, grpc::InsecureChannelCredentials()));
+  client.SyncSayHello();
 
     client.Test();
 //    client.SyncSayHello();

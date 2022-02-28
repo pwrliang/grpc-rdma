@@ -38,6 +38,10 @@
 #include <sys/syscall.h>
 #include <unistd.h>
 #include <set>
+#include <map>
+#include <vector>
+#include <mutex>
+#include <shared_mutex>
 
 #include <string>
 
@@ -113,11 +117,9 @@ struct pollable {
   struct epoll_event events[MAX_EPOLL_EVENTS];
 
   // pollable is created by malloc inside pollable_create
-  std::set<grpc_fd*> rdma_fds;
+  std::map<int, grpc_fd*> rdma_fds;
 
-  bool rdma_flag;
-
-  // gpr_mu rdma_mu;
+  gpr_mu rdma_mu;
 };
 
 static const char* pollable_type_string(pollable_type t) {
@@ -159,7 +161,7 @@ static void pollable_unref(pollable* p, const grpc_core::DebugLocation& dbg_loc,
  */
 
 struct grpc_fd {
-  grpc_fd(int fd, const char* name, bool track_err, bool rdma_enable)
+  grpc_fd(int fd, const char* name, bool track_err)
       : fd(fd), track_err(track_err) {
     gpr_mu_init(&orphan_mu);
     gpr_mu_init(&pollable_mu);
@@ -168,8 +170,7 @@ struct grpc_fd {
     error_closure.InitEvent();
     rdmasr = nullptr;
     rdma_pollables.clear();
-    rdma_log(RDMA_INFO, "fd (%p, %d) is created, rdmasr = %p, rdma_pollables size = %d", 
-           this, fd, rdmasr, rdma_pollables.size());
+    printf("fd %d is created\n", fd);
 
     std::string fd_name = absl::StrCat(name, " fd=", fd);
     grpc_iomgr_register_object(&iomgr_object, fd_name.c_str());
@@ -185,7 +186,7 @@ struct grpc_fd {
   // Since the object will be added to the free pool, this behavior is
   // not going to cause issues, except spurious events if the FD is reused
   // while the race happens.
-  void destroy(struct grpc_fd* self) {
+  void destroy() {
     grpc_iomgr_unregister_object(&iomgr_object);
 
     POLLABLE_UNREF(pollable_obj, "fd_pollable");
@@ -205,17 +206,8 @@ struct grpc_fd {
     write_closure.DestroyEvent();
     error_closure.DestroyEvent();
     rdmasr = nullptr;
-    // for (std::set<pollable*>::iterator it = rdma_pollables.begin(); it != rdma_pollables.end(); it++) {
-    //   pollable* p = *it;
-    //   // gpr_mu_lock(&p->rdma_mu);
-    //   p->rdma_fds.erase(self);
-    //   // gpr_mu_unlock(&p->rdma_mu);
-    //   p->rdma_flag = !(p->rdma_fds.empty());
-    //   printf("destroy fd (%p, %d) from pollable: %p, %d, %d\n", self, fd, p, p->rdma_fds.size(), p->rdma_flag);
-    // }
     rdma_pollables.clear();
-    rdma_log(RDMA_INFO, "fd (%p, %d) is destroyed, rdmasr = %p, rdma_pollables size = %d",
-             this, fd, rdmasr, rdma_pollables.size());
+    printf("fd %d is destroyed\n", fd);
 
     invalidate();
   }
@@ -268,13 +260,12 @@ struct grpc_fd {
 
   // set to nullptr inside fd constructor and fd_create
   // set value inside grpc_rdma_bp_create
-  // add it self to vector of pollable during pollable_add_fd, and add pollable into rdma_pollables
+  // add it self to vector of pollable during pollable_add_fd
   // del it self from vector of pollables during fd_orphan
   RDMASenderReceiverBP* rdmasr = nullptr;
   // fd is created by new, inside fd_create
 
-  // std::vector<pollable*> rdma_pollables;
-  std::set<pollable*> rdma_pollables;
+  std::vector<pollable*> rdma_pollables;
 };
 
 static void pollable_unref(pollable* p, const grpc_core::DebugLocation& dbg_loc,
@@ -286,15 +277,9 @@ static void pollable_unref(pollable* p, const grpc_core::DebugLocation& dbg_loc,
     grpc_wakeup_fd_destroy(&p->wakeup);
     gpr_mu_destroy(&p->owner_orphan_mu);
     gpr_mu_destroy(&p->mu);
-    // for (std::set<grpc_fd*>::iterator it = p->rdma_fds.begin(); it != p->rdma_fds.end(); it++) {
-    //   grpc_fd* fd = *it;
-    //   fd->rdma_pollables.erase(p);
-    //   printf("unref pollable %p from fd: %p, %d, %d\n", p, fd, fd->fd, fd->rdma_pollables.size());
-    // }
-    // gpr_mu_destroy(&p->rdma_mu);
     p->rdma_fds.clear();
-    p->rdma_flag = false;
-    rdma_log(RDMA_INFO, "pollable %p is closed, rdma_fds size = %d, rdma_flag = %d", p, p->rdma_fds.size(), p->rdma_flag);
+    gpr_mu_destroy(&p->rdma_mu);
+    printf("pollable is unrefed, epfd = %d\n", p->epfd);
     gpr_free(p);
   }
 }
@@ -421,7 +406,7 @@ static void ref_by(grpc_fd* fd, int n) {
 static void fd_destroy(void* arg, grpc_error_handle /*error*/) {
   grpc_fd* fd = static_cast<grpc_fd*>(arg);
 
-  fd->destroy(fd);
+  fd->destroy();
 
   /* Add the fd to the freelist */
   gpr_mu_lock(&fd_freelist_mu);
@@ -485,7 +470,7 @@ static grpc_fd* fd_create(int fd, const char* name, bool track_err) {
   }
 
   // return new (new_fd) grpc_fd(fd, name, track_err);
-  new (new_fd) grpc_fd(fd, name, track_err, true);
+  new (new_fd) grpc_fd(fd, name, track_err);
 
   return new_fd;
 }
@@ -513,20 +498,6 @@ static void fd_orphan(grpc_fd* fd, grpc_closure* on_done, int* release_fd,
 
   fd->on_done_closure = on_done;
 
-  // if (fd->rdmasr) {
-    // for (std::set<pollable*>::iterator it = fd->rdma_pollables.begin(); it != fd->rdma_pollables.end(); it++) {
-    //   pollable* p = *it;
-    //   // gpr_mu_lock(&p->rdma_mu);
-    //   p->rdma_fds.erase(fd);
-    //   // gpr_mu_unlock(&p->rdma_mu);
-    //   p->rdma_flag = !(p->rdma_fds.empty());
-    //   printf("orphan fd (%p, %d) from pollable: %p, %d, %d\n", fd, fd->fd, p, p->rdma_fds.size(), p->rdma_flag);
-    // }
-    // fd->rdma_pollables.clear();
-    // fd->rdmasr = nullptr;
-    // rdma_log(RDMA_INFO, "fd (%p, %d) is orphaned, rdmasr = %p, rdma_pollables.size() = %d", fd, fd->fd, fd->rdmasr, fd->rdma_pollables.size());
-  // }
-
   /* If release_fd is not NULL, we should be relinquishing control of the file
      descriptor fd->fd (but we still own the grpc_fd structure). */
   if (release_fd != nullptr) {
@@ -534,17 +505,39 @@ static void fd_orphan(grpc_fd* fd, grpc_closure* on_done, int* release_fd,
     // Otherwise, we will receive epoll events after we release the FD.
     epoll_event ev_fd;
     memset(&ev_fd, 0, sizeof(ev_fd));
-    if (pollable_obj != nullptr) {  // For PO_FD.
-      epoll_ctl(pollable_obj->epfd, EPOLL_CTL_DEL, fd->fd, &ev_fd);
-    }
-    for (size_t i = 0; i < fd->pollset_fds.size(); ++i) {  // For PO_MULTI.
-      const int epfd = fd->pollset_fds[i];
-      epoll_ctl(epfd, EPOLL_CTL_DEL, fd->fd, &ev_fd);
+    if (fd->rdmasr) {
+      if (pollable_obj != nullptr) {  // For PO_FD.
+        epoll_ctl(pollable_obj->epfd, EPOLL_CTL_DEL, fd->fd, &ev_fd);
+        gpr_mu_lock(&pollable_obj->rdma_mu);
+        pollable_obj->rdma_fds.erase(fd->fd);
+        gpr_mu_unlock(&pollable_obj->rdma_mu);
+        printf("rdma fd %d is orphaning, pollable epfd = %d, size = %d\n", fd->fd, pollable_obj->epfd, pollable_obj->rdma_fds.size());
+      }
+      for (size_t i = 0; i < fd->pollset_fds.size(); ++i) {  // For PO_MULTI.
+        const int epfd = fd->pollset_fds[i];
+        epoll_ctl(epfd, EPOLL_CTL_DEL, fd->fd, &ev_fd);
+        pollable* p = fd->rdma_pollables[i]; //rdma_pollables.size == pollset_fds.size
+        gpr_mu_lock(&p->rdma_mu);
+        p->rdma_fds.erase(fd->fd);
+        gpr_mu_unlock(&p->rdma_mu);
+        printf("rdma fd %d is orphaning, pollable epfd = %d, size = %d\n", fd->fd, p->epfd, p->rdma_fds.size());
+      }
+      printf("rdma fd %d is orphaned, release_fd != nullptr\n", fd->fd);
+    } else {
+      if (pollable_obj != nullptr) {  // For PO_FD.
+        epoll_ctl(pollable_obj->epfd, EPOLL_CTL_DEL, fd->fd, &ev_fd);
+      }
+      for (size_t i = 0; i < fd->pollset_fds.size(); ++i) {  // For PO_MULTI.
+        const int epfd = fd->pollset_fds[i];
+        epoll_ctl(epfd, EPOLL_CTL_DEL, fd->fd, &ev_fd);
+      }
+      printf("fd %d is orphaned, release_fd != nullptr\n", fd->fd);
     }
     *release_fd = fd->fd;
   } else {
     close(fd->fd);
     is_fd_closed = true;
+    printf("fd %d is orphaned, release_fd == nullptr\n", fd->fd);
   }
 
   // TODO(sreek): handle fd removal (where is_fd_closed=false)
@@ -574,6 +567,9 @@ static bool fd_is_shutdown(grpc_fd* fd) {
 
 /* Might be called multiple times */
 static void fd_shutdown(grpc_fd* fd, grpc_error_handle why) {
+  if (fd->rdmasr) {
+
+  }
   if (fd->read_closure.SetShutdown(GRPC_ERROR_REF(why))) {
     if (shutdown(fd->fd, SHUT_RDWR)) {
       if (errno != ENOTCONN) {
@@ -614,6 +610,9 @@ static void fd_add_pollset(grpc_fd* fd, grpc_pollset* pollset) {
   const int epfd = pollset->active_pollable->epfd;
   grpc_core::MutexLockForGprMu lock(&fd->pollable_mu);
   fd->pollset_fds.push_back(epfd);
+  if (fd->rdmasr){
+    fd->rdma_pollables.push_back(pollset->active_pollable);
+  }
 }
 
 void grpc_fd_set_rdmasr_bp(grpc_fd* fd, RDMASenderReceiverBP* rdmasr) {
@@ -675,10 +674,9 @@ static grpc_error_handle pollable_create(pollable_type type, pollable** p) {
   (*p)->root_worker = nullptr;
   (*p)->event_cursor = 0;
   (*p)->event_count = 0;
-  new (&(*p)->rdma_fds) std::set<grpc_fd*>();
-  (*p)->rdma_flag = false;
-  // gpr_mu_init(&(*p)->rdma_mu);
-  rdma_log(RDMA_INFO, "pollable %p is created, rdma_fds size = %d, rdma_flag = %d", *p, (*p)->rdma_fds.size(), (*p)->rdma_flag);
+  new (&(*p)->rdma_fds) std::map<int, grpc_fd*>();
+  gpr_mu_init(&(*p)->rdma_mu);
+  printf("pollable is created, epfd = %d\n", epfd);
 
   return GRPC_ERROR_NONE;
 }
@@ -710,21 +708,15 @@ static grpc_error_handle pollable_add_fd(pollable* p, grpc_fd* fd) {
     }
   }
 
-  RDMASenderReceiverBP* rdmasr = fd->rdmasr;
-  if (rdmasr) {
-    p->rdma_flag = true;
-    if (p->rdma_fds.find(fd) != p->rdma_fds.end()) {
-      rdma_log(RDMA_WARNING, "pollable_add_fd, fd %d already exist in pollable %p", fd->fd, p);
-    } else {
-      // gpr_mu_lock(&p->rdma_mu);
-      p->rdma_fds.insert(fd);
-      // // gpr_mu_unlock(&p->rdma_mu);
-      // fd->rdma_pollables.insert(p);
-      rdma_log(RDMA_INFO, "pollable %p add fd (%p, %d), pollable: rdma_fds size = %d, rdma_flag = %d; fd: rdmasr = %p, rdma_pollable size = %d",
-               p, fd, fd->fd, p->rdma_fds.size(), p->rdma_flag, fd->rdmasr, fd->rdma_pollables.size());
-      // printf("pollable_add_fd, p: %p, %d, %d, fd: %p, %d, %d\n", 
-      //         p, p->rdma_fds.size(), p->rdma_flag, fd, fd->fd, fd->rdma_pollables.size());
-    }
+  if (fd->rdmasr) {
+    // p->rdma_fds.insert(fd);
+    gpr_mu_lock(&p->rdma_mu);
+    p->rdma_fds.erase(fd->fd);
+    p->rdma_fds.insert(std::pair<int, grpc_fd*>(fd->fd, fd));
+    gpr_mu_unlock(&p->rdma_mu);
+    printf("pollable(%d) add rdma fd(%d), %d\n", p->epfd, fd->fd, p->rdma_fds.size());
+  } else {
+    printf("pollable(%d) add fd(%d)\n", p->epfd, fd->fd);
   }
 
   return error;
@@ -785,7 +777,7 @@ static grpc_error_handle kick_one_worker(grpc_pollset_worker* specific_worker) {
     return GRPC_ERROR_NONE;
   }
   if (gpr_tls_get(&g_current_thread_worker) ==
-      reinterpret_cast<intptr_t>(specific_worker)) {
+      reinterpret_cast<intptr_t>(specific_worker)) { // current thread IS the specific_worker
     if (GRPC_TRACE_FLAG_ENABLED(grpc_polling_trace)) {
       gpr_log(GPR_INFO, "PS:%p kicked_specific_but_awake", p);
     }
@@ -793,21 +785,27 @@ static grpc_error_handle kick_one_worker(grpc_pollset_worker* specific_worker) {
     specific_worker->kicked = true;
     return GRPC_ERROR_NONE;
   }
-  if (specific_worker == p->root_worker) {
+  if (specific_worker == p->root_worker) { 
+    // specific_worker is not the current thread, but is a working thread for another pollset 
+    // pollset_kick may kick the second worker enqueued again the pollset, 
+    // now it become the root_worker, and will call pollable_epoll if necessary (cursor == count)
     GRPC_STATS_INC_POLLSET_KICK_WAKEUP_FD();
     if (GRPC_TRACE_FLAG_ENABLED(grpc_polling_trace)) {
       gpr_log(GPR_INFO, "PS:%p kicked_specific_via_wakeup_fd", p);
     }
     specific_worker->kicked = true;
+    // wake up the specific_worker from epoll_wait inside pollable_epoll
     grpc_error_handle error = grpc_wakeup_fd_wakeup(&p->wakeup);
     return error;
   }
   if (specific_worker->initialized_cv) {
+    // specific_worker is not working, (stucked in the while loop inside begin_worker)
     GRPC_STATS_INC_POLLSET_KICK_WAKEUP_CV();
     if (GRPC_TRACE_FLAG_ENABLED(grpc_polling_trace)) {
       gpr_log(GPR_INFO, "PS:%p kicked_specific_via_cv", p);
     }
     specific_worker->kicked = true;
+    // wake up the specific_worker from gpr_cv_wait inside begin_worker
     gpr_cv_signal(&specific_worker->cv);
     return GRPC_ERROR_NONE;
   }
@@ -829,15 +827,15 @@ static grpc_error_handle pollset_kick(grpc_pollset* pollset,
   }
   if (specific_worker == nullptr) {
     if (gpr_tls_get(&g_current_thread_pollset) !=
-        reinterpret_cast<intptr_t>(pollset)) {
-      if (pollset->root_worker == nullptr) {
+        reinterpret_cast<intptr_t>(pollset)) { // target pollset is not the pollset the current thread is working for
+      if (pollset->root_worker == nullptr) { // target pollset has not begun any worker (not enter pollset_work)
         if (GRPC_TRACE_FLAG_ENABLED(grpc_polling_trace)) {
           gpr_log(GPR_INFO, "PS:%p kicked_any_without_poller", pollset);
         }
         GRPC_STATS_INC_POLLSET_KICKED_WITHOUT_POLLER();
         pollset->kicked_without_poller = true;
         return GRPC_ERROR_NONE;
-      } else {
+      } else { // target pollset is working (inside pollset_work)
         // We've been asked to kick a poller, but we haven't been told which one
         // ... any will do
         // We look at the pollset worker list because:
@@ -856,7 +854,7 @@ static grpc_error_handle pollset_kick(grpc_pollset* pollset,
         return kick_one_worker(
             pollset->root_worker->links[PWLINK_POLLSET].next);
       }
-    } else {
+    } else { // this thread is working for the target pollset
       if (GRPC_TRACE_FLAG_ENABLED(grpc_polling_trace)) {
         gpr_log(GPR_INFO, "PS:%p kicked_any_but_awake", pollset);
       }
@@ -966,6 +964,7 @@ static grpc_error_handle pollable_process_events(grpc_pollset* pollset,
   GPR_ASSERT(worker_count > 0);
   handle_count =
       (pollable_obj->event_count - pollable_obj->event_cursor) / worker_count;
+  // if there are WORKER_COUNT threads inside begin_worker NOW, share the events among those threads
   if (handle_count == 0) {
     handle_count = 1;
   }
@@ -976,7 +975,9 @@ static grpc_error_handle pollable_process_events(grpc_pollset* pollset,
     int n = pollable_obj->event_cursor++;
     struct epoll_event* ev = &pollable_obj->events[n];
     void* data_ptr = ev->data.ptr;
-    if (1 & reinterpret_cast<intptr_t>(data_ptr)) {
+    if (1 & reinterpret_cast<intptr_t>(data_ptr)) { 
+      // current thread is woken up by grpc_wakeup_fd_wakeup inside kick_one_worker,
+      // interested event happened.
       if (GRPC_TRACE_FLAG_ENABLED(grpc_polling_trace)) {
         gpr_log(GPR_INFO, "PS:%p got pollset_wakeup %p", pollset, data_ptr);
       }
@@ -1035,21 +1036,18 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
 
   int r;
 
-  if (p->rdma_flag) {
+  if (!p->rdma_fds.empty()) {
     rdma_log(RDMA_DEBUG, "pollable %p epoll starts", p);
     timeout = 0;
     bool rdma_found = false;
     grpc_fd* fd;
     do {
       r = epoll_wait(p->epfd, p->events, MAX_EPOLL_EVENTS, timeout);
-
-      // gpr_mu_lock(&p->rdma_mu);
-      for (std::set<grpc_fd*>::iterator it = p->rdma_fds.begin(); it != p->rdma_fds.end(); it++) {
-        fd = *it;
+      gpr_mu_lock(&p->rdma_mu);
+      for (std::map<int, grpc_fd*>::iterator it = p->rdma_fds.begin(); it != p->rdma_fds.end(); it++) {
+        fd = it->second;
         if (fd->rdmasr == nullptr) {
           rdma_log(RDMA_WARNING, "pollable_epoll, found nullptr from fd %d of pollable %p", fd->fd, p);
-          // p->rdma_fds.erase(fd);
-          // continue;
           abort();
         }
         if (fd->rdmasr->check_incoming()) {
@@ -1062,9 +1060,7 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
           fd_become_writable(fd);
         }
       }
-      // gpr_mu_unlock(&p->rdma_mu);
-      
-    // } while (!found_rdma_incoming);
+      gpr_mu_unlock(&p->rdma_mu);
     } while (((r < 0 && errno == EINTR) || r == 0) && !rdma_found);
     rdma_log(RDMA_DEBUG, "pollable %p ends, r = %d, found_read_incoming = %d", p, r, rdma_found);
   } else {
@@ -1148,10 +1144,10 @@ static bool begin_worker(grpc_pollset* pollset, grpc_pollset_worker* worker,
   worker_insert(&pollset->root_worker, worker, PWLINK_POLLSET);
   gpr_mu_lock(&worker->pollable_obj->mu);
   if (!worker_insert(&worker->pollable_obj->root_worker, worker,
-                     PWLINK_POLLABLE)) {
+                     PWLINK_POLLABLE)) { // pollable already has worker
     worker->initialized_cv = true;
     gpr_cv_init(&worker->cv);
-    gpr_mu_unlock(&pollset->mu);
+    gpr_mu_unlock(&pollset->mu); // unlock pollset mu to let next worker comes in
     if (GRPC_TRACE_FLAG_ENABLED(grpc_polling_trace) &&
         worker->pollable_obj->root_worker != worker) {
       gpr_log(GPR_INFO, "PS:%p wait %p w=%p for %dms", pollset,
@@ -1160,13 +1156,13 @@ static bool begin_worker(grpc_pollset* pollset, grpc_pollset_worker* worker,
     }
     while (do_poll && worker->pollable_obj->root_worker != worker) {
       if (gpr_cv_wait(&worker->cv, &worker->pollable_obj->mu,
-                      grpc_millis_to_timespec(deadline, GPR_CLOCK_REALTIME))) {
+                      grpc_millis_to_timespec(deadline, GPR_CLOCK_REALTIME))) { // true -> timeout
         if (GRPC_TRACE_FLAG_ENABLED(grpc_polling_trace)) {
           gpr_log(GPR_INFO, "PS:%p timeout_wait %p w=%p", pollset,
                   worker->pollable_obj, worker);
         }
         do_poll = false;
-      } else if (worker->kicked) {
+      } else if (worker->kicked) { // woken from cv, but kicked
         if (GRPC_TRACE_FLAG_ENABLED(grpc_polling_trace)) {
           gpr_log(GPR_INFO, "PS:%p wakeup %p w=%p", pollset,
                   worker->pollable_obj, worker);
@@ -1179,8 +1175,8 @@ static bool begin_worker(grpc_pollset* pollset, grpc_pollset_worker* worker,
       }
     }
     grpc_core::ExecCtx::Get()->InvalidateNow();
-  } else {
-    gpr_mu_unlock(&pollset->mu);
+  } else { // first work of the pollset
+    gpr_mu_unlock(&pollset->mu); // unlock pollset->mu, so next worker could get in
   }
   gpr_mu_unlock(&worker->pollable_obj->mu);
 
@@ -1257,7 +1253,10 @@ static grpc_error_handle pollset_work(grpc_pollset* pollset,
   if (pollset->kicked_without_poller) {
     pollset->kicked_without_poller = false;
   } else {
-    if (begin_worker(pollset, WORKER_PTR, worker_hdl, deadline)) {
+    // one worker per thread
+    // all thread stuck in while loop inside begin_worker
+    if (begin_worker(pollset, WORKER_PTR, worker_hdl, deadline)) { 
+      // true, if and only if worker == pollset->active_pollable->root_worker
       gpr_tls_set(&g_current_thread_pollset, (intptr_t)pollset);
       gpr_tls_set(&g_current_thread_worker, (intptr_t)WORKER_PTR);
       if (WORKER_PTR->pollable_obj->event_cursor ==
