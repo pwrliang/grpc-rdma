@@ -88,6 +88,7 @@ class RDMASenderReceiverBP : public RDMASenderReceiver {
     void diagnosis();
 
   protected:
+    std::atomic_bool checked_; // there is a thread already found new incoming data
     RingBufferBP* ringbuf_bp_ = nullptr;
     RDMAConnBP* conn_data_bp_ = nullptr;
     bool connected_ = false;

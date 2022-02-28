@@ -18,6 +18,7 @@ RDMASenderReceiverBP::RDMASenderReceiverBP() {
 
   ringbuf_ = ringbuf_bp_;
   max_send_size_ = sendbuf_sz_ - sizeof(size_t) - 1;
+  checked_.store(false);
 
   rdma_log(RDMA_DEBUG, "RDMASenderReceiverBP %p created", this);
 }
@@ -48,7 +49,23 @@ void RDMASenderReceiverBP::diagnosis() {
 }
 
 bool RDMASenderReceiverBP::check_incoming() {
-  return ringbuf_bp_->check_head();
+
+  // previous checked_ is true (new incoming data already found by another thread), 
+  // keep checked_ true, 
+  // return false, avoid call fd_become_readable twice for the same incoming data
+  if (checked_.exchange(true)) return false;
+  // previous checked_ is false (no incoming data found before), 
+  // set checked_ true to prevent other thread entering
+
+  // found new incoming data, 
+  // return true, so fd_become_readable will be called, then RDMASenderReceiverBP::recv will be called 
+  // leave checked_ true. 
+  // after recv finished, set checked_ to false.
+  if (ringbuf_bp_->check_head()) return true;
+
+  // no new incoming data found, return false, 
+  // leave checked_ false, so other thread could check again
+  return !checked_.exchange(false);
 }
 
 size_t RDMASenderReceiverBP::check_and_ack_incomings() {
@@ -67,6 +84,7 @@ size_t RDMASenderReceiverBP::recv(msghdr* msg) {
     return 0;
   }
 
+  checked_.store(false);
   unread_data_size_ = 0;
   garbage_ += read_size;
   total_recv_sz += read_size;
