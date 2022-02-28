@@ -295,7 +295,7 @@ class BenchmarkClient {
     int total;
   };
 
-  void AsyncSayHello() {
+  void AsyncSayHello(size_t total) {
     grpc::CompletionQueue cq;
     std::thread recv_th = std::thread([&]() {
       void* got_tag;
@@ -318,7 +318,7 @@ class BenchmarkClient {
         delete call;
       }
     });
-    int total = 10000;
+    // int total = 10000;
     for (int i = 0; i < total; i++) {
       Data_Empty dataEmpty;
       AsyncClientCall* call = new AsyncClientCall;
@@ -370,10 +370,19 @@ int main(int argc, char** argv) {
 
   BenchmarkClient client(
       grpc::CreateChannel(server_address, grpc::InsecureChannelCredentials()));
-  //  client.SyncSayHello();
+  // client.SyncSayHello();
+  // client.SyncBiUnary(1,1,1);
 
   //  client.Test();
-  client.AsyncSayHello();
+  client.AsyncSayHello(10);
+  sleep(1);
+
+  auto t0 = std::chrono::high_resolution_clock::now();
+  client.AsyncSayHello(1000000);
+  auto t1 = std::chrono::high_resolution_clock::now();
+    size_t ms =
+        std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count();
+  printf("%ld ms\n", ms);
   //    client.SyncSayHello();
   //
   //    for (int data_size: data_sizes) {

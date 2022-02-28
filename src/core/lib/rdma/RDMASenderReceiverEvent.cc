@@ -125,17 +125,17 @@ void RDMASenderReceiverEvent::connect(int fd, void* user_data) {
 }
 
 size_t RDMASenderReceiverEvent::check_and_ack_incomings() {
-  unread_data_size_ += conn_data_event_->poll_recv_completions_and_post_recvs(ringbuf_event_->get_buf(), ringbuf_sz_, local_ringbuf_mr_.lkey());
-  return unread_data_size_;
+  unread_mlens_ += conn_data_event_->poll_recv_completions_and_post_recvs(ringbuf_event_->get_buf(), ringbuf_sz_, local_ringbuf_mr_.lkey());
+  return unread_mlens_;
 }
 
 size_t RDMASenderReceiverEvent::recv(msghdr* msg) {
-  size_t read_size = ringbuf_event_->read_to_msghdr(msg, unread_data_size_);
+  size_t read_size = ringbuf_event_->read_to_msghdr(msg, unread_mlens_);
   if (read_size == 0) {
     rdma_log(RDMA_WARNING, "RDMASenderReceiverEvent::recv, read_size == 0");
     return 0;
   }
-  unread_data_size_ -= read_size;
+  unread_mlens_ -= read_size;
   garbage_ += read_size;
   total_recv_sz += read_size;
   if (garbage_ >= ringbuf_sz_ / 2) {

@@ -23,7 +23,7 @@ class RDMASenderReceiver {
     virtual ~RDMASenderReceiver();
     
     RDMANode* get_node() { return &node_; }
-    size_t get_unread_data_size() { return unread_data_size_; }
+    size_t get_unread_data_size() { return unread_mlens_; }
     virtual size_t get_max_send_size() { return max_send_size_; }
     bool if_write_again() { return write_again_.exchange(false); } // if previous is true, only one thread return true
     void write_again() { write_again_.store(true); }
@@ -44,7 +44,7 @@ class RDMASenderReceiver {
     RingBuffer* ringbuf_ = nullptr; // no ownership 
     MemRegion local_ringbuf_mr_, remote_ringbuf_mr_;
     size_t garbage_ = 0;
-    size_t unread_data_size_ = 0;
+    size_t unread_mlens_ = 0;
     unsigned long long int total_recv_sz = 0;
 
     size_t sendbuf_sz_;
@@ -78,7 +78,7 @@ class RDMASenderReceiverBP : public RDMASenderReceiver {
     bool connected() { return connected_; }
 
     virtual bool send(msghdr* msg, size_t mlen);
-    virtual size_t recv(msghdr* msg);
+    virtual size_t recv(msghdr* msg, size_t msghdr_size);
 
     // this should be thread safe, 
     bool check_incoming();

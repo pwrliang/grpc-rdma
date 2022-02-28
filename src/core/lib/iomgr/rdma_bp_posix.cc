@@ -205,12 +205,14 @@ static void rdma_do_read(grpc_rdma* rdma) {
   struct msghdr msg;
   struct iovec iov[MAX_READ_IOVEC];
   size_t iov_len = rdma->incoming_buffer->count;
+  size_t msghdr_size = 0;
 
   GPR_ASSERT(iov_len > 0 && iov_len <= MAX_READ_IOVEC);
 
   for (size_t i = 0; i < iov_len; i++) {
     iov[i].iov_base = GRPC_SLICE_START_PTR(rdma->incoming_buffer->slices[i]);
     iov[i].iov_len = GRPC_SLICE_LENGTH(rdma->incoming_buffer->slices[i]);
+    msghdr_size += iov[i].iov_len;
   }
   msg.msg_iov = iov;
   msg.msg_iovlen = iov_len;
@@ -219,7 +221,7 @@ static void rdma_do_read(grpc_rdma* rdma) {
   size_t total_read_byte = 0;
 
   do {
-    read_bytes = rdma->rdmasr->recv(&msg);
+    read_bytes = rdma->rdmasr->recv(&msg, msghdr_size);
   } while (read_bytes == 0);
   total_read_byte += read_bytes;
   rdma_log(RDMA_INFO, "rdma_do_read recv %d bytes", total_read_byte);

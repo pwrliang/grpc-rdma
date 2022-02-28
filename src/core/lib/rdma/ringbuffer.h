@@ -47,7 +47,9 @@ class RingBufferBP : public RingBuffer {
     size_t check_mlens() { return check_mlens(head_); }
     size_t check_mlen() { return check_mlen(head_); }
 
-    size_t read_to_msghdr(msghdr* msg, size_t size) { return read_to_msghdr(msg, head_, size); }
+    size_t read_to_msghdr(msghdr* msg, size_t msghdr_size, size_t& expected_lens) { 
+      return read_to_msghdr(msg, msghdr_size, head_, expected_lens); 
+    }
 
     void print_ringbuf();
     
@@ -59,8 +61,8 @@ class RingBufferBP : public RingBuffer {
     // reset buf first then update head. Otherswise new head may read the old data from unupdated space.
     size_t reset_buf_and_update_head(size_t lens);
 
-    // it guarantees to read out data of size expected_read_size 
-    size_t read_to_msghdr(msghdr* msg, size_t head, size_t expected_read_size);
+    // it guarantees to read out data of size expected_lens, or more 
+    size_t read_to_msghdr(msghdr* msg, size_t msghdr_size, size_t head, size_t& expected_lens);
 
     uint8_t zeros[1024 * 1024 * 16];
 };

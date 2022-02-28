@@ -91,8 +91,8 @@ size_t RingBufferBP::reset_buf_and_update_head(size_t lens) {
   return update_head(lens);
 }
 
-size_t RingBufferBP::read_to_msghdr(msghdr* msg, size_t head,
-                                    size_t expected_mlens) {
+size_t RingBufferBP::read_to_msghdr(msghdr* msg, size_t msghdr_size,
+                                    size_t head, size_t& expected_mlens) {
   if (expected_mlens == 0) {
     rdma_log(RDMA_WARNING,
              "RingBufferBP::read_to_msghdr, expected mlens == 0");
@@ -113,10 +113,11 @@ size_t RingBufferBP::read_to_msghdr(msghdr* msg, size_t head,
   uint8_t* iov_rbase;
   size_t iov_idx = 0, iov_offset = 0, iov_rlen;
   size_t mlen = check_mlen(head), m_offset = 0, m_rlen;
-  size_t mlens = 0, read_size = 0,
+  size_t mlens = 0, lens = 0,
          buf_offset = (head + sizeof(size_t)) % capacity_, n;
+  bool passed_expected_flag = false;
   assert(mlen > 0);
-  while (mlens < expected_mlens && iov_idx < msg->msg_iovlen &&
+  while (iov_idx < msg->msg_iovlen &&
          mlen > 0) {
     iov_rlen = msg->msg_iov[iov_idx].iov_len -
                iov_offset;  // rest space of current slice
@@ -129,7 +130,6 @@ size_t RingBufferBP::read_to_msghdr(msghdr* msg, size_t head,
              "RingBufferBP::read_to_msghdr, read %d bytes from head %d", n,
              buf_offset);
     buf_offset += n;
-    read_size += n;
     iov_offset += n;
     m_offset += n;
     if (n == iov_rlen) {
@@ -140,11 +140,15 @@ size_t RingBufferBP::read_to_msghdr(msghdr* msg, size_t head,
     if (n == m_rlen) {
       // current message (length of mlen) has been copyied. move to next head
       mlens += mlen;
+      lens += sizeof(size_t) + mlen + 1;
+
+      // when we have chance to read, read greedily. 
+      if (mlens == expected_mlens) passed_expected_flag = true;
       head =
           (head + sizeof(size_t) + mlen + 1) % capacity_;  // move to next head
       mlen = check_mlen(head);  // check mlen of the new head
+      if (mlens + mlen > msghdr_size) break; // msghdr could not hold new mlen
       m_offset = 0;
-      read_size += 1 + sizeof(size_t);  // add head and tail size to read_size
 
       // move buf_offset to the first place right after the head of the next
       // message if no next message, the loop will finish.
@@ -153,7 +157,7 @@ size_t RingBufferBP::read_to_msghdr(msghdr* msg, size_t head,
     buf_offset = buf_offset % capacity_;
   }
 
-  if (mlens != expected_mlens) {
+  if (!passed_expected_flag && mlens != expected_mlens) {
     rdma_log(RDMA_ERROR,
              "RingBufferBP::read_to_msghdr, mlens (%d) != expected read "
              "size (%d)",
@@ -161,12 +165,14 @@ size_t RingBufferBP::read_to_msghdr(msghdr* msg, size_t head,
     exit(-1);
   }
 
-  // printf("\nringbuf: head = %d, read_size = %d, mlens = %d\n", head_, read_size, mlens);
+  expected_mlens = mlens;
 
-  reset_buf_and_update_head(read_size);
-  // update_head(read_size);
+  // printf("\nringbuf: head = %d, lens = %d, mlens = %d\n", head_, lens, mlens);
 
-  return read_size;
+  reset_buf_and_update_head(lens);
+  // update_head(lens);
+
+  return lens;
 }
 
 void RingBufferBP::print_ringbuf() {
@@ -197,14 +203,14 @@ size_t RingBufferEvent::read_to_msghdr(msghdr* msg, size_t head,
     exit(-1);
   }
 
-  size_t read_size = 0, iov_rlen;
+  size_t lens = 0, iov_rlen;
   uint8_t *iov_rbase, *rb_ptr;
   for (size_t i = 0, iov_offset = 0, n;
-       read_size < expected_read_size && i < msg->msg_iovlen; read_size += n) {
+       lens < expected_read_size && i < msg->msg_iovlen; lens += n) {
     iov_rlen = msg->msg_iov[i].iov_len - iov_offset;
     iov_rbase = (uint8_t*)(msg->msg_iov[i].iov_base) + iov_offset;
     rb_ptr = buf_ + head;
-    n = MIN3(capacity_ - head, expected_read_size - read_size, iov_rlen);
+    n = MIN3(capacity_ - head, expected_read_size - lens, iov_rlen);
     memcpy(iov_rbase, rb_ptr, n);
     rdma_log(RDMA_INFO,
              "RingBufferEvent::read_to_msghdr, read %d bytes from head %d", n,
@@ -220,15 +226,15 @@ size_t RingBufferEvent::read_to_msghdr(msghdr* msg, size_t head,
     }
   }
 
-  if (read_size != expected_read_size) {
+  if (lens != expected_read_size) {
     rdma_log(RDMA_ERROR,
              "RingBufferEvent::read_to_msghdr, read size (%d) != expected read "
              "size (%d)",
-             read_size, expected_read_size);
+             lens, expected_read_size);
     exit(-1);
   }
 
-  update_head(read_size);
+  update_head(lens);
 
-  return read_size;
+  return lens;
 }

@@ -70,25 +70,27 @@ bool RDMASenderReceiverBP::check_incoming() {
 }
 
 size_t RDMASenderReceiverBP::check_and_ack_incomings() {
-  unread_data_size_ = ringbuf_bp_->check_mlens();
-  // unread_data_size_ = ringbuf_bp_->check_mlen();
-  return unread_data_size_;
+  unread_mlens_ = ringbuf_bp_->check_mlens();
+  // unread_mlens_ = ringbuf_bp_->check_mlen();
+  return unread_mlens_;
 }
 
-size_t RDMASenderReceiverBP::recv(msghdr* msg) {
+size_t RDMASenderReceiverBP::recv(msghdr* msg, size_t msghdr_size) {
 
   // the actual read size is unread_data_size
-  size_t mlens = unread_data_size_;
-  size_t read_size = ringbuf_bp_->read_to_msghdr(msg, unread_data_size_);
-  if (read_size == 0) {
-    rdma_log(RDMA_WARNING, "RDMASenderReceiverBP::recv, read_size == 0");
+  size_t mlens = unread_mlens_;
+
+  // since we may read more data than unread_mlens_, mlens will be updated to the real mlens we have read
+  size_t lens = ringbuf_bp_->read_to_msghdr(msg, msghdr_size, mlens);
+  if (lens == 0) {
+    rdma_log(RDMA_WARNING, "RDMASenderReceiverBP::recv, lens == 0");
     return 0;
   }
 
   checked_.store(false);
-  unread_data_size_ = 0;
-  garbage_ += read_size;
-  total_recv_sz += read_size;
+  unread_mlens_ = 0;
+  garbage_ += lens;
+  total_recv_sz += lens;
   if (garbage_ >= ringbuf_sz_ / 2) { //garbage_ >= ringbuf_sz_ / 2
     update_remote_head();
     garbage_ = 0;
