@@ -21,8 +21,6 @@
 #include <string>
 
 #include <grpcpp/grpcpp.h>
-#include <gflags/gflags.h>
-#include <gflags/gflags_declare.h>
 
 #ifdef BAZEL_BUILD
 #include "examples/protos/helloworld.grpc.pb.h"
@@ -106,8 +104,9 @@ int main(int argc, char** argv) {
   GreeterClient greeter(
       grpc::CreateChannel(target_str, grpc::InsecureChannelCredentials()));
   std::string user("world");
-  std::string reply = greeter.SayHello(user);
-  std::cout << "Greeter received: " << reply << std::endl;
-
+  for(int i=0;i<5;i++) {
+    std::string reply = greeter.SayHello(user);
+    std::cout << "Greeter received: " << reply << std::endl;
+  }
   return 0;
 }

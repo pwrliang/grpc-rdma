@@ -12,6 +12,8 @@ service BENCHMARK {
     rpc ServerStream(Complex) returns (stream Complex) {}
 
     rpc BiStream(stream Complex) returns (stream Complex) {}
+
+    rpc Test(TestReq) returns (TestResp) {}
 }
 
 message Data_Empty{
@@ -38,4 +40,12 @@ message Complex {
     Data_Bytes datas = 1;
     Data_Int64 numbers = 2;
     Data_String strs = 3;
+}
+
+message TestReq {
+    bytes data = 1;
+}
+
+message TestResp {
+    bytes data = 1;
 }
