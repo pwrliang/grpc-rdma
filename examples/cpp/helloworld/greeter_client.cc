@@ -21,8 +21,6 @@
 #include <string>
 
 #include <grpcpp/grpcpp.h>
-#include <gflags/gflags.h>
-#include <gflags/gflags_declare.h>
 
 #ifdef BAZEL_BUILD
 #include "examples/protos/helloworld.grpc.pb.h"
@@ -98,16 +96,14 @@ int main(int argc, char** argv) {
       return 0;
     }
   } else {
-    target_str = "10.3.1.18:50051";
+    target_str = "localhost:50051";
   }
-
-  setenv("GRPC_PLATFORM_TYPE", "RDMA", 1);
-  // setenv("GRPC_PLATFORM_TYPE", "TCP", 1);
   GreeterClient greeter(
       grpc::CreateChannel(target_str, grpc::InsecureChannelCredentials()));
   std::string user("world");
-  std::string reply = greeter.SayHello(user);
-  std::cout << "Greeter received: " << reply << std::endl;
-
+  for(int i=0;i<5;i++) {
+    std::string reply = greeter.SayHello(user);
+    std::cout << "Greeter received: " << reply << std::endl;
+  }
   return 0;
 }
