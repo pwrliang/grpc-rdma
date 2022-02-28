@@ -223,6 +223,7 @@ static void rdma_do_read(grpc_rdma* rdma) {
   } while (read_bytes == 0);
   total_read_byte += read_bytes;
   rdma_log(RDMA_INFO, "rdma_do_read recv %d bytes", total_read_byte);
+  // printf("thread %lld recv %lld bytes data\n", getpid(), total_read_byte);
 
   if (total_read_byte <= rdma->incoming_buffer->length) {
     grpc_slice_buffer_trim_end(rdma->incoming_buffer,
@@ -395,6 +396,7 @@ static bool rdma_flush(grpc_rdma* rdma, grpc_error_handle* error) {
 
     rdma_log(RDMA_INFO, "rdma_flush try to send %d bytes, %d, %d, %d", 
              sending_length, iov_size, total_sent_length, rdma->outgoing_buffer->length);
+    // printf("thread %lld try to send %ld bytes data\n", getpid(), sending_length);
 
     while (rdma->rdmasr->send(&msg, sending_length) == false) {
       // not enough space in remote
@@ -403,8 +405,10 @@ static bool rdma_flush(grpc_rdma* rdma, grpc_error_handle* error) {
         grpc_slice_buffer_remove_first(rdma->outgoing_buffer);
       }
       rdma->rdmasr->write_again();
+      // printf("thread %lld send %ld bytes data failed\n", getpid(), sending_length);
       return false;
     }
+    // printf("thread %lld send %ld bytes data succeed\n", getpid(), sending_length);
 
     if (outgoing_slice_idx == rdma->outgoing_buffer->count) {
       *error = GRPC_ERROR_NONE;
@@ -579,7 +583,7 @@ grpc_endpoint* grpc_rdma_bp_create(grpc_fd* em_fd,
   rdma->rdmasr->connect(rdma->fd);
   grpc_fd_set_rdmasr_bp(em_fd, rdma->rdmasr);
   rdma_log(RDMA_INFO, "rdmasr %p is created, attached to fd %d", rdma->rdmasr, rdma->fd);
-  printf("rdma created, attached to fd: %p, %d\n", rdma->em_fd, rdma->fd);
+  printf("rdmasr %p is created, attached to fd: %p, %d\n", rdma->rdmasr, rdma->em_fd, rdma->fd);
   return &rdma->base;
 }
 

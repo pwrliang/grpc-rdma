@@ -277,7 +277,9 @@ static void pollable_unref(pollable* p, const grpc_core::DebugLocation& dbg_loc,
     grpc_wakeup_fd_destroy(&p->wakeup);
     gpr_mu_destroy(&p->owner_orphan_mu);
     gpr_mu_destroy(&p->mu);
+    gpr_mu_lock(&p->rdma_mu);
     p->rdma_fds.clear();
+    gpr_mu_unlock(&p->rdma_mu);
     gpr_mu_destroy(&p->rdma_mu);
     printf("pollable is unrefed, epfd = %d\n", p->epfd);
     gpr_free(p);
@@ -689,22 +691,24 @@ static grpc_error_handle pollable_add_fd(pollable* p, grpc_fd* fd) {
     gpr_log(GPR_INFO, "add fd %p (%d) to pollable %p", fd, fd->fd, p);
   }
 
-  struct epoll_event ev_fd;
-  ev_fd.events =
-      static_cast<uint32_t>(EPOLLET | EPOLLIN | EPOLLOUT | EPOLLEXCLUSIVE);
-  /* Use the second least significant bit of ev_fd.data.ptr to store track_err
-   * to avoid synchronization issues when accessing it after receiving an event.
-   * Accessing fd would be a data race there because the fd might have been
-   * returned to the free list at that point. */
-  ev_fd.data.ptr = reinterpret_cast<void*>(reinterpret_cast<intptr_t>(fd) |
-                                           (fd->track_err ? 2 : 0));
-  GRPC_STATS_INC_SYSCALL_EPOLL_CTL();
-  if (epoll_ctl(epfd, EPOLL_CTL_ADD, fd->fd, &ev_fd) != 0) {
-    switch (errno) {
-      case EEXIST:
-        break;
-      default:
-        append_error(&error, GRPC_OS_ERROR(errno, "epoll_ctl"), err_desc);
+  if (fd->rdmasr == nullptr) {
+    struct epoll_event ev_fd;
+    ev_fd.events =
+        static_cast<uint32_t>(EPOLLET | EPOLLIN | EPOLLOUT | EPOLLEXCLUSIVE);
+    /* Use the second least significant bit of ev_fd.data.ptr to store track_err
+    * to avoid synchronization issues when accessing it after receiving an event.
+    * Accessing fd would be a data race there because the fd might have been
+    * returned to the free list at that point. */
+    ev_fd.data.ptr = reinterpret_cast<void*>(reinterpret_cast<intptr_t>(fd) |
+                                            (fd->track_err ? 2 : 0));
+    GRPC_STATS_INC_SYSCALL_EPOLL_CTL();
+    if (epoll_ctl(epfd, EPOLL_CTL_ADD, fd->fd, &ev_fd) != 0) {
+      switch (errno) {
+        case EEXIST:
+          break;
+        default:
+          append_error(&error, GRPC_OS_ERROR(errno, "epoll_ctl"), err_desc);
+      }
     }
   }
 
@@ -714,9 +718,9 @@ static grpc_error_handle pollable_add_fd(pollable* p, grpc_fd* fd) {
     p->rdma_fds.erase(fd->fd);
     p->rdma_fds.insert(std::pair<int, grpc_fd*>(fd->fd, fd));
     gpr_mu_unlock(&p->rdma_mu);
-    printf("pollable(%d) add rdma fd(%d), %d\n", p->epfd, fd->fd, p->rdma_fds.size());
+    // printf("pollable(%d) add rdma fd(%d), %d\n", p->epfd, fd->fd, p->rdma_fds.size());
   } else {
-    printf("pollable(%d) add fd(%d)\n", p->epfd, fd->fd);
+    // printf("pollable(%d) add fd(%d)\n", p->epfd, fd->fd);
   }
 
   return error;
@@ -1035,15 +1039,15 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
   }
 
   int r;
-
+  gpr_mu_lock(&p->rdma_mu);
   if (!p->rdma_fds.empty()) {
     rdma_log(RDMA_DEBUG, "pollable %p epoll starts", p);
     timeout = 0;
     bool rdma_found = false;
-    grpc_fd* fd;
+    grpc_fd* fd = nullptr;
+    size_t count = 0;
     do {
       r = epoll_wait(p->epfd, p->events, MAX_EPOLL_EVENTS, timeout);
-      gpr_mu_lock(&p->rdma_mu);
       for (std::map<int, grpc_fd*>::iterator it = p->rdma_fds.begin(); it != p->rdma_fds.end(); it++) {
         fd = it->second;
         if (fd->rdmasr == nullptr) {
@@ -1053,6 +1057,7 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
         if (fd->rdmasr->check_incoming()) {
           rdma_found = true;
           rdma_log(RDMA_DEBUG, "fd %d become readable", fd->fd);
+          // printf("pollable(%d) epoll fd(%d) become readable\n", p->epfd, fd->fd);
           fd_become_readable(fd);
         }
         if (fd->rdmasr->if_write_again()) {
@@ -1060,10 +1065,15 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
           fd_become_writable(fd);
         }
       }
-      gpr_mu_unlock(&p->rdma_mu);
+      // if (count++ % 1000000 == 0 && fd) {
+      //   printf("pollable(%d) epoll ..., %d, %d, %p, %d\n", 
+      //     p->epfd, p->rdma_fds.size(), fd->fd, fd->rdmasr, fd->rdmasr->check_incoming_());
+      // }
     } while (((r < 0 && errno == EINTR) || r == 0) && !rdma_found);
     rdma_log(RDMA_DEBUG, "pollable %p ends, r = %d, found_read_incoming = %d", p, r, rdma_found);
+    gpr_mu_unlock(&p->rdma_mu);
   } else {
+    gpr_mu_unlock(&p->rdma_mu);
     if (timeout != 0) {
       GRPC_SCHEDULING_START_BLOCKING_REGION;
     }

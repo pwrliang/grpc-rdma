@@ -307,15 +307,18 @@ class BenchmarkClient {
 
         if (call->status.ok()) {
           n_recv++;
-          std::cout << "Greeter received: " << call->idx
-                    << " rest: " << call->total - n_recv << std::endl;
+          // std::cout << "Greeter received: " << call->idx
+          //           << " rest: " << call->total - n_recv << std::endl;
+          printf("Greeter received %d, rest: %d\n", call->idx, call->total - n_recv);
+          if (call->total - n_recv == 0) break;
         } else
-          std::cout << "RPC failed" << std::endl;
+          // std::cout << "RPC failed" << std::endl;
+          printf("RPC failed\n");
 
         delete call;
       }
     });
-    int total = 1000;
+    int total = 10000;
     for (int i = 0; i < total; i++) {
       Data_Empty dataEmpty;
       AsyncClientCall* call = new AsyncClientCall;
@@ -326,7 +329,8 @@ class BenchmarkClient {
       call->response_reader->StartCall();
       call->response_reader->Finish(&call->reply, &call->status, (void*)call);
     }
-    std::cout << "Press control-c to quit" << std::endl << std::endl;
+    // std::cout << "Press control-c to quit" << std::endl << std::endl;
+    printf("Press control-c to quit\n\n");
     recv_th.join();
   }
 

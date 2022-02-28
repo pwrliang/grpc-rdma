@@ -25,7 +25,7 @@ class RDMASenderReceiver {
     RDMANode* get_node() { return &node_; }
     size_t get_unread_data_size() { return unread_data_size_; }
     virtual size_t get_max_send_size() { return max_send_size_; }
-    bool if_write_again() { return write_again_.exchange(false); } 
+    bool if_write_again() { return write_again_.exchange(false); } // if previous is true, only one thread return true
     void write_again() { write_again_.store(true); }
   
   protected:
@@ -82,6 +82,8 @@ class RDMASenderReceiverBP : public RDMASenderReceiver {
 
     // this should be thread safe, 
     bool check_incoming();
+
+    bool check_incoming_() { return ringbuf_bp_->check_head(); }
 
     size_t check_and_ack_incomings();
 

@@ -61,7 +61,8 @@ bool RDMASenderReceiverBP::check_incoming() {
   // return true, so fd_become_readable will be called, then RDMASenderReceiverBP::recv will be called 
   // leave checked_ true. 
   // after recv finished, set checked_ to false.
-  if (ringbuf_bp_->check_head()) return true;
+  // if (ringbuf_bp_->check_head()) return true;
+  if (ringbuf_bp_->check_mlen()) return true;
 
   // no new incoming data found, return false, 
   // leave checked_ false, so other thread could check again

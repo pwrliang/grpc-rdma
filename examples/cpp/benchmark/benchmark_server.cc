@@ -144,9 +144,9 @@ class BenchmarkServer {
     server_ = builder_.BuildAndStart();
     printf(
         "Server: sync enable %d, sync threads num %d; async enable %d, async "
-        "threads num %d, async threads num %d\n",
-        sync_enable, sync_thread_num, async_enable, async_threads_num,
-        async_cqs_num);
+        "threads num %d, async CQs num %d\n",
+        sync_enable_, sync_threads_num_, async_enable_, async_threads_num_,
+        async_cqs_num_);
     printf("Server is listening on %s\n", server_address.c_str());
   }
 
@@ -168,7 +168,7 @@ class BenchmarkServer {
     new CallData(&async_service_, call_cq, notification_cq, thread_id, cq_id,
                  BIUNARY);
 
-    auto deadline = gpr_time_from_millis(10, GPR_TIMESPAN);
+    auto deadline = gpr_time_from_millis(100, GPR_TIMESPAN);
     void* tag = nullptr;
     bool ok;
     grpc::CompletionQueue::NextStatus status;
@@ -203,8 +203,9 @@ class BenchmarkServer {
       SyncThreadRunThis(this, 0);
     }
     if (async_enable_) {
-      std::cout << "Async, thread: " << async_threads_num_
-                << " cq: " << async_cqs_num_ << std::endl;
+      // std::cout << "Async, thread: " << async_threads_num_
+      //           << " cq: " << async_cqs_num_ << std::endl;
+      printf("Async, thread : %d, cq: %d\n", async_threads_num_, async_cqs_num_);
       if (async_threads_num_ < async_cqs_num_) {
         std::cerr << "Too few async threads" << std::endl;
         exit(1);
@@ -332,8 +333,9 @@ class BenchmarkServer {
       if (status_ == PROCESS) {
         new CallData(service_, call_cq_, notification_cq_, thread_id_, cq_id_,
                      type_);
-        std::cout << "Thread " << thread_id_ << " is processing cq: " << cq_id_
-                  << std::endl;
+        // std::cout << "Thread " << thread_id_ << " is processing cq: " << cq_id_
+        //           << std::endl;
+        printf("Thread %d is processing cq %d\n", thread_id_, cq_id_);
         switch (type_) {
           case SAYHELLO:
             ProcessSayHello();
