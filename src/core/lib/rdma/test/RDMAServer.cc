@@ -171,6 +171,16 @@ static void* thread_handler_bp(void* args) {
   return nullptr;
 }
 
+static void* thread_handler_event(void* args) {
+  thread_handler_args* hargs = (thread_handler_args*)args;
+  int sockfd = hargs->sockfd;
+  RDMASenderReceiverEvent* rdmasr = new RDMASenderReceiverEvent();
+
+  // rdmasr->connect(sockfd);
+  // printf("%d-th connection established\n", hargs->id);
+
+}
+
 int main(int argc, char* argv[]) {
   RDMAServer server;
   server.attach(thread_handler_bp);

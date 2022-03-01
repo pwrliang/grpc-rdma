@@ -1,22 +1,38 @@
 #include "benchmark_client.h"
+#include <mpi.h>
 
 int world_size, world_rank;
 
-void MPI_summary(int64_t time, const char* prefix) {
-  // MPI_Barrier(MPI_COMM_WORLD);
-  // if (world_rank != 0) {
-  //   MPI_Send(&time, 1, MPI_INT64_T, 0, 0, MPI_COMM_WORLD);
-  //   return;
-  // }
+void MPI_summary_time(int64_t time, const char* prefix, const char* unit) {
+  MPI_Barrier(MPI_COMM_WORLD);
+  if (world_rank != 0) {
+    MPI_Send(&time, 1, MPI_INT64_T, 0, 0, MPI_COMM_WORLD);
+    return;
+  }
   int64_t total_time = time, _time_;
-  // for (int i = 1; i < world_size; i++) {
-  //   MPI_Recv(&_time_, 1, MPI_INT64_T, i, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-  //   total_time += _time_;
-  // }
+  for (int i = 1; i < world_size; i++) {
+    MPI_Recv(&_time_, 1, MPI_INT64_T, i, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+    total_time += _time_;
+  }
   printf(
-      "%s: world size = %d, total time duration = %lld ms, average time "
-      "duration = %lld ms\n",
-      prefix, world_size, total_time, total_time / world_size);
+      "%s: world size = %d, total time duration = %lld %s, average time "
+      "duration = %lld %s\n",
+      prefix, world_size, total_time, unit, total_time / world_size, unit);
+}
+
+void MPI_Summary_throughput(double tpt, const char* prefix, const char* unit) {
+  MPI_Barrier(MPI_COMM_WORLD);
+  if (world_rank != 0) {
+    MPI_Send(&tpt, 1, MPI_DOUBLE, 0, 1, MPI_COMM_WORLD);
+    return;
+  }
+  double total_tpt = tpt, _tpt_;
+  for (int i = 1; i < world_size; i++) {
+    MPI_Recv(&_tpt_, 1, MPI_DOUBLE, i, 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+    total_tpt += _tpt_;
+  }
+  printf("%s, world size = %d, total throughput = %f %s, average throughput = %f %s\n",
+          prefix, world_size, total_tpt, unit, total_tpt / world_size, unit);
 }
 
 
@@ -25,15 +41,17 @@ DEFINE_bool(sync_enable, true, "");
 DEFINE_bool(async_enable, false, "");
 DEFINE_string(platform, "TCP", "which transport protocol used");
 DEFINE_string(verbosity, "ERROR", "");
-DEFINE_string(data_sizes, "1024*1024", "");
+DEFINE_string(data_sizes, "1140", "");
 // DEFINE_string(data_sizes, "1024", "");
 // DEFINE_string(batch_sizes, "1000,10000,20000,50000,100000", "");
-DEFINE_string(batch_sizes, "2000", "");
+DEFINE_string(batch_sizes, "100000", "");
 
 int main(int argc, char** argv) {
   MPI_Init(&argc, &argv);
   MPI_Comm_size(MPI_COMM_WORLD, &world_size);
   MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
+  printf("world rank = %d, world size = %d\n", world_rank, world_size);
+  
 
   ::gflags::ParseCommandLineFlags(&argc, &argv, true);
   ::gflags::ShutDownCommandLineFlags();
@@ -55,17 +73,11 @@ int main(int argc, char** argv) {
 
   // sync services test
   client.SyncSayHello();
-<<<<<<< HEAD
-  printf("world rank = %d, world size = %d\n", world_rank, world_size);
-=======
->>>>>>> a75c92d50deee85b32e3f7de95a5065f3701316a
   for (int data_size: data_sizes) {
       for (int batch_size: batch_sizes) {
           client.BatchSyncs(batch_size, data_size);
       }
   }
-<<<<<<< HEAD
-=======
 
   // // async services test
   // auto t0 = std::chrono::high_resolution_clock::now();
@@ -78,7 +90,6 @@ int main(int argc, char** argv) {
   // size_t ms =
   //     std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count();
   // printf("%ld ms\n", ms);
->>>>>>> a75c92d50deee85b32e3f7de95a5065f3701316a
 
   // // async services test
   // auto t0 = std::chrono::high_resolution_clock::now();
