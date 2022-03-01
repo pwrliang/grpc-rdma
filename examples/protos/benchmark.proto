@@ -5,7 +5,7 @@ package benchmark;
 service BENCHMARK {
     rpc SayHello(Data_Empty) returns (Data_Empty) {}
 
-    rpc BiUnary(Complex) returns (Complex) {}
+    rpc Unary(Complex) returns (Complex) {}
 
     rpc ClientStream(stream Complex) returns (Complex) {}
 
