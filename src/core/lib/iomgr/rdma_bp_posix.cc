@@ -141,13 +141,13 @@ static void notify_on_write(grpc_rdma* rdma) {
 
 static void rdma_shutdown(grpc_endpoint* ep, grpc_error_handle why) {
   grpc_rdma* rdma = reinterpret_cast<grpc_rdma*>(ep);
-  printf("rdma shutdown, shutdown fd %d\n", grpc_fd_wrapped_fd(rdma->em_fd));
+  // printf("rdma shutdown, shutdown fd %d\n", grpc_fd_wrapped_fd(rdma->em_fd));
   grpc_fd_shutdown(rdma->em_fd, why);
   grpc_resource_user_shutdown(rdma->resource_user);
 }
 
 static void rdma_free(grpc_rdma* rdma) {
-  printf("rdma free, orphan fd %d\n", grpc_fd_wrapped_fd(rdma->em_fd));
+  // printf("rdma free, orphan fd %d\n", grpc_fd_wrapped_fd(rdma->em_fd));
   grpc_fd_orphan(rdma->em_fd, rdma->release_fd_cb, rdma->release_fd,
                  "rdma_unref_orphan");
   grpc_slice_buffer_destroy_internal(&rdma->last_read_buffer);
@@ -289,7 +289,13 @@ static void rdma_handle_read(void* arg /* grpc_rdma */, grpc_error_handle error)
     RDMA_UNREF(rdma, "read");
   } else {
     if (rdma->rdmasr->check_and_ack_incomings() == 0) {
-
+      if (tcp_do_read(rdma) == 0) {
+        printf("case A, close rdma\n");
+        grpc_slice_buffer_reset_and_unref_internal(rdma->incoming_buffer);
+        call_read_cb(rdma, rdma_annotate_error(
+                     GRPC_ERROR_CREATE_FROM_STATIC_STRING("Socket closed"),rdma));
+        RDMA_UNREF(rdma, "read");
+      }
       // switch (tcp_do_read(rdma)) {
       //   case 0:
       //     rdma_log(RDMA_INFO, "rdma_handle_read, end of stream");
@@ -312,7 +318,7 @@ static void rdma_handle_read(void* arg /* grpc_rdma */, grpc_error_handle error)
       //     rdma_log(RDMA_ERROR, "rdma_handle_read, unexpected error happened");
       //     abort();
       // }
-      notify_on_read(rdma);
+      // notify_on_read(rdma);
       return;
     } else {
       rdma_log(RDMA_INFO, "rdma_handle_read, found %d bytes data, call rdma_continue_read", 
@@ -321,6 +327,9 @@ static void rdma_handle_read(void* arg /* grpc_rdma */, grpc_error_handle error)
       //   printf("stream end for fd: %d, %d\n", rdma->fd, rdma->rdmasr->get_unread_data_size());
       //   // grpc_fd_set_readable(rdma->em_fd);
       // }
+      if (tcp_do_read(rdma) == 0) {
+        printf("case B\n");
+      }
       rdma_continue_read(rdma);
     }
   }
@@ -585,7 +594,7 @@ grpc_endpoint* grpc_rdma_bp_create(grpc_fd* em_fd,
   rdma->rdmasr->connect(rdma->fd);
   grpc_fd_set_rdmasr_bp(em_fd, rdma->rdmasr);
   rdma_log(RDMA_INFO, "rdmasr %p is created, attached to fd %d", rdma->rdmasr, rdma->fd);
-  printf("rdmasr %p is created, attached to fd: %p, %d\n", rdma->rdmasr, rdma->em_fd, rdma->fd);
+  // printf("rdmasr %p is created, attached to fd: %p, %d\n", rdma->rdmasr, rdma->em_fd, rdma->fd);
   return &rdma->base;
 }
 
