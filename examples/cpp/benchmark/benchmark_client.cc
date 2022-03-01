@@ -55,12 +55,30 @@ int main(int argc, char** argv) {
 
   // sync services test
   client.SyncSayHello();
+<<<<<<< HEAD
   printf("world rank = %d, world size = %d\n", world_rank, world_size);
+=======
+>>>>>>> a75c92d50deee85b32e3f7de95a5065f3701316a
   for (int data_size: data_sizes) {
       for (int batch_size: batch_sizes) {
           client.BatchSyncs(batch_size, data_size);
       }
   }
+<<<<<<< HEAD
+=======
+
+  // // async services test
+  // auto t0 = std::chrono::high_resolution_clock::now();
+  // for (int data_size: data_sizes) {
+  //     for (int batch_size: batch_sizes) {
+  //         client.BatchAsyncs(batch_size, data_size);
+  //     }
+  // }
+  // auto t1 = std::chrono::high_resolution_clock::now();
+  // size_t ms =
+  //     std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count();
+  // printf("%ld ms\n", ms);
+>>>>>>> a75c92d50deee85b32e3f7de95a5065f3701316a
 
   // // async services test
   // auto t0 = std::chrono::high_resolution_clock::now();
