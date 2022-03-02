@@ -5,6 +5,7 @@
 #include <memory>
 #include <string>
 #include <thread>
+#include <mutex>
 
 #include <gflags/gflags.h>
 #include <gflags/gflags_declare.h>
@@ -62,9 +63,11 @@ class SyncServeice final : public BENCHMARK::Service {
     Status ServerStream(ServerContext* context, const Complex* request, ServerWriter<Complex>* writer) override;
     Status BiStream(ServerContext* context, ServerReaderWriter<Complex, Complex>* stream) override;
   private:
+    std::mutex mu_;
     size_t unary_request_total_size = 0;
     size_t unary_reply_total_size = 0;
     size_t unary_batch_size = 0;
+    bool bi_stream_started_ = false;
 };
 
 class BenchmarkServer {
@@ -329,9 +332,13 @@ Status SyncServeice::ServerStream(ServerContext* context, const Complex* request
 Status SyncServeice::BiStream(ServerContext* context,
                               ServerReaderWriter<Complex, Complex>* stream) {
   Complex request, reply;
+  if (bi_stream_started_ == false) {
+    bi_stream_started_ = true;
+    printf("BiStream started\n");
+  }
   for (size_t id = 0; stream->Read(&request); id++) {
+    std::unique_lock<std::mutex> lock(mu_);
     // if (id % 1000 == 0) printf("BiStream: %d-th read done\n", id);
-    // std::unique_lock<std::mutex> lock(mu_);
     reply.mutable_numbers()->set_number1(request.datas().data1().length());
     reply.mutable_datas()->mutable_data1()->resize(
         request.numbers().number1());

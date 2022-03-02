@@ -20,6 +20,7 @@ const size_t DEFAULT_MAX_RECV_WR = 5000;
 const size_t DEFAULT_MAX_SEND_SGE = 10;
 const size_t DEFAULT_MAX_RECV_SGE = 10;
 const size_t DEFAULT_MAX_POST_RECV = 500;
+const size_t DEFAULT_EVENT_ACK_LIMIT = 10;
 
 class RDMASenderReceiver;
 class RDMASenderReceiverBP;
@@ -37,9 +38,9 @@ class RDMAConn {
     RDMAConn(int fd, RDMANode* node);
     ~RDMAConn();
 
-    virtual void poll_send_completion();
-    virtual void post_send_and_poll_completion(ibv_send_wr* sr, bool update_remote);
-    virtual void post_send_and_poll_completion(MemRegion& remote_mr, size_t remote_tail, 
+    virtual int poll_send_completion();
+    virtual int post_send_and_poll_completion(ibv_send_wr* sr, bool update_remote);
+    virtual int post_send_and_poll_completion(MemRegion& remote_mr, size_t remote_tail, 
                                        MemRegion& local_mr, size_t local_offset,
                                        size_t sz, ibv_wr_opcode opcode, bool update_remote);
     // after qp was created, sync data with remote
@@ -72,16 +73,25 @@ class RDMAConnBP : public RDMAConn {
 };
 
 class RDMAConnEvent : public RDMAConn {
-    friend class RDMASenderReceiverEvent;
   public:
-    RDMAConnEvent(int fd, RDMANode* node, ibv_comp_channel* channel, RDMASenderReceiverEvent* rdmasr);
-    virtual ~RDMAConnEvent() {}
+    RDMAConnEvent(int fd, RDMANode* node, RDMASenderReceiverEvent* rdmasr);
+    virtual ~RDMAConnEvent();
+
+    int get_channel_fd() { return channel_->fd; }
+
+    bool get_event_locked();
+
+    size_t get_events_locked(uint8_t* addr, size_t length, uint32_t lkey);
 
     void post_recvs(uint8_t* addr, size_t length, uint32_t lkey, size_t n);
+
+    int poll_send_completion();
     size_t poll_recv_completions_and_post_recvs(uint8_t* addr, size_t length, uint32_t lkey);
     
   protected:
+    ibv_comp_channel* channel_ = nullptr;
     ibv_wc recv_wcs_[DEFAULT_MAX_POST_RECV];
+    size_t unacked_events_num_ = 0;
 };
 
 

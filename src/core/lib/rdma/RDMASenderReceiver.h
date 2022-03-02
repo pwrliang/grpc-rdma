@@ -85,7 +85,7 @@ class RDMASenderReceiverBP : public RDMASenderReceiver {
 
     bool check_incoming_() { return ringbuf_bp_->check_head(); }
 
-    size_t check_and_ack_incomings();
+    size_t check_and_ack_incomings_locked();
 
     void diagnosis();
 
@@ -96,12 +96,12 @@ class RDMASenderReceiverBP : public RDMASenderReceiver {
     bool connected_ = false;
 };
 
-ibv_comp_channel* rdma_create_channel(RDMANode* node);
-int rdma_destroy_channel(ibv_comp_channel* channel);
-void rdma_epoll_add_channel(int epfd, ibv_comp_channel* channel);
-void rdma_epoll_del_channel(int epfd, ibv_comp_channel* channel);
-bool rdma_is_available_event(struct epoll_event* ev);
-void* rdma_check_incoming(struct epoll_event* ev);
+// ibv_comp_channel* rdma_create_channel(RDMANode* node);
+// int rdma_destroy_channel(ibv_comp_channel* channel);
+// void rdma_epoll_add_channel(int epfd, ibv_comp_channel* channel);
+// void rdma_epoll_del_channel(int epfd, ibv_comp_channel* channel);
+// bool rdma_is_available_event(struct epoll_event* ev);
+// void* rdma_check_incoming(struct epoll_event* ev);
 
 class RDMASenderReceiverEvent : public RDMASenderReceiver {
   public:
@@ -109,27 +109,22 @@ class RDMASenderReceiverEvent : public RDMASenderReceiver {
     virtual ~RDMASenderReceiverEvent();
 
     // create channel for each rdmasr.
-    void connect(int fd, void* user_data); // user_data will be used as cq_context when create srq 
+    void connect(int fd); 
     bool connected() { return connected_; }
 
     virtual bool send(msghdr* msg, size_t mlen);
     virtual size_t recv(msghdr* msg);
 
-    size_t check_and_ack_incomings();
+    bool check_incoming();
+    size_t check_and_ack_incomings_locked();
     
-    void* get_user_data() { return user_data_; }
-    ibv_comp_channel* get_channel() { return channel_; }
-
-    friend void* rdma_check_incoming(struct epoll_event* ev);
+    int get_channel_fd() { return conn_data_event_->get_channel_fd(); }
+    
   protected:
+    std::atomic_bool checked_;
     RingBufferEvent* ringbuf_event_ = nullptr;
     RDMAConnEvent* conn_data_event_ = nullptr;
-    ibv_comp_channel* channel_ = nullptr;
-    std::atomic<int> unprocessed_event_num_;
-    std::atomic<int> unacked_event_num_;
     bool connected_ = false;
-
-    void* user_data_;
 };
 
 #endif

@@ -62,6 +62,9 @@ struct grpc_rdma {
 
   RDMASenderReceiverEvent* rdmasr;
 
+  size_t total_send_size = 0;
+  size_t total_recv_size = 0;
+
   // int min_read_chunk_size;
   // int max_read_chunk_size;
 
@@ -216,17 +219,17 @@ static void rdma_do_read(grpc_rdma* rdma) {
   msg.msg_iovlen = iov_len;
 
   size_t read_bytes = 0;
-  size_t total_read_byte = 0;
 
   do {
     read_bytes = rdma->rdmasr->recv(&msg);
   } while (read_bytes == 0);
-  total_read_byte += read_bytes;
-  rdma_log(RDMA_DEBUG, "rdma_do_read recv %d bytes", total_read_byte);
+  rdma->total_recv_size += read_bytes;
+  rdma_log(RDMA_DEBUG, "rdma_do_read recv %d bytes", read_bytes);
+  // printf("rdma recv %d bytes data, total recv size = %lld\n", read_bytes, rdma->total_recv_size);
 
-  if (total_read_byte < rdma->incoming_buffer->length) {
+  if (read_bytes <= rdma->incoming_buffer->length) {
     grpc_slice_buffer_trim_end(rdma->incoming_buffer,
-                               rdma->incoming_buffer->length - total_read_byte,
+                               rdma->incoming_buffer->length - read_bytes,
                                &rdma->last_read_buffer);
   }
 
@@ -237,6 +240,7 @@ static void rdma_do_read(grpc_rdma* rdma) {
 
 static void rdma_continue_read(grpc_rdma* rdma) {
   size_t mlen = rdma->rdmasr->get_unread_data_size();
+  // printf("rdma_continue_read, incoming data size = %lld bytes\n", mlen);
   if (rdma->incoming_buffer->length < mlen) {
     size_t target_size = MAX(mlen, MIN_READBUF_SIZE) - rdma->incoming_buffer->length;
     rdma_log(RDMA_DEBUG, "rdma_continue_read, data size = %d, incoming buffer size = %d, allocate %d bytes",
@@ -264,6 +268,18 @@ static void rdma_read_allocation_done(void* rdmap, grpc_error_handle error) {
   }
 }
 
+// when there is no data in rdma, call it, test if remote socket closed
+int tcp_do_read(grpc_rdma* rdma) {
+  uint8_t buf[16];
+
+  int ret;
+  do {
+    ret = recv(rdma->fd, buf, 16, 0);
+  } while (ret < 0 && errno == EINTR);
+
+  return ret;
+}
+
 static void rdma_handle_read(void* arg /* grpc_rdma */, grpc_error_handle error) {
   grpc_rdma* rdma = static_cast<grpc_rdma*>(arg);
   if (GPR_UNLIKELY(error != GRPC_ERROR_NONE)) {
@@ -272,11 +288,22 @@ static void rdma_handle_read(void* arg /* grpc_rdma */, grpc_error_handle error)
     call_read_cb(rdma, GRPC_ERROR_REF(error));
     RDMA_UNREF(rdma, "read");
   } else {
-    if (rdma->rdmasr->check_and_ack_incomings() == 0) {
-      rdma_log(RDMA_DEBUG, "rdma_handle_read, no data, call notify_on_read");
-      notify_on_read(rdma);
+    if (rdma->rdmasr->check_and_ack_incomings_locked() == 0) {
+      if (tcp_do_read(rdma) == 0) {
+        printf("case A, close rdma\n");
+        grpc_slice_buffer_reset_and_unref_internal(rdma->incoming_buffer);
+        call_read_cb(rdma, rdma_annotate_error(
+                     GRPC_ERROR_CREATE_FROM_STATIC_STRING("Socket closed"),rdma));
+        RDMA_UNREF(rdma, "read");
+      } else {
+        rdma_log(RDMA_DEBUG, "rdma_handle_read, no data, call notify_on_read");
+        notify_on_read(rdma);
+      }
     } else {
       rdma_log(RDMA_DEBUG, "rdma_handle_read, data found, call rdma_continue_read");
+      if (tcp_do_read(rdma) == 0) {
+        printf("case B\n");
+      }
       rdma_continue_read(rdma);
     }
   }
@@ -309,29 +336,36 @@ static void rdma_read(grpc_endpoint* ep, grpc_slice_buffer* incoming_buffer,
 #define MAX_WRITE_IOVEC 1000
 
 static bool rdma_flush(grpc_rdma* rdma, grpc_error_handle* error) {
-  size_t rdma_max_send_size = DEFAULT_SENDBUF_SZ / 2 - 11;
-  size_t outgoing_slice_idx_record = rdma->outgoing_byte_idx;
-
   struct msghdr msg;
   struct iovec iov[MAX_WRITE_IOVEC];
   size_t iov_size;
+  ssize_t sent_length = 0;
   size_t sending_length;
+  size_t trailing;
+  size_t unwind_slice_idx;
+  size_t unwind_byte_idx;
+
   size_t outgoing_slice_idx = 0;
-  while (outgoing_slice_idx < rdma->outgoing_buffer->count) {
+  size_t total_sent_length = 0;
+  size_t max_send_size = rdma->rdmasr->get_max_send_size();
+
+  while (true) {
     sending_length = 0;
+    unwind_slice_idx = outgoing_slice_idx;
+    unwind_byte_idx = rdma->outgoing_byte_idx;
     for (iov_size = 0;
-         outgoing_slice_idx != rdma->outgoing_buffer->count &&
-         iov_size != MAX_WRITE_IOVEC && sending_length <= rdma_max_send_size;
+         outgoing_slice_idx != rdma->outgoing_buffer->count && 
+         iov_size != MAX_WRITE_IOVEC &&
+         sending_length < max_send_size;
          iov_size++) {
-      iov[iov_size].iov_base =
-          GRPC_SLICE_START_PTR(
-              rdma->outgoing_buffer->slices[outgoing_slice_idx]) +
-          rdma->outgoing_byte_idx;
-      size_t iov_len =
-          GRPC_SLICE_LENGTH(rdma->outgoing_buffer->slices[outgoing_slice_idx]) -
-          rdma->outgoing_byte_idx;
-      if (sending_length + iov_len > rdma_max_send_size) {
-        iov[iov_size].iov_len = rdma_max_send_size - sending_length;
+      iov[iov_size].iov_base = 
+        GRPC_SLICE_START_PTR(rdma->outgoing_buffer->slices[outgoing_slice_idx]) +  
+        rdma->outgoing_byte_idx;
+      size_t iov_len = 
+        GRPC_SLICE_LENGTH(rdma->outgoing_buffer->slices[outgoing_slice_idx]) -
+        rdma->outgoing_byte_idx;
+      if (sending_length + iov_len > max_send_size) {
+        iov[iov_size].iov_len = max_send_size - sending_length;
         rdma->outgoing_byte_idx += iov[iov_size].iov_len;
       } else {
         iov[iov_size].iov_len = iov_len;
@@ -340,19 +374,35 @@ static bool rdma_flush(grpc_rdma* rdma, grpc_error_handle* error) {
       }
       sending_length += iov[iov_size].iov_len;
     }
+    GPR_ASSERT(iov_size > 0);
+
     msg.msg_iov = iov;
     msg.msg_iovlen = iov_size;
 
-    rdma_log(RDMA_DEBUG, "rdma_flush try to send %d bytes", sending_length);
-    if (rdma->rdmasr->send(&msg, sending_length) == false) {
-      rdma_log(RDMA_ERROR, "rdma send failed");
-      abort();
-    }
+    rdma_log(RDMA_INFO, "rdma_flush try to send %d bytes, %d, %d, %d", 
+             sending_length, iov_size, total_sent_length, rdma->outgoing_buffer->length);
+    // printf("thread %lld try to send %ld bytes data\n", getpid(), sending_length);
 
+    while (rdma->rdmasr->send(&msg, sending_length) == false) {
+      // not enough space in remote
+      rdma->outgoing_byte_idx = unwind_byte_idx;
+      for (size_t idx = 0; idx < unwind_slice_idx; idx++) {
+        grpc_slice_buffer_remove_first(rdma->outgoing_buffer);
+      }
+      rdma->rdmasr->write_again();
+      // printf("thread %lld send %ld bytes data failed\n", getpid(), sending_length);
+      return false;
+    }
+    rdma->total_send_size += sending_length;
+    // printf("thread %lld send %ld bytes data succeed, total send size = %lld\n", getpid(), sending_length, rdma->total_send_size);
+
+
+    if (outgoing_slice_idx == rdma->outgoing_buffer->count) {
+      *error = GRPC_ERROR_NONE;
+      grpc_slice_buffer_reset_and_unref_internal(rdma->outgoing_buffer);
+      return true;
+    }
   }
-  *error = GRPC_ERROR_NONE;
-  grpc_slice_buffer_reset_and_unref_internal(rdma->outgoing_buffer);
-  return true;
 }
 
 static void rdma_handle_write(void* arg /* grpc_tcp */,
@@ -517,7 +567,10 @@ grpc_endpoint* grpc_rdma_event_create(grpc_fd* em_fd,
   GRPC_CLOSURE_INIT(&rdma->write_done_closure, rdma_handle_write, rdma,
                     grpc_schedule_on_exec_ctx);
   rdma->rdmasr = new RDMASenderReceiverEvent();
+  rdma->rdmasr->connect(rdma->fd);
   grpc_fd_set_rdmasr_event(em_fd, rdma->rdmasr);
+  rdma_log(RDMA_INFO, "rdmasr %p is created, attached to fd %d", rdma->rdmasr, rdma->fd);
+  // printf("rdmasr %p is created, attached to fd: %p, %d\n", rdma->rdmasr, rdma->em_fd, rdma->fd);
   return &rdma->base;
 }
 

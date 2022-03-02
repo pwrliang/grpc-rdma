@@ -207,7 +207,7 @@ size_t RingBufferEvent::read_to_msghdr(msghdr* msg, size_t head,
   uint8_t *iov_rbase, *rb_ptr;
   for (size_t i = 0, iov_offset = 0, n;
        lens < expected_read_size && i < msg->msg_iovlen; lens += n) {
-    iov_rlen = msg->msg_iov[i].iov_len - iov_offset;
+    iov_rlen = msg->msg_iov[i].iov_len - iov_offset; // rest space of current slice
     iov_rbase = (uint8_t*)(msg->msg_iov[i].iov_base) + iov_offset;
     rb_ptr = buf_ + head;
     n = MIN3(capacity_ - head, expected_read_size - lens, iov_rlen);
@@ -216,14 +216,13 @@ size_t RingBufferEvent::read_to_msghdr(msghdr* msg, size_t head,
              "RingBufferEvent::read_to_msghdr, read %d bytes from head %d", n,
              head);
     head += n;
-    if (head == capacity_) {
-      head = 0;
-      iov_offset += n;
-    }
+    iov_offset += n;
     if (n == iov_rlen) {
+      // all space of the current slice has been used up. move to next slice
       i++;
       iov_offset = 0;
     }
+    head = head % capacity_;
   }
 
   if (lens != expected_read_size) {

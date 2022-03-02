@@ -288,45 +288,19 @@ static void rdma_handle_read(void* arg /* grpc_rdma */, grpc_error_handle error)
     call_read_cb(rdma, GRPC_ERROR_REF(error));
     RDMA_UNREF(rdma, "read");
   } else {
-    if (rdma->rdmasr->check_and_ack_incomings() == 0) {
+    if (rdma->rdmasr->check_and_ack_incomings_locked() == 0) {
       if (tcp_do_read(rdma) == 0) {
         printf("case A, close rdma\n");
         grpc_slice_buffer_reset_and_unref_internal(rdma->incoming_buffer);
         call_read_cb(rdma, rdma_annotate_error(
                      GRPC_ERROR_CREATE_FROM_STATIC_STRING("Socket closed"),rdma));
         RDMA_UNREF(rdma, "read");
+      } else {
+        notify_on_read(rdma);
       }
-      // switch (tcp_do_read(rdma)) {
-      //   case 0:
-      //     rdma_log(RDMA_INFO, "rdma_handle_read, end of stream");
-      //     printf("stream end for fd: %d\n", rdma->fd);
-      //     // sleep(1);
-      //     // printf("stream end for fd: %d, %d\n", rdma->fd, rdma->rdmasr->check_and_ack_incomings());
-      //     // grpc_slice_buffer_reset_and_unref_internal(rdma->incoming_buffer);
-      //     // call_read_cb(rdma, rdma_annotate_error(
-      //     //                     GRPC_ERROR_CREATE_FROM_STATIC_STRING("Socket closed"),rdma));
-      //     // RDMA_UNREF(rdma, "read");
-      //     notify_on_read(rdma);
-      //     break;
-      //   case -1:
-      //     if (errno == EAGAIN) {
-      //       rdma_log(RDMA_WARNING, "rdma_handle_read, rdma_handle_read is called but no data to RDMA, call notify_on_read");
-      //       notify_on_read(rdma);
-      //       break;
-      //     } // else go to default
-      //   default:
-      //     rdma_log(RDMA_ERROR, "rdma_handle_read, unexpected error happened");
-      //     abort();
-      // }
-      // notify_on_read(rdma);
-      return;
     } else {
       rdma_log(RDMA_INFO, "rdma_handle_read, found %d bytes data, call rdma_continue_read", 
                 rdma->rdmasr->get_unread_data_size());
-      // if (tcp_do_read(rdma) == 0) {
-      //   printf("stream end for fd: %d, %d\n", rdma->fd, rdma->rdmasr->get_unread_data_size());
-      //   // grpc_fd_set_readable(rdma->em_fd);
-      // }
       if (tcp_do_read(rdma) == 0) {
         printf("case B\n");
       }

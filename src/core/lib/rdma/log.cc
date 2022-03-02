@@ -2,7 +2,7 @@
 
 const std::string RDMA_ENV_VAR = "RDMA_VERBOSITY";
 
-rdma_log_severity rdma_min_severity_to_print = RDMA_LOG_SEVERITY_WARNING;
+rdma_log_severity rdma_min_severity_to_print = RDMA_LOG_SEVERITY_ERROR;
 
 
 void SET_RDMA_VERBOSITY() {

@@ -2,82 +2,12 @@
 #include "log.h"
 #include "fcntl.h"
 #include <thread>
+#include <infiniband/verbs.h>
 
 #ifndef EPOLLEXCLUSIVE
 #define EPOLLEXCLUSIVE (1 << 28)
 #endif
 
-ibv_comp_channel* rdma_create_channel(RDMANode* node) {
-  ibv_context* ctx = node->get_ctx();
-  ibv_comp_channel* channel = ibv_create_comp_channel(ctx);
-  int flags = fcntl(channel->fd, F_GETFL);
-  if (fcntl(channel->fd, F_SETFL, flags | O_NONBLOCK) < 0) {
-    rdma_log(RDMA_ERROR,
-        "rdma_create_channel, failed to change channel fd to non-blocking");
-    exit(-1);
-  }
-  return channel;
-}
-
-int rdma_destroy_channel(ibv_comp_channel* channel) {
-  return ibv_destroy_comp_channel(channel);
-}
-
-void rdma_epoll_add_channel(int epfd, ibv_comp_channel* channel) {
-  struct epoll_event ev_fd;
-  ev_fd.events = static_cast<uint32_t>(EPOLLIN | EPOLLET | EPOLLEXCLUSIVE);
-  ev_fd.data.ptr = reinterpret_cast<void*>(reinterpret_cast<intptr_t>(channel) | 3);
-  if (epoll_ctl(epfd, EPOLL_CTL_ADD, channel->fd, &ev_fd) != 0) {
-    switch (errno) {
-      case EEXIST:
-        rdma_log(RDMA_WARNING, "rdma_epoll_add_channel, EEXIST");
-        return;
-      default:
-        rdma_log(RDMA_ERROR, "rdma_epoll_add_channel, failed to add channel fd to epfd");
-        exit(-1);
-    }
-  }
-  rdma_log(RDMA_INFO, "rdma_epoll_add_channel, add channel %p to epfd %d",
-           channel, epfd);
-  return;
-}
-
-void rdma_epoll_del_channel(int epfd, ibv_comp_channel* channel) {
-  struct epoll_event ev_fd;
-  epoll_ctl(epfd, EPOLL_CTL_DEL, channel->fd, &ev_fd);
-}
-
-bool rdma_is_available_event(struct epoll_event* ev) {
-  return (reinterpret_cast<intptr_t>(ev->data.ptr) & 3) == 3;
-}
-
-void* rdma_check_incoming(struct epoll_event* ev) {
-  if (rdma_is_available_event(ev) == false) return nullptr;
-
-  ibv_comp_channel* channel = reinterpret_cast<ibv_comp_channel*>(reinterpret_cast<intptr_t>(ev->data.ptr) & ~3);
-  ibv_cq* cq = nullptr;
-  void* ev_ctx = nullptr;
-  if (ibv_get_cq_event(channel, &cq, &ev_ctx) == -1) {
-    rdma_log(RDMA_WARNING, "rdma_check_incoming, "
-             "failed to get event from channel");
-    
-    return nullptr;
-  }
-  ibv_ack_cq_events(cq, 1);
-  if (ibv_req_notify_cq(cq, 0)) {
-    rdma_log(RDMA_ERROR, "rdma_check_incoming, "
-             "failed to request CQ notification");
-    exit(-1);
-  }
-  if (!ev_ctx) {
-    rdma_log(RDMA_ERROR, "rdma_check_incoming, failed to retrieve rdmasr");
-    exit(-1);
-  }
-  rdma_log(RDMA_DEBUG, "rdma_check_incoming, found incoming");
-  RDMASenderReceiverEvent* rdmasr = (RDMASenderReceiverEvent*)(ev_ctx);
-  rdmasr->unacked_event_num_.fetch_add(1);
-  return rdmasr->get_user_data();
-}
 
 // -----< RDMASenderReceiverEvent >-----
 
@@ -93,7 +23,7 @@ RDMASenderReceiverEvent::RDMASenderReceiverEvent() {
   }
 
   ringbuf_ = ringbuf_event_;
-  unacked_event_num_.store(0);
+  checked_.store(false);
   max_send_size_ = sendbuf_sz_ - 1;
 
   rdma_log(RDMA_INFO, "RDMASenderReceiverEvent %p created", this);
@@ -108,24 +38,42 @@ RDMASenderReceiverEvent::~RDMASenderReceiverEvent() {
   }
 }
 
-void RDMASenderReceiverEvent::connect(int fd, void* user_data) {
+void RDMASenderReceiverEvent::connect(int fd) {
   RDMASenderReceiver::connect(fd);
-  channel_ = rdma_create_channel(&node_);
-  user_data_ = user_data;
-  conn_data_event_ = new RDMAConnEvent(fd, &node_, channel_, this);
+  conn_data_event_ = new RDMAConnEvent(fd, &node_, this);
   conn_data_ = conn_data_event_;
   conn_data_event_->sync_mr(local_ringbuf_mr_, remote_ringbuf_mr_);
-
-  ibv_req_notify_cq(conn_data_event_->rcq_, 0);
-
   conn_data_event_->post_recvs(ringbuf_event_->get_buf(), ringbuf_sz_, local_ringbuf_mr_.lkey(), DEFAULT_MAX_POST_RECV);
 
-  rdma_log(RDMA_INFO, "RDMASenderReceiverEvent connected, channel fd = %d", channel_->fd);
+  rdma_log(RDMA_INFO, "RDMASenderReceiverEvent connected");
   connected_ = true;
 }
 
-size_t RDMASenderReceiverEvent::check_and_ack_incomings() {
-  unread_mlens_ += conn_data_event_->poll_recv_completions_and_post_recvs(ringbuf_event_->get_buf(), ringbuf_sz_, local_ringbuf_mr_.lkey());
+bool RDMASenderReceiverEvent::check_incoming() {
+  // previous checked_ is true (new incoming data already found by another thread), 
+  // keep checked_ true, 
+  // return false, avoid call fd_become_readable twice for the same incoming data
+  if (checked_.exchange(true)) return false;
+  // previous checked_ is false (no incoming data found before), 
+  // set checked_ true to prevent other thread entering
+  // now check incoming
+
+  // found new incoming data, 
+  // return true, so fd_become_readable will be called, then RDMASenderReceiverEvent::check_and_ack_incomings_locked will be called 
+  // leave checked_ true. 
+  // before check_and_ack_incomings_locked , set checked_ to false, 
+  // so extra channel fd event will be detected, and extra check_and_ack_incomings_locked will be called
+  // but RCQ event will not be missed
+  if (conn_data_event_->get_event_locked()) return true;
+
+  // no new incoming data found, return false, 
+  // leave checked_ false, so other thread could check again
+  return !checked_.exchange(false);
+}
+
+size_t RDMASenderReceiverEvent::check_and_ack_incomings_locked() {
+  checked_.store(false);
+  unread_mlens_ = conn_data_event_->get_events_locked(ringbuf_event_->get_buf(), ringbuf_sz_, local_ringbuf_mr_.lkey());
   return unread_mlens_;
 }
 
@@ -135,7 +83,8 @@ size_t RDMASenderReceiverEvent::recv(msghdr* msg) {
     rdma_log(RDMA_WARNING, "RDMASenderReceiverEvent::recv, read_size == 0");
     return 0;
   }
-  unread_mlens_ -= read_size;
+
+  unread_mlens_ = 0;
   garbage_ += read_size;
   total_recv_sz += read_size;
   if (garbage_ >= ringbuf_sz_ / 2) {
@@ -155,12 +104,9 @@ bool RDMASenderReceiverEvent::send(msghdr* msg, size_t mlen) {
 
   size_t remote_ringbuf_sz = remote_ringbuf_mr_.length();
 
+  update_local_head();
   size_t used = (remote_ringbuf_sz + remote_ringbuf_tail_ - remote_ringbuf_head_) % remote_ringbuf_sz;
-  while (used + mlen >= remote_ringbuf_sz) {
-    update_local_head();
-    used = (remote_ringbuf_sz + remote_ringbuf_tail_ - remote_ringbuf_head_) % remote_ringbuf_sz;
-    std::this_thread::yield();
-  }
+  if (used + mlen >= remote_ringbuf_sz - 1) return false;
 
   uint8_t* start = sendbuf_;
   for (size_t iov_idx = 0, nwritten = 0;
@@ -178,8 +124,10 @@ bool RDMASenderReceiverEvent::send(msghdr* msg, size_t mlen) {
     start += iov_len;
   }
 
-  conn_data_event_->post_send_and_poll_completion(remote_ringbuf_mr_, remote_ringbuf_tail_,
-                                             sendbuf_mr_, 0, mlen, IBV_WR_RDMA_WRITE_WITH_IMM, false);
+  if (conn_data_event_->post_send_and_poll_completion(remote_ringbuf_mr_, remote_ringbuf_tail_,
+                                                      sendbuf_mr_, 0, mlen, IBV_WR_RDMA_WRITE_WITH_IMM, false) == IBV_WC_RNR_RETRY_EXC_ERR ) {
+      return false;
+  }
   remote_ringbuf_tail_ = (remote_ringbuf_tail_ + mlen) % remote_ringbuf_sz;
   total_send_sz += mlen;
   return true;
