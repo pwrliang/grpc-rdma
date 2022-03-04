@@ -138,13 +138,13 @@ RDMAConn::RDMAConn(int fd, RDMANode* node)
   ibv_device_attr dev_attr = node_->get_device_attr();
   union ibv_gid gid = node_->get_gid();
 
-  scq_ = ibv_create_cq(ctx, dev_attr.max_cqe, NULL, NULL, 0);
+  scq_ = ibv_create_cq(ctx, DEFAULT_CQE, NULL, NULL, 0);
   if (!scq_) {
     rdma_log(RDMA_ERROR,
       "RDMAConn::RDMAConn, failed to create send CQ");
     exit(-1);
   }
-  rcq_ = ibv_create_cq(ctx, dev_attr.max_cqe, NULL, NULL, 0);
+  rcq_ = ibv_create_cq(ctx, DEFAULT_CQE, NULL, NULL, 0);
   if (!rcq_) {
     rdma_log(RDMA_ERROR,
       "RDMAConn::RDMAConn, failed to create recv CQ");

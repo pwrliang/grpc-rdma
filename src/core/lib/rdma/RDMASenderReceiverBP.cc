@@ -37,7 +37,6 @@ void RDMASenderReceiverBP::connect(int fd) {
   conn_data_bp_ = new RDMAConnBP(fd, &node_);
   conn_data_ = conn_data_bp_;
   conn_data_bp_->sync_mr(local_ringbuf_mr_, remote_ringbuf_mr_);
-  // conn_bp_->sync_mr(local_head_recvbuf_mr_, remote_head_recvbuf_mr_);
 
   rdma_log(RDMA_DEBUG, "RDMASenderReceiverBP connected");
   connected_ = true;
@@ -92,7 +91,7 @@ size_t RDMASenderReceiverBP::recv(msghdr* msg, size_t msghdr_size) {
   garbage_ += lens;
   total_recv_sz += lens;
   if (garbage_ >= ringbuf_sz_ / 2) { //garbage_ >= ringbuf_sz_ / 2
-    update_remote_head();
+    update_remote_metadata();
     garbage_ = 0;
   }
 
@@ -111,7 +110,7 @@ bool RDMASenderReceiverBP::send(msghdr* msg, size_t mlen) {
   size_t remote_ringbuf_sz = remote_ringbuf_mr_.length();
   size_t len = mlen + sizeof(size_t) + 1;
 
-  update_local_head();
+  update_local_metadata();
   size_t used = (remote_ringbuf_sz + remote_ringbuf_tail_ - remote_ringbuf_head_) % remote_ringbuf_sz;
   if (used + len >= remote_ringbuf_sz - sizeof(size_t) - 1) return false;
 

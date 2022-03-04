@@ -19,8 +19,9 @@ const size_t DEFAULT_MAX_SEND_WR = 5000;
 const size_t DEFAULT_MAX_RECV_WR = 5000;
 const size_t DEFAULT_MAX_SEND_SGE = 10;
 const size_t DEFAULT_MAX_RECV_SGE = 10;
-const size_t DEFAULT_MAX_POST_RECV = 5;
-const size_t DEFAULT_EVENT_ACK_LIMIT = 10;
+const size_t DEFAULT_CQE = 5000;
+const size_t DEFAULT_MAX_POST_RECV = 500;
+const size_t DEFAULT_EVENT_ACK_LIMIT = 100;
 
 class RDMASenderReceiver;
 class RDMASenderReceiverBP;
@@ -78,6 +79,8 @@ class RDMAConnEvent : public RDMAConn {
     virtual ~RDMAConnEvent();
 
     int get_channel_fd() { return channel_->fd; }
+    size_t get_extra_rr_num() { return extra_rr_num_.load(); }
+    void reset_extra_rr_num() { extra_rr_num_.store(0); }
 
     bool get_event_locked();
 
@@ -85,13 +88,16 @@ class RDMAConnEvent : public RDMAConn {
 
     void post_recvs(uint8_t* addr, size_t length, uint32_t lkey, size_t n);
 
-    int poll_send_completion();
+    // int poll_send_completion();
     size_t poll_recv_completions_and_post_recvs(uint8_t* addr, size_t length, uint32_t lkey);
     
   protected:
     ibv_comp_channel* channel_ = nullptr;
     ibv_wc recv_wcs_[DEFAULT_MAX_POST_RECV];
     size_t unacked_events_num_ = 0;
+    
+    // this number indicates how many recv requests are posted since last update_remote_metadata
+    std::atomic_size_t extra_rr_num_; 
 };
 
 

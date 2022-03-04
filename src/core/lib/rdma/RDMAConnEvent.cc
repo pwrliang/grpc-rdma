@@ -16,7 +16,8 @@
 
 // -----< RDMAConnEvent >-----
 
-RDMAConnEvent::RDMAConnEvent(int fd, RDMANode* node, RDMASenderReceiverEvent* rdmasr) {
+RDMAConnEvent::RDMAConnEvent(int fd, RDMANode* node, RDMASenderReceiverEvent* rdmasr)
+  : extra_rr_num_(DEFAULT_MAX_POST_RECV) {
   fd_ = fd;
   node_ = node;
   ibv_context* ctx = node_->get_ctx();
@@ -25,7 +26,7 @@ RDMAConnEvent::RDMAConnEvent(int fd, RDMANode* node, RDMASenderReceiverEvent* rd
   ibv_device_attr dev_attr = node_->get_device_attr();
   union ibv_gid gid = node_->get_gid();
 
-  scq_ = ibv_create_cq(ctx, dev_attr.max_cqe, NULL, NULL, 0);
+  scq_ = ibv_create_cq(ctx, DEFAULT_CQE, NULL, NULL, 0);
   if (!scq_) {
     rdma_log(RDMA_ERROR,
       "RDMAConnEvent::RDMAConnEvent, failed to create CQ for a connection");
@@ -38,7 +39,7 @@ RDMAConnEvent::RDMAConnEvent(int fd, RDMANode* node, RDMASenderReceiverEvent* rd
     rdma_log(RDMA_ERROR, "RDMAConnEvent::RDMAConnEvent, failed to change channel fd to non-blocking");
     exit(-1);
   }
-  rcq_ = ibv_create_cq(ctx, dev_attr.max_cqe, rdmasr, channel_, 0);
+  rcq_ = ibv_create_cq(ctx, DEFAULT_CQE, rdmasr, channel_, 0);
   if (!rcq_) {
     rdma_log(RDMA_ERROR,
       "RDMAConnEvent::RDMAConnEvent, failed to create CQ for a connection");
@@ -114,32 +115,32 @@ size_t RDMAConnEvent::get_events_locked(uint8_t* addr, size_t length, uint32_t l
   return poll_recv_completions_and_post_recvs(addr, length, lkey);
 }
 
-int RDMAConnEvent::poll_send_completion() {
-  int num_entries;
-  ibv_wc wc;
-  do {
-    num_entries = ibv_poll_cq(scq_, 1, &wc);
-  } while (num_entries == 0);
+// int RDMAConnEvent::poll_send_completion() {
+//   int num_entries;
+//   ibv_wc wc;
+//   do {
+//     num_entries = ibv_poll_cq(scq_, 1, &wc);
+//   } while (num_entries == 0);
 
-  if (num_entries < 0) {
-    rdma_log(RDMA_ERROR, "RDMAConn::poll_send_completion, failed to poll scq");
-    exit(-1);
-  }
-  if (wc.status == IBV_WC_RNR_RETRY_EXC_ERR) {
-    // still have bugs here
-    struct ibv_qp *qp;
-    struct ibv_qp_attr attr;
-    struct ibv_qp_init_attr init_attr;
-    ibv_query_qp(qp_, &attr, IBV_QP_STATE, &init_attr);
-    printf("IBV_WC_RNR_RETRY_EXC_ERR, %d, %d\n", attr.cur_qp_state, attr.qp_state);
-  }
-  if (wc.status != IBV_WC_SUCCESS && wc.status != IBV_WC_RNR_RETRY_EXC_ERR ) {
-    rdma_log(RDMA_ERROR, 
-             "RDMAConn::poll_send_completion, failed to poll scq, status %d", wc.status);
-    exit(-1);
-  }
-  return wc.status;
-}
+//   if (num_entries < 0) {
+//     rdma_log(RDMA_ERROR, "RDMAConn::poll_send_completion, failed to poll scq");
+//     exit(-1);
+//   }
+//   if (wc.status == IBV_WC_RNR_RETRY_EXC_ERR) {
+//     // still have bugs here
+//     struct ibv_qp *qp;
+//     struct ibv_qp_attr attr;
+//     struct ibv_qp_init_attr init_attr;
+//     ibv_query_qp(qp_, &attr, IBV_QP_STATE, &init_attr);
+//     printf("IBV_WC_RNR_RETRY_EXC_ERR, %d, %d\n", attr.cur_qp_state, attr.qp_state);
+//   }
+//   if (wc.status != IBV_WC_SUCCESS && wc.status != IBV_WC_RNR_RETRY_EXC_ERR ) {
+//     rdma_log(RDMA_ERROR, 
+//              "RDMAConn::poll_send_completion, failed to poll scq, status %d", wc.status);
+//     exit(-1);
+//   }
+//   return wc.status;
+// }
 
 size_t RDMAConnEvent::poll_recv_completions_and_post_recvs(uint8_t* addr, size_t length, uint32_t lkey) {
   int recv_bytes = 0;
@@ -178,6 +179,7 @@ void RDMAConnEvent::post_recvs(uint8_t* addr, size_t length, uint32_t lkey, size
   INIT_SGE(&sge, addr, length, lkey);
   INIT_RR(&rr, &sge);
 
+  extra_rr_num_.fetch_add(n);
   int ret;
   while (n--) {
     ret = ibv_post_recv(qp_, &rr, &bad_wr);

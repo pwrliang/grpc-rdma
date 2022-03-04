@@ -102,6 +102,8 @@ int RDMANode::open(const char* name) {
     return -1;
   }
 
+  printf("device %s attribute: max_cqe = %ld\n", name, dev_attr.max_cqe);
+
   ib_pd = ibv_alloc_pd(ib_ctx);
   if (!ib_pd) {
     rdma_log(RDMA_ERROR, "RDMANode::open, ibv_alloc_pd failed");

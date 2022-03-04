@@ -13,7 +13,6 @@
 
 const size_t DEFAULT_RINGBUF_SZ = 1024ull * 1024 * 16;
 const size_t DEFAULT_SENDBUF_SZ = 1024ull * 1024 * 16;
-// we use headbuf_sz to mem align headbuf. don't set it too big
 const size_t DEFAULT_HEADBUF_SZ = 64;
 
 class RDMASenderReceiver {
@@ -30,8 +29,8 @@ class RDMASenderReceiver {
   
   protected:
     virtual void connect(int fd);
-    void update_remote_head();
-    void update_local_head();
+    virtual void update_remote_metadata();
+    virtual void update_local_metadata();
 
     static RDMANode node_;
     static std::atomic_bool node_opened_;
@@ -39,7 +38,7 @@ class RDMASenderReceiver {
 
     int fd_;
     RDMAConn* conn_data_ = nullptr; // no ownership 
-    RDMAConn* conn_head_ = nullptr; 
+    RDMAConn* conn_metadata_ = nullptr; 
 
     size_t ringbuf_sz_, remote_ringbuf_head_ = 0, remote_ringbuf_tail_ = 0;
     RingBuffer* ringbuf_ = nullptr; // no ownership 
@@ -55,18 +54,18 @@ class RDMASenderReceiver {
     unsigned long long int total_send_sz = 0;
     std::atomic<bool> write_again_;
 
-    size_t head_recvbuf_sz_;
-    void* head_recvbuf_ = nullptr;
-    MemRegion local_head_recvbuf_mr_, remote_head_recvbuf_mr_;
+    size_t metadata_recvbuf_sz_;
+    void* metadata_recvbuf_ = nullptr;
+    MemRegion local_metadata_recvbuf_mr_, remote_metadata_recvbuf_mr_;
     
-    size_t head_sendbuf_sz_;
-    void* head_sendbuf_ = nullptr;
-    MemRegion head_sendbuf_mr_;
+    size_t metadata_sendbuf_sz_;
+    void* metadata_sendbuf_ = nullptr;
+    MemRegion metadata_sendbuf_mr_;
 };
 
 
 /*
- * 1. update_remote_head after garbage >= ringbuf_size_ / 2, so sendbuf_size_ <= ringbuf_size_ / 2.
+ * 1. update_remote_metadata after garbage >= ringbuf_size_ / 2, so sendbuf_size_ <= ringbuf_size_ / 2.
  * 2. reset ringbuf fisrt, then update head.
  * 3. mlen: length of pure data; len: mlen + sizeof(size_t) + 1.
  */
@@ -110,7 +109,9 @@ class RDMASenderReceiverEvent : public RDMASenderReceiver {
     virtual ~RDMASenderReceiverEvent();
 
     // create channel for each rdmasr.
-    void connect(int fd); 
+    virtual void connect(int fd); 
+    virtual void update_remote_metadata();
+    virtual void update_local_metadata();
     bool connected() { return connected_; }
 
     virtual bool send(msghdr* msg, size_t mlen);
@@ -126,6 +127,9 @@ class RDMASenderReceiverEvent : public RDMASenderReceiver {
     RingBufferEvent* ringbuf_event_ = nullptr;
     RDMAConnEvent* conn_data_event_ = nullptr;
     bool connected_ = false;
+
+    // this need to sync in initialization
+    size_t remote_rr_num_ = DEFAULT_MAX_POST_RECV;
 };
 
 #endif

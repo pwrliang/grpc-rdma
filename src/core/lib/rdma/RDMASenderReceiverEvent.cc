@@ -49,6 +49,28 @@ void RDMASenderReceiverEvent::connect(int fd) {
   connected_ = true;
 }
 
+void RDMASenderReceiverEvent::update_remote_metadata() {
+  if (!ringbuf_ || !conn_metadata_) {
+    rdma_log(RDMA_ERROR, "RDMASenderReceiver::update_remote_metadata, ringbuf or connector has not been initialized");
+    exit(-1);
+  }
+
+  reinterpret_cast<size_t*>(metadata_sendbuf_)[0] = ringbuf_->get_head();
+  reinterpret_cast<size_t*>(metadata_sendbuf_)[1] = conn_data_event_->get_extra_rr_num();
+  conn_metadata_->post_send_and_poll_completion(remote_metadata_recvbuf_mr_, 0,
+                                       metadata_sendbuf_mr_, 0, 
+                                       metadata_sendbuf_sz_, IBV_WR_RDMA_WRITE, true);
+  conn_data_event_->reset_extra_rr_num();
+  rdma_log(RDMA_INFO, "RDMASenderReceiver::update_remote_metadata, %d, %d", 
+           reinterpret_cast<size_t*>(metadata_sendbuf_)[0],
+           reinterpret_cast<size_t*>(metadata_sendbuf_)[1]);
+}
+
+void RDMASenderReceiverEvent::update_local_metadata() {
+  remote_ringbuf_head_ = reinterpret_cast<size_t*>(metadata_recvbuf_)[0];
+  remote_rr_num_ += reinterpret_cast<size_t*>(metadata_recvbuf_)[1];
+}
+
 bool RDMASenderReceiverEvent::check_incoming() {
   // previous checked_ is true (new incoming data already found by another thread), 
   // keep checked_ true, 
@@ -87,8 +109,8 @@ size_t RDMASenderReceiverEvent::recv(msghdr* msg) {
   unread_mlens_ = 0;
   garbage_ += read_size;
   total_recv_sz += read_size;
-  if (garbage_ >= ringbuf_sz_ / 2) {
-    update_remote_head();
+  if (garbage_ >= ringbuf_sz_ / 2 || conn_data_event_->get_extra_rr_num() >= DEFAULT_MAX_POST_RECV / 2) {
+    update_remote_metadata();
     garbage_ = 0;
   }
   return read_size;
@@ -104,9 +126,9 @@ bool RDMASenderReceiverEvent::send(msghdr* msg, size_t mlen) {
 
   size_t remote_ringbuf_sz = remote_ringbuf_mr_.length();
 
-  update_local_head();
+  update_local_metadata();
   size_t used = (remote_ringbuf_sz + remote_ringbuf_tail_ - remote_ringbuf_head_) % remote_ringbuf_sz;
-  if (used + mlen >= remote_ringbuf_sz - 1) return false;
+  if (used + mlen >= remote_ringbuf_sz - 1 || remote_rr_num_ <= 10) return false;
 
   uint8_t* start = sendbuf_;
   for (size_t iov_idx = 0, nwritten = 0;
@@ -124,10 +146,9 @@ bool RDMASenderReceiverEvent::send(msghdr* msg, size_t mlen) {
     start += iov_len;
   }
 
-  if (conn_data_event_->post_send_and_poll_completion(remote_ringbuf_mr_, remote_ringbuf_tail_,
-                                                      sendbuf_mr_, 0, mlen, IBV_WR_RDMA_WRITE_WITH_IMM, false) == IBV_WC_RNR_RETRY_EXC_ERR ) {
-      return false;
-  }
+  conn_data_event_->post_send_and_poll_completion(remote_ringbuf_mr_, remote_ringbuf_tail_,
+                                                      sendbuf_mr_, 0, mlen, IBV_WR_RDMA_WRITE_WITH_IMM, false);
+  remote_rr_num_--;
   remote_ringbuf_tail_ = (remote_ringbuf_tail_ + mlen) % remote_ringbuf_sz;
   total_send_sz += mlen;
   return true;
