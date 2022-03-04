@@ -34,7 +34,8 @@ class RDMASenderReceiver {
     void update_local_head();
 
     static RDMANode node_;
-    static std::atomic<bool> node_opened_;
+    static std::atomic_bool node_opened_;
+    static std::atomic_bool node_opened_done_;
 
     int fd_;
     RDMAConn* conn_data_ = nullptr; // no ownership 

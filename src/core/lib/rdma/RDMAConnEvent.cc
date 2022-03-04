@@ -131,7 +131,7 @@ int RDMAConnEvent::poll_send_completion() {
     struct ibv_qp_attr attr;
     struct ibv_qp_init_attr init_attr;
     ibv_query_qp(qp_, &attr, IBV_QP_STATE, &init_attr);
-    printf("IBV_WC_RNR_RETRY_EXC_ERR, %d\n", attr.qp_state);
+    printf("IBV_WC_RNR_RETRY_EXC_ERR, %d, %d\n", attr.cur_qp_state, attr.qp_state);
   }
   if (wc.status != IBV_WC_SUCCESS && wc.status != IBV_WC_RNR_RETRY_EXC_ERR ) {
     rdma_log(RDMA_ERROR, 

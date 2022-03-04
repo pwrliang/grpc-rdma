@@ -568,7 +568,7 @@ grpc_endpoint* grpc_rdma_bp_create(grpc_fd* em_fd,
   rdma->rdmasr->connect(rdma->fd);
   grpc_fd_set_rdmasr_bp(em_fd, rdma->rdmasr);
   rdma_log(RDMA_INFO, "rdmasr %p is created, attached to fd %d", rdma->rdmasr, rdma->fd);
-  // printf("rdmasr %p is created, attached to fd: %p, %d\n", rdma->rdmasr, rdma->em_fd, rdma->fd);
+  // printf("rdmasr %p is created, attached to fd: %d\n", rdma->rdmasr, rdma->fd);
   return &rdma->base;
 }
 

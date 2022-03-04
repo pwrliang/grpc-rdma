@@ -1,3 +1,6 @@
+#ifndef BENCHMARK_UTILS
+#define BENCHMARK_UTILS
+
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -11,6 +14,8 @@
 #include <mpi.h>
 #include <getopt.h>
 #include <sstream>
+
+extern int world_size, world_rank;
 
 int mathToInt(std::string math) {
     std::stringstream mathStrm(math);
@@ -41,3 +46,5 @@ int random(int min, int max) {
   }
   return min + rand() % ((max + 1) - min);
 }
+
+#endif //#ifndef BENCHMARK_UTILS

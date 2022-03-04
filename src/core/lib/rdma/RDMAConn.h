@@ -19,7 +19,7 @@ const size_t DEFAULT_MAX_SEND_WR = 5000;
 const size_t DEFAULT_MAX_RECV_WR = 5000;
 const size_t DEFAULT_MAX_SEND_SGE = 10;
 const size_t DEFAULT_MAX_RECV_SGE = 10;
-const size_t DEFAULT_MAX_POST_RECV = 500;
+const size_t DEFAULT_MAX_POST_RECV = 5;
 const size_t DEFAULT_EVENT_ACK_LIMIT = 10;
 
 class RDMASenderReceiver;

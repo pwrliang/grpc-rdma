@@ -7,7 +7,8 @@
 
 // -----< RDMASenderReceiver >-----
 
-std::atomic<bool> RDMASenderReceiver::node_opened_(false);
+std::atomic_bool RDMASenderReceiver::node_opened_(false);
+std::atomic_bool RDMASenderReceiver::node_opened_done_(false);
 RDMANode RDMASenderReceiver::node_;
 
 RDMASenderReceiver::RDMASenderReceiver()
@@ -17,6 +18,9 @@ RDMASenderReceiver::RDMASenderReceiver()
     head_sendbuf_sz_(DEFAULT_HEADBUF_SZ) {
   if (!node_opened_.exchange(true)) {
     node_.open(IBV_DEV_NAME);
+    node_opened_done_.store(true);
+  } else {
+    while (node_opened_done_.load()==false) {}
   }
 
   write_again_.store(false);

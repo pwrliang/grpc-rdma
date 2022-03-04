@@ -22,9 +22,9 @@ int main(int argc, char** argv) {
   setenv("GRPC_PLATFORM_TYPE", platform.c_str(), 1);
   setenv("RDMA_VERBOSITY", verbosity.c_str(), 1);
 
-  BenchmarkServer server(server_address, async_enable, async_thread_num, async_cq_num);
+  BenchmarkServer server(server_address, async_enable);
 
-  server.Run();
+  server.Run(async_thread_num, async_cq_num);
 
   return 0;
 }

@@ -41,7 +41,7 @@ DEFINE_bool(sync_enable, true, "");
 DEFINE_bool(async_enable, false, "");
 DEFINE_string(platform, "TCP", "which transport protocol used");
 DEFINE_string(verbosity, "ERROR", "");
-DEFINE_string(data_sizes, "1024,1024*1024", "");
+DEFINE_string(data_sizes, "1024, 1024*1024", "");
 // DEFINE_string(data_sizes, "1024", "");
 // DEFINE_string(batch_sizes, "1000,10000,20000,50000,100000", "");
 DEFINE_string(batch_sizes, "1000,10000", "");
@@ -68,42 +68,22 @@ int main(int argc, char** argv) {
   setenv("GRPC_PLATFORM_TYPE", platform.c_str(), 1);
   setenv("RDMA_VERBOSITY", verbosity.c_str(), 1);
 
-  BenchmarkClient client(
+  {
+    BenchmarkClient client(
       grpc::CreateChannel(server_address, grpc::InsecureChannelCredentials()));
+  
+    client.SyncSayhello();
+    printf("rank %d: SyncSayhello finished\n", world_rank);
 
-  // sync services test
-  client.SyncSayHello();
-  for (int data_size: data_sizes) {
-    for (int batch_size: batch_sizes) {
-      printf("\n");
-      client.BatchSyncs(batch_size, data_size);
-      printf("\n");
+    // sync services test
+    for (int data_size: data_sizes) {
+      for (int batch_size: batch_sizes) {
+        MPI_Barrier(MPI_COMM_WORLD);
+        // client.SyncOperations(batch_size, data_size);
+        client.AsyncOperations(batch_size, data_size);
+      }
     }
   }
-
-  // // async services test
-  // auto t0 = std::chrono::high_resolution_clock::now();
-  // for (int data_size: data_sizes) {
-  //     for (int batch_size: batch_sizes) {
-  //         client.BatchAsyncs(batch_size, data_size);
-  //     }
-  // }
-  // auto t1 = std::chrono::high_resolution_clock::now();
-  // size_t ms =
-  //     std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count();
-  // printf("%ld ms\n", ms);
-
-  // // async services test
-  // auto t0 = std::chrono::high_resolution_clock::now();
-  // for (int data_size: data_sizes) {
-  //     for (int batch_size: batch_sizes) {
-  //         client.BatchAsyncs(batch_size, data_size);
-  //     }
-  // }
-  // auto t1 = std::chrono::high_resolution_clock::now();
-  // size_t ms =
-  //     std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count();
-  // printf("%ld ms\n", ms);
 
   MPI_Finalize();
   return 0;

@@ -170,6 +170,7 @@ struct grpc_fd {
     error_closure.InitEvent();
     rdmasr = nullptr;
     rdma_pollables.clear();
+    alive.store(true);
     // printf("fd %d is created\n", fd);
 
     std::string fd_name = absl::StrCat(name, " fd=", fd);
@@ -207,6 +208,7 @@ struct grpc_fd {
     error_closure.DestroyEvent();
     rdmasr = nullptr;
     rdma_pollables.clear();
+    alive.store(false);
     // printf("fd %d is destroyed\n", fd);
 
     invalidate();
@@ -266,6 +268,8 @@ struct grpc_fd {
   // fd is created by new, inside fd_create
 
   std::set<pollable*> rdma_pollables;
+
+  std::atomic_bool alive;
 };
 
 static void pollable_unref(pollable* p, const grpc_core::DebugLocation& dbg_loc,
@@ -546,6 +550,8 @@ static void fd_orphan(grpc_fd* fd, grpc_closure* on_done, int* release_fd,
   gpr_mu_unlock(&fd->orphan_mu);
 
   if (fd->rdmasr) {
+    fd->alive.store(false); // this will break thread from for loop in pollable_epoll
+    // printf("rdma fd %d is orphaning\n", fd->fd);
     if (pollable_obj) {
       gpr_mu_lock(&pollable_obj->rdma_mu);
       pollable_obj->rdma_fds.erase(fd->fd);
@@ -566,7 +572,7 @@ static void fd_orphan(grpc_fd* fd, grpc_closure* on_done, int* release_fd,
         //         fd->fd, fd->rdma_pollables.size(), p->epfd, p->rdma_fds.size());
       } else {
         gpr_mu_unlock(&fd->pollable_mu);
-        std::this_thread::yield();
+        // std::this_thread::yield();
         gpr_mu_lock(&fd->pollable_mu);
       }
     }
@@ -1065,8 +1071,12 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
       for (std::map<int, grpc_fd*>::iterator it = p->rdma_fds.begin(); it != p->rdma_fds.end(); it++) {
         fd = it->second;
         if (fd->rdmasr == nullptr) {
-          rdma_log(RDMA_WARNING, "pollable_epoll, found nullptr from fd %d of pollable %p", fd->fd, p);
+          rdma_log(RDMA_WARNING, "pollable_epoll, found nullptr from fd %d of pollable %p, maybe fd %d is orphaning", fd->fd, p, fd->fd);
           abort();
+        }
+        if (fd->alive.load() == false) { // fd is orphanning, break to unlock p->rdma_mu
+          rdma_found = true;
+          continue;
         }
         if (fd->rdmasr->check_incoming()) {
           rdma_found = true;
