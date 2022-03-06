@@ -54,7 +54,6 @@ class BenchmarkAsyncClient {
   public:
     BenchmarkAsyncClient(std::shared_ptr<Channel> channel)
       : stub_(BENCHMARK::NewStub(channel)) {}
-    virtual ~BenchmarkAsyncClient() {printf("BenchmarkAsyncClient destructor\n");}
 
     void AsyncSayHelloStart(CompletionQueue* cq);
 
@@ -269,7 +268,7 @@ void AsyncSayHelloService::Finished() {
   if (!finished_status_.ok()) {
     printf("AsyncSayHelloService failed\n");
   } else {
-    // printf("rank %d: AsyncSayHelloService succeed\n", world_rank);
+    // printf("rank %d: AsyncSayHelloService succeed\n", _rdma_internal_world_rank_);
   }
   tag_->service_ = nullptr;
   if (rpc_count.fetch_add(-1) == 1) {
@@ -314,7 +313,7 @@ void AsyncUnaryService::Finished() {
   if (!finished_status_.ok() || !reply_func_(&reply_)) {
     printf("AsyncUnaryService failed\n");
   } else {
-    // printf("rank %d: AsyncUnaryService succeed\n", world_rank);
+    // printf("rank %d: AsyncUnaryService succeed\n", _rdma_internal_world_rank_);
   }
   tag_->service_ = nullptr;
   if (rpc_count.fetch_add(-1) == 1) {

@@ -13,6 +13,8 @@
 #include <condition_variable>
 #include <mutex>
 
+
+
 class MemRegion {
   public:
     const static int rw_flag = IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_REMOTE_READ;
@@ -73,13 +75,12 @@ class RDMANode {
 
 class TimerPackage {
   public:
-    TimerPackage(size_t timeout_ms = 10000);
+    TimerPackage(size_t timeout_ms = 1000);
     virtual ~TimerPackage();
     void Start();
     void Start(const char *format, ...);
-    void BlockIfTimeout();
+    size_t TimeoutMS() { return accumulative_timeout_ms_.load(); }
     void Stop();
-    void SetTimeout(size_t timeout_ms);
 
 private:
   static std::atomic_size_t global_count;
@@ -90,7 +91,7 @@ private:
   std::atomic_bool alive_;
   std::condition_variable start_;
   std::mutex start_mu_;
-  std::atomic_bool timeout_flag_;
+  std::atomic_size_t accumulative_timeout_ms_;
   std::thread* thread_;
   char* message_ = nullptr;
 };

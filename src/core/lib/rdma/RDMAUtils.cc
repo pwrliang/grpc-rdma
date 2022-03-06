@@ -12,6 +12,8 @@
 #include <sys/types.h>
 #include "fcntl.h"
 
+int _rdma_internal_world_size_ = 0, _rdma_internal_world_rank_ = 0;
+
 // -----< MemRegion >-----
 int MemRegion::remote_reg(void* mem, uint32_t rkey, size_t len) {
   dereg();
@@ -101,8 +103,10 @@ int RDMANode::open(const char* name) {
     return -1;
   }
 
-  printf("device %s attribute: max_cqe = %ld, max_qp_wr = %d, max_sge = %d\n", 
+  if (_rdma_internal_world_rank_ == 0) {
+    printf("device %s attribute: max_cqe = %ld, max_qp_wr = %d, max_sge = %d\n", 
           name, dev_attr.max_cqe, dev_attr.max_qp_wr, dev_attr.max_sge);
+  }
 
   ib_pd = ibv_alloc_pd(ib_ctx);
   if (!ib_pd) {
@@ -132,18 +136,19 @@ void RDMANode::close() {
 std::atomic_size_t TimerPackage::global_count(0);
 
 TimerPackage::TimerPackage(size_t timeout_ms) : timeout_ms_(timeout_ms), local_id(global_count.fetch_add(1)) {
-  alive_.store(true);
-  timeout_flag_.store(false);
+  alive_.store(false);
   thread_ = new std::thread([&](){
     std::unique_lock<std::mutex> start_lck(start_mu_);
     std::unique_lock<std::mutex> timer_lck(timer_mu_);
-    printf("Initiate a timer (%d), timeout %lld ms\n", local_id, timeout_ms_.load());
-    size_t continuous_timeout_num = 0;
+    accumulative_timeout_ms_.store(0);
+    // printf("Initiate a timer (%d), timeout %lld ms\n", local_id, timeout_ms_.load());
+    alive_.store(true);
     while (alive_) {
 
       // phase 1:
       // wait for start_ 
       start_.wait(start_lck);
+      // start_.notify_XXX and start_mu_.unlock are called
 
       // phase 2:
       // started, either be notified or timeout or not alive
@@ -151,7 +156,7 @@ TimerPackage::TimerPackage(size_t timeout_ms) : timeout_ms_(timeout_ms), local_i
            timer_.wait_for(timer_lck, std::chrono::milliseconds(timeout_ms_.load())) == std::cv_status::timeout && alive_; 
            i++) {
         // timeout
-        timeout_flag_.store(true);
+        accumulative_timeout_ms_.fetch_add(timeout_ms_.load());
         printf("Timer (%d): timeout (%lld ms x %d): %s\n", local_id, timeout_ms_.load(), i + 1, message_);
       }
 
@@ -178,7 +183,7 @@ TimerPackage::~TimerPackage() {
   timer_.notify_all();
   timer_mu_.unlock();
   thread_->join();
-  printf("Timer (%d) closed\n", local_id);
+  // printf("Timer (%d) closed\n", local_id);
 }
 
 void TimerPackage::Start() {
@@ -194,8 +199,8 @@ void TimerPackage::Start(const char *format, ...) {
       return;
   }
   va_end(args);
-  // lock start_mu_ to make sure main thread is in phase 1 and start_.wait is called
-  start_mu_.lock();
+  while (!alive_) { std::this_thread::yield(); } // make sure stat_lck is created (start_mu_ is locked)
+  start_mu_.lock(); // start_.wait is called
   start_.notify_one();
   start_mu_.unlock();
   // switch from phase 1 to phase 2
@@ -206,11 +211,6 @@ void TimerPackage::Stop() {
   timer_.notify_one();
   timer_mu_.unlock();
   // notify timer in phase 2
-  while (timeout_flag_) {
-    // if timeouted, block here
-  }
-}
-
-void TimerPackage::SetTimeout(size_t timeout_ms) {
-  timeout_ms_.store(timeout_ms);
+  
+  accumulative_timeout_ms_.store(0);
 }

@@ -53,7 +53,6 @@ class BenchmarkClient {
     BenchmarkClient(std::shared_ptr<Channel> channel)
       : sync_client_(new BenchmarkSyncClient(channel), [](BenchmarkSyncClient* sync_client){delete sync_client;}),
         async_client_(new BenchmarkAsyncClient(channel), [](BenchmarkAsyncClient* async_client){delete async_client;}) {}
-    virtual ~BenchmarkClient(){printf("BenchmarkClient destructor\n");}
 
     void SyncSayhello() {sync_client_->SyncSayHello(); }
 
@@ -76,10 +75,10 @@ void BenchmarkClient::AsyncOperations(const size_t batch_size, const size_t data
   async_client_->AsyncSayHelloStart(&cq);
   async_client_->AsyncUnaryStart(&cq, batch_size, data_size / 2, data_size * 2);
   async_client_->AsyncClientStreamStart(&cq, batch_size, data_size);
-  printf("rank %d: batch size = %lld, data size = %lld, all async operations started\n", world_rank, batch_size, data_size);
+  printf("rank %d: batch size = %lld, data size = %lld, all async operations started\n", _rdma_internal_world_rank_, batch_size, data_size);
 
   worker.join();
-  printf("rank %d: batch size = %lld, data size = %lld, all async operations finished\n", world_rank, batch_size, data_size);
+  printf("rank %d: batch size = %lld, data size = %lld, all async operations finished\n", _rdma_internal_world_rank_, batch_size, data_size);
 }
 
 void BenchmarkClient::SyncOperations(const size_t batch_size, const size_t data_size) {

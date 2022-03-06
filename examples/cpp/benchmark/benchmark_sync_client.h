@@ -48,7 +48,6 @@ class BenchmarkSyncClient {
   public:
     BenchmarkSyncClient(std::shared_ptr<Channel> channel)
       : stub_(BENCHMARK::NewStub(channel)) {}
-    virtual ~BenchmarkSyncClient() {printf("BenchmarkSyncClient destructor\n");}
     
     // sync services
     void SyncSayHello();

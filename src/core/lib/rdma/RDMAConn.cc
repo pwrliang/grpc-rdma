@@ -328,7 +328,7 @@ int RDMAConn::poll_send_completion() {
   }
   if (wc.status != IBV_WC_SUCCESS) {
     rdma_log(RDMA_ERROR, 
-             "RDMAConn::poll_send_completion, failed to poll scq, status %d", wc.status);
+             "RDMAConn::poll_send_completion, failed to poll scq, status %d, fd = %d", wc.status, fd_);
     exit(-1);
   }
   return wc.status;

@@ -19,7 +19,7 @@
 #include <atomic>
 #include "../../../src/core/lib/rdma/RDMAUtils.h"
 
-extern int world_size, world_rank;
+extern int _rdma_internal_world_size_, _rdma_internal_world_rank_;
 
 int mathToInt(std::string math) {
     std::stringstream mathStrm(math);

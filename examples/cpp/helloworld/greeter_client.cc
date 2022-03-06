@@ -96,7 +96,7 @@ int main(int argc, char** argv) {
       return 0;
     }
   } else {
-    target_str = "10.3.1.10:50051";
+    target_str = "10.3.1.6:50051";
   }
 
   setenv("GRPC_PLATFORM_TYPE", "RDMA_BP", 1);

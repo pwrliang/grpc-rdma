@@ -290,7 +290,7 @@ static void rdma_handle_read(void* arg /* grpc_rdma */, grpc_error_handle error)
   } else {
     if (rdma->rdmasr->check_and_ack_incomings_locked() == 0) {
       if (tcp_do_read(rdma) == 0) {
-        printf("case A, close rdma\n");
+        printf("case A, close rdma, fd = %d\n", rdma->fd);
         grpc_slice_buffer_reset_and_unref_internal(rdma->incoming_buffer);
         call_read_cb(rdma, rdma_annotate_error(
                      GRPC_ERROR_CREATE_FROM_STATIC_STRING("Socket closed"),rdma));
