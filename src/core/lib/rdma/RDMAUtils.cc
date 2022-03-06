@@ -157,7 +157,7 @@ TimerPackage::TimerPackage(size_t timeout_ms) : timeout_ms_(timeout_ms), local_i
            i++) {
         // timeout
         accumulative_timeout_ms_.fetch_add(timeout_ms_.load());
-        printf("Timer (%d): timeout (%lld ms x %d): %s\n", local_id, timeout_ms_.load(), i + 1, message_);
+        // printf("Timer (%d): timeout (%lld ms x %d): %s\n", local_id, timeout_ms_.load(), i + 1, message_);
       }
 
       // not alive or be notified(never timeout or be notified after timeouts);

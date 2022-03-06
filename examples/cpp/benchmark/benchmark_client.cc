@@ -81,6 +81,9 @@ int main(int argc, char** argv) {
         // client.AsyncOperations(batch_size, data_size);
       }
     }
+
+
+    sleep(5);
   }
 
   MPI_Finalize();

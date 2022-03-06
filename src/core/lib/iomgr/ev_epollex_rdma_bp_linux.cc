@@ -173,6 +173,7 @@ struct grpc_fd {
     rdmasr = nullptr;
     rdma_pollables.clear();
     alive.store(true);
+    gpr_mu_init(&rdma_mu);
     // printf("fd %d is created\n", fd);
 
     std::string fd_name = absl::StrCat(name, " fd=", fd);
@@ -211,6 +212,7 @@ struct grpc_fd {
     rdmasr = nullptr;
     rdma_pollables.clear();
     alive.store(false);
+    gpr_mu_destroy(&rdma_mu);
     // printf("fd %d is destroyed\n", fd);
 
     invalidate();
@@ -264,14 +266,16 @@ struct grpc_fd {
 
   // set to nullptr inside fd constructor and fd_create
   // set value inside grpc_rdma_bp_create
-  // add it self to vector of pollable during pollable_add_fd
-  // del it self from vector of pollables during fd_orphan
+  // add it self to pollable during pollable_add_fd
+  // del it self from pollables during fd_orphan
   RDMASenderReceiverBP* rdmasr = nullptr;
   // fd is created by new, inside fd_create
 
   std::set<pollable*> rdma_pollables;
 
   std::atomic_bool alive;
+
+  gpr_mu rdma_mu;
 };
 
 static void pollable_unref(pollable* p, const grpc_core::DebugLocation& dbg_loc,
@@ -283,12 +287,13 @@ static void pollable_unref(pollable* p, const grpc_core::DebugLocation& dbg_loc,
     grpc_wakeup_fd_destroy(&p->wakeup);
     gpr_mu_destroy(&p->owner_orphan_mu);
     gpr_mu_destroy(&p->mu);
+
     gpr_mu_lock(&p->rdma_mu);
     for (std::map<int, grpc_fd*>::iterator it = p->rdma_fds.begin(); it != p->rdma_fds.end(); it++) {
       grpc_fd* fd = it->second;
-      gpr_mu_lock(&fd->pollable_mu);
+      gpr_mu_lock(&fd->rdma_mu);
       fd->rdma_pollables.erase(p);
-      gpr_mu_unlock(&fd->pollable_mu);
+      gpr_mu_unlock(&fd->rdma_mu);
       // printf("pollable(%d) is unrefing fd(%d)\n", p->epfd, fd->fd);
     }
     p->rdma_fds.clear();
@@ -534,6 +539,24 @@ static void fd_orphan(grpc_fd* fd, grpc_closure* on_done, int* release_fd,
     is_fd_closed = true;
   }
 
+  if (fd->rdmasr) {
+    fd->alive.store(false); // this will break thread from for loop in pollable_epoll
+    gpr_mu_lock(&fd->rdma_mu);
+    for (std::set<pollable*>::iterator it = fd->rdma_pollables.begin(); it != fd->rdma_pollables.end(); it++) {
+      pollable* p = (*it);
+      while (!gpr_mu_trylock(&p->rdma_mu)) {
+        gpr_mu_unlock(&fd->rdma_mu);
+        std::this_thread::yield();
+        gpr_mu_lock(&fd->pollable_mu);
+      }
+      p->rdma_fds.erase(fd->fd);
+      gpr_mu_unlock(&p->rdma_mu);
+    }
+    fd->rdma_pollables.clear();
+    gpr_mu_unlock(&fd->rdma_mu);
+    // printf("fd %d is orphaned\n", fd->fd);
+  }
+
   // TODO(sreek): handle fd removal (where is_fd_closed=false)
   if (!is_fd_closed) {
     GRPC_FD_TRACE("epoll_fd %p (%d) was orphaned but not closed.", fd, fd->fd);
@@ -552,36 +575,36 @@ static void fd_orphan(grpc_fd* fd, grpc_closure* on_done, int* release_fd,
   gpr_mu_unlock(&fd->pollable_mu);
   gpr_mu_unlock(&fd->orphan_mu);
 
-  if (fd->rdmasr) {
-    fd->alive.store(false); // this will break thread from for loop in pollable_epoll
-    // printf("rdma fd %d is orphaning\n", fd->fd);
-    if (pollable_obj) {
-      gpr_mu_lock(&pollable_obj->rdma_mu);
-      pollable_obj->rdma_fds.erase(fd->fd);
-      gpr_mu_unlock(&pollable_obj->rdma_mu);
-      printf("rdma fd %d is orphaning A, pollable epfd = %d, size = %d\n", fd->fd, pollable_obj->epfd, pollable_obj->rdma_fds.size());
-    }
-    gpr_mu_lock(&fd->pollable_mu);
+  // if (fd->rdmasr) {
+  //   fd->alive.store(false); // this will break thread from for loop in pollable_epoll
+  //   // printf("rdma fd %d is orphaning\n", fd->fd);
+  //   if (pollable_obj) {
+  //     gpr_mu_lock(&pollable_obj->rdma_mu);
+  //     pollable_obj->rdma_fds.erase(fd->fd);
+  //     gpr_mu_unlock(&pollable_obj->rdma_mu);
+  //     printf("rdma fd %d is orphaning A, pollable epfd = %d, size = %d\n", fd->fd, pollable_obj->epfd, pollable_obj->rdma_fds.size());
+  //   }
+  //   gpr_mu_lock(&fd->pollable_mu);
     
-    while (!fd->rdma_pollables.empty()) {
-      pollable* p = *(fd->rdma_pollables.begin());
-      // printf("rdma fd (%d, %d) try to orphan pollable (%d)\n", 
-      //         fd->fd, fd->rdma_pollables.size(), p->epfd);
-      if (gpr_mu_trylock(&p->rdma_mu)) {
-        p->rdma_fds.erase(fd->fd);
-        gpr_mu_unlock(&p->rdma_mu);
-        fd->rdma_pollables.erase(p);
-        printf("rdma fd (%d, %d) is orphaning B, pollable epfd = %d, size = %d\n", 
-                fd->fd, fd->rdma_pollables.size(), p->epfd, p->rdma_fds.size());
-      } else {
-        gpr_mu_unlock(&fd->pollable_mu);
-        // std::this_thread::yield();
-        gpr_mu_lock(&fd->pollable_mu);
-      }
-    }
-    gpr_mu_unlock(&fd->pollable_mu);
-    // printf("rdma fd %d is orphaned\n", fd->fd);
-  }
+  //   while (!fd->rdma_pollables.empty()) {
+  //     pollable* p = *(fd->rdma_pollables.begin());
+  //     // printf("rdma fd (%d, %d) try to orphan pollable (%d)\n", 
+  //     //         fd->fd, fd->rdma_pollables.size(), p->epfd);
+  //     if (gpr_mu_trylock(&p->rdma_mu)) {
+  //       p->rdma_fds.erase(fd->fd);
+  //       gpr_mu_unlock(&p->rdma_mu);
+  //       fd->rdma_pollables.erase(p);
+  //       printf("rdma fd (%d, %d) is orphaning B, pollable epfd = %d, size = %d\n", 
+  //               fd->fd, fd->rdma_pollables.size(), p->epfd, p->rdma_fds.size());
+  //     } else {
+  //       gpr_mu_unlock(&fd->pollable_mu);
+  //       // std::this_thread::yield();
+  //       gpr_mu_lock(&fd->pollable_mu);
+  //     }
+  //   }
+  //   gpr_mu_unlock(&fd->pollable_mu);
+  //   // printf("rdma fd %d is orphaned\n", fd->fd);
+  // }
 
   UNREF_BY(fd, 2, reason); /* Drop the reference */
 }
@@ -635,9 +658,6 @@ static void fd_add_pollset(grpc_fd* fd, grpc_pollset* pollset) {
   const int epfd = pollset->active_pollable->epfd;
   grpc_core::MutexLockForGprMu lock(&fd->pollable_mu);
   fd->pollset_fds.push_back(epfd);
-  if (fd->rdmasr){
-    fd->rdma_pollables.insert(pollset->active_pollable);
-  }
 }
 
 void grpc_fd_set_rdmasr_bp(grpc_fd* fd, RDMASenderReceiverBP* rdmasr) {
@@ -742,8 +762,11 @@ static grpc_error_handle pollable_add_fd(pollable* p, grpc_fd* fd) {
     //   // printf("pollable %d add rdma timer\n", p->epfd);
     // }
     gpr_mu_lock(&p->rdma_mu);
+    gpr_mu_lock(&fd->rdma_mu);
     p->rdma_fds.erase(fd->fd);
     p->rdma_fds.insert(std::pair<int, grpc_fd*>(fd->fd, fd));
+    fd->rdma_pollables.insert(p);
+    gpr_mu_unlock(&fd->rdma_mu);
     gpr_mu_unlock(&p->rdma_mu);
     // printf("pollable(%d) add rdma fd(%d), %d\n", p->epfd, fd->fd, p->rdma_fds.size());
   } else {

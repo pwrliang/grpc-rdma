@@ -62,6 +62,8 @@ struct grpc_rdma {
 
   RDMASenderReceiverBP* rdmasr;
 
+  std::atomic_bool alive;
+
   // int min_read_chunk_size;
   // int max_read_chunk_size;
 
@@ -69,10 +71,12 @@ struct grpc_rdma {
   grpc_slice_buffer last_read_buffer;
 
   grpc_slice_buffer* incoming_buffer;
+  size_t total_recv_bytes = 0;
   // int inq;          /* bytes pending on the socket from the last read. */
   // bool inq_capable; /* cache whether kernel supports inq */
 
   grpc_slice_buffer* outgoing_buffer;
+  size_t total_send_bytes = 0;
   /* byte within outgoing_buffer->slices[0] to write next */
   size_t outgoing_byte_idx;
 
@@ -224,6 +228,7 @@ static void rdma_do_read(grpc_rdma* rdma) {
     read_bytes = rdma->rdmasr->recv(&msg, msghdr_size);
   } while (read_bytes == 0);
   total_read_byte += read_bytes;
+  rdma->total_recv_bytes += read_bytes;
   rdma_log(RDMA_INFO, "rdma_do_read recv %d bytes", total_read_byte);
   // printf("thread %lld recv %lld bytes data\n", getpid(), total_read_byte);
 
@@ -290,11 +295,14 @@ static void rdma_handle_read(void* arg /* grpc_rdma */, grpc_error_handle error)
   } else {
     if (rdma->rdmasr->check_and_ack_incomings_locked() == 0) {
       if (tcp_do_read(rdma) == 0) {
-        printf("case A, close rdma, fd = %d\n", rdma->fd);
+        rdma->alive.store(false);
+        // printf("case A, close rdma, fd = %d, total_recv_bytes = %lld\n", rdma->fd, rdma->total_recv_bytes);
         grpc_slice_buffer_reset_and_unref_internal(rdma->incoming_buffer);
         call_read_cb(rdma, rdma_annotate_error(
                      GRPC_ERROR_CREATE_FROM_STATIC_STRING("Socket closed"),rdma));
+        // printf("case AA, close rdma, fd = %d\n", rdma->fd);
         RDMA_UNREF(rdma, "read");
+        // printf("case AAA, close rdma, fd = %d\n", rdma->fd);
       } else {
         notify_on_read(rdma);
       }
@@ -302,7 +310,7 @@ static void rdma_handle_read(void* arg /* grpc_rdma */, grpc_error_handle error)
       rdma_log(RDMA_INFO, "rdma_handle_read, found %d bytes data, call rdma_continue_read", 
                 rdma->rdmasr->get_unread_data_size());
       if (tcp_do_read(rdma) == 0) {
-        printf("case B\n");
+        // printf("case B\n");
       }
       rdma_continue_read(rdma);
     }
@@ -566,6 +574,7 @@ grpc_endpoint* grpc_rdma_bp_create(grpc_fd* em_fd,
                     grpc_schedule_on_exec_ctx);
   rdma->rdmasr = new RDMASenderReceiverBP();
   rdma->rdmasr->connect(rdma->fd);
+  rdma->alive.store(true);
   grpc_fd_set_rdmasr_bp(em_fd, rdma->rdmasr);
   rdma_log(RDMA_INFO, "rdmasr %p is created, attached to fd %d", rdma->rdmasr, rdma->fd);
   // printf("rdmasr %p is created, attached to fd: %d\n", rdma->rdmasr, rdma->fd);
