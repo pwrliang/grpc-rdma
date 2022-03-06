@@ -70,6 +70,7 @@ class BenchmarkAsyncServer {
     unique_ptr<BENCHMARK::AsyncService> async_service_;
     unique_ptr<ServerBuilder> builder_;
     unique_ptr<grpc::Server> server_;
+    TimerPackage timer_;
 };
 
 class AsyncSayHelloService {

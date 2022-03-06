@@ -54,6 +54,7 @@ class BenchmarkAsyncClient {
   public:
     BenchmarkAsyncClient(std::shared_ptr<Channel> channel)
       : stub_(BENCHMARK::NewStub(channel)) {}
+    virtual ~BenchmarkAsyncClient() {printf("BenchmarkAsyncClient destructor\n");}
 
     void AsyncSayHelloStart(CompletionQueue* cq);
 

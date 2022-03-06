@@ -15,13 +15,13 @@
 #include <chrono>
 #include <thread>
 
-const size_t DEFAULT_MAX_SEND_WR = 5000;
-const size_t DEFAULT_MAX_RECV_WR = 5000;
-const size_t DEFAULT_MAX_SEND_SGE = 10;
-const size_t DEFAULT_MAX_RECV_SGE = 10;
-const size_t DEFAULT_CQE = 5000;
-const size_t DEFAULT_MAX_POST_RECV = 500;
-const size_t DEFAULT_EVENT_ACK_LIMIT = 100;
+const size_t DEFAULT_MAX_SEND_WR = 100;
+const size_t DEFAULT_MAX_RECV_WR = 100;
+const size_t DEFAULT_MAX_SEND_SGE = 2;
+const size_t DEFAULT_MAX_RECV_SGE = 2;
+const size_t DEFAULT_CQE = 1000;
+const size_t DEFAULT_MAX_POST_RECV = 100;
+const size_t DEFAULT_EVENT_ACK_LIMIT = 50;
 
 class RDMASenderReceiver;
 class RDMASenderReceiverBP;
@@ -79,8 +79,8 @@ class RDMAConnEvent : public RDMAConn {
     virtual ~RDMAConnEvent();
 
     int get_channel_fd() { return channel_->fd; }
-    size_t get_extra_rr_num() { return extra_rr_num_.load(); }
-    void reset_extra_rr_num() { extra_rr_num_.store(0); }
+    size_t get_posted_rr_num() { return posted_rr_num; }
+    bool if_update_remote() { return if_update_remote_; }
 
     bool get_event_locked();
 
@@ -97,7 +97,8 @@ class RDMAConnEvent : public RDMAConn {
     size_t unacked_events_num_ = 0;
     
     // this number indicates how many recv requests are posted since last update_remote_metadata
-    std::atomic_size_t extra_rr_num_; 
+    size_t posted_rr_num = 0, completed_rr_num = 0;
+    bool if_update_remote_ = false;
 };
 
 

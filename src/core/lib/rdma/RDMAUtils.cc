@@ -13,7 +13,6 @@
 #include "fcntl.h"
 
 // -----< MemRegion >-----
-
 int MemRegion::remote_reg(void* mem, uint32_t rkey, size_t len) {
   dereg();
 
@@ -102,7 +101,8 @@ int RDMANode::open(const char* name) {
     return -1;
   }
 
-  printf("device %s attribute: max_cqe = %ld\n", name, dev_attr.max_cqe);
+  printf("device %s attribute: max_cqe = %ld, max_qp_wr = %d, max_sge = %d\n", 
+          name, dev_attr.max_cqe, dev_attr.max_qp_wr, dev_attr.max_sge);
 
   ib_pd = ibv_alloc_pd(ib_ctx);
   if (!ib_pd) {
@@ -128,49 +128,89 @@ void RDMANode::close() {
 }
 
 
-// -----< RDMATimer >-----
+// -----< TimerPackage >-----
+std::atomic_size_t TimerPackage::global_count(0);
 
-
-void RDMATimer::RDMATimerFunc(RDMATimer* args) {
-  std::unique_lock<std::mutex> lck(args->mtx_);
-
-  while (true) {
-    
-    args->start_.wait(lck);
-
-    if (!args->alive_) break;
-
-    if (args->timer_.wait_for(lck, std::chrono::seconds(args->timeout_s_)) == std::cv_status::no_timeout) {
-      continue;
-    }
-
-    // timeout
-    args->stop_ = true;
-    args->cb_();
-    args->stop_ = false;
-
-  }
-
-}
-
-RDMATimer::RDMATimer(size_t timeout_s, cb_func cb) 
-  : timeout_s_(timeout_s), cb_(cb) {
+TimerPackage::TimerPackage(size_t timeout_ms) : timeout_ms_(timeout_ms), local_id(global_count.fetch_add(1)) {
   alive_.store(true);
-  thread_ = new std::thread(RDMATimerFunc, this);
+  timeout_flag_.store(false);
+  thread_ = new std::thread([&](){
+    std::unique_lock<std::mutex> start_lck(start_mu_);
+    std::unique_lock<std::mutex> timer_lck(timer_mu_);
+    printf("Initiate a timer (%d), timeout %lld ms\n", local_id, timeout_ms_.load());
+    size_t continuous_timeout_num = 0;
+    while (alive_) {
+
+      // phase 1:
+      // wait for start_ 
+      start_.wait(start_lck);
+
+      // phase 2:
+      // started, either be notified or timeout or not alive
+      for (size_t i = 0; 
+           timer_.wait_for(timer_lck, std::chrono::milliseconds(timeout_ms_.load())) == std::cv_status::timeout && alive_; 
+           i++) {
+        // timeout
+        timeout_flag_.store(true);
+        printf("Timer (%d): timeout (%lld ms x %d): %s\n", local_id, timeout_ms_.load(), i + 1, message_);
+      }
+
+      // not alive or be notified(never timeout or be notified after timeouts);
+      
+      // not alive: break from the while loop
+
+      // notified: stopped
+      // if never timeout: go to phase 1, stop caller return;
+      // if timeouted: go to phase 1, stop caller blocked
+    }
+  });
+
+  // thread_ will wait in phase 1 after constructor
 }
 
-RDMATimer::~RDMATimer() {
-  alive_ = false;
+// expect timer now is in phase 1
+TimerPackage::~TimerPackage() {
+  alive_.store(false);
+  start_mu_.lock();
   start_.notify_all();
-
+  start_mu_.unlock();
+  timer_mu_.lock();
+  timer_.notify_all();
+  timer_mu_.unlock();
   thread_->join();
+  printf("Timer (%d) closed\n", local_id);
 }
 
+void TimerPackage::Start() {
+  Start("");
+}
 
-void RDMATimer::start() {
+void TimerPackage::Start(const char *format, ...) {
+  message_ = nullptr;
+  va_list args;
+  va_start(args, format);
+  if (vasprintf(&message_, format, args) == -1) {
+      va_end(args);
+      return;
+  }
+  va_end(args);
+  // lock start_mu_ to make sure main thread is in phase 1 and start_.wait is called
+  start_mu_.lock();
   start_.notify_one();
+  start_mu_.unlock();
+  // switch from phase 1 to phase 2
 }
 
-void RDMATimer::stop() {
+void TimerPackage::Stop() {
+  timer_mu_.lock();
   timer_.notify_one();
+  timer_mu_.unlock();
+  // notify timer in phase 2
+  while (timeout_flag_) {
+    // if timeouted, block here
+  }
+}
+
+void TimerPackage::SetTimeout(size_t timeout_ms) {
+  timeout_ms_.store(timeout_ms);
 }

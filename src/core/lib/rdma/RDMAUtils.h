@@ -71,36 +71,28 @@ class RDMANode {
 };
 
 
-/* expected usage
- * there is a blocking function (target function) call which expected to return withing specific time (timeout)
- * this timer will launch a thread (in constructor), wait for start signal (user call member function start())
- * after target function returned, user call member function stop().
- * if the time duration between start() and stop() exceeds timeout, the callback function (user provided) will be called.
- * after callback function returned, the timer will go on, until next timeout or stop()
- * the thread will stop and be killed in destructor
- */
-class RDMATimer {
+class TimerPackage {
   public:
-    typedef void (*cb_func)();
-    RDMATimer(size_t timeout_s, cb_func cb);
-    ~RDMATimer();
+    TimerPackage(size_t timeout_ms = 10000);
+    virtual ~TimerPackage();
+    void Start();
+    void Start(const char *format, ...);
+    void BlockIfTimeout();
+    void Stop();
+    void SetTimeout(size_t timeout_ms);
 
-    void start();
-    void stop();
-
-  static void RDMATimerFunc(RDMATimer* args);
-  // friend void RDMATimer::RDMATimerFunc(RDMATimer* args);
-  private:
-    size_t timeout_s_;
-    std::condition_variable timer_;
-    std::mutex mtx_;
-    // std::atomic_bool start_; // start the timer
-    std::condition_variable start_;
-    std::atomic_bool stop_; // when timeout, set stop to true;
-    std::atomic_bool alive_;
-    std::thread *thread_ = nullptr;
-    cb_func cb_;
-
+private:
+  static std::atomic_size_t global_count;
+  const size_t local_id;
+  std::atomic_size_t timeout_ms_;
+  std::condition_variable timer_;
+  std::mutex timer_mu_;
+  std::atomic_bool alive_;
+  std::condition_variable start_;
+  std::mutex start_mu_;
+  std::atomic_bool timeout_flag_;
+  std::thread* thread_;
+  char* message_ = nullptr;
 };
 
 

@@ -41,10 +41,10 @@ DEFINE_bool(sync_enable, true, "");
 DEFINE_bool(async_enable, false, "");
 DEFINE_string(platform, "TCP", "which transport protocol used");
 DEFINE_string(verbosity, "ERROR", "");
-DEFINE_string(data_sizes, "1024, 1024*4", "");
+DEFINE_string(data_sizes, "1024", "");
 // DEFINE_string(data_sizes, "1024", "");
 // DEFINE_string(batch_sizes, "1000,10000,20000,50000,100000", "");
-DEFINE_string(batch_sizes, "1000,10000", "");
+DEFINE_string(batch_sizes, "1000", "");
 
 int main(int argc, char** argv) {
   MPI_Init(&argc, &argv);
@@ -67,6 +67,11 @@ int main(int argc, char** argv) {
 
   setenv("GRPC_PLATFORM_TYPE", platform.c_str(), 1);
   setenv("RDMA_VERBOSITY", verbosity.c_str(), 1);
+
+  // {
+  //   TimerPackage timer;
+  //   sleep(1);
+  // }
 
   {
     BenchmarkClient client(

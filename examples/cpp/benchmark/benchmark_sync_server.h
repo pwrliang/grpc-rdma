@@ -59,10 +59,7 @@ class BenchmarkSyncService final : public BENCHMARK::Service {
     Status BiStream(ServerContext* context, ServerReaderWriter<Complex, Complex>* stream) override;
   private:
     std::mutex mu_;
-    size_t unary_request_total_size = 0;
-    size_t unary_reply_total_size = 0;
-    size_t unary_batch_size = 0;
-    bool bi_stream_started_ = false;
+    TimerPackage timer_;
 };
 
 class BenchmarkSyncServer {
@@ -102,22 +99,6 @@ Status BenchmarkSyncService::Unary(ServerContext* context, const Complex* reques
                            Complex* reply) {
   reply->mutable_datas()->mutable_data1()->resize(
       request->numbers().number1());
-  auto t0 = std::chrono::high_resolution_clock::now();
-  while (true) {
-    auto t1 = std::chrono::high_resolution_clock::now();
-    size_t ns = std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - t0).count();
-    if (ns > 100000) break;
-  }
-  // char thread_name[50];
-  // pthread_getname_np(pthread_self(), thread_name, 50);
-  // printf("%s, %lld is processing sync service: Unary\n", thread_name,
-  //         std::this_thread::get_id());
-  unary_request_total_size += request->datas().data1().length();
-  unary_reply_total_size += reply->datas().data1().length();
-  // if (++unary_batch_size == 100000) {
-  //   printf("unary total request size = %lld, total reply size = %lld\n",
-  //           unary_request_total_size, unary_reply_total_size);
-  // }
   return Status::OK;
 }
 
@@ -126,7 +107,6 @@ Status BenchmarkSyncService::ClientStream(ServerContext* context, ServerReader<C
   Complex request;
   size_t total_data_size = 0;
   for (size_t id = 0; reader->Read(&request); id++) {
-    // if (id % 1000 == 0) printf("ClientStream: %d-th read done\n", id);
     total_data_size += request.datas().data1().length();
   }
   reply->mutable_numbers()->set_number1(total_data_size);
@@ -153,18 +133,12 @@ Status BenchmarkSyncService::ServerStream(ServerContext* context, const Complex*
 Status BenchmarkSyncService::BiStream(ServerContext* context,
                               ServerReaderWriter<Complex, Complex>* stream) {
   Complex request, reply;
-  // if (bi_stream_started_ == false) {
-  //   bi_stream_started_ = true;
-  //   printf("BiStream started\n");
-  // }
   for (size_t id = 0; stream->Read(&request); id++) {
-    std::unique_lock<std::mutex> lock(mu_);
-    // if (id % 1000 == 0) printf("BiStream: %d-th read done\n", id);
+    // std::unique_lock<std::mutex> lock(mu_);
     reply.mutable_numbers()->set_number1(request.datas().data1().length());
     reply.mutable_datas()->mutable_data1()->resize(
         request.numbers().number1());
     stream->Write(reply);
-    // if (id % 1000 == 0) printf("BiStream: %d-th write done\n", id);
   }
   return Status::OK;
 }

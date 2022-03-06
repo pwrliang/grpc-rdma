@@ -110,8 +110,8 @@ class RDMASenderReceiverEvent : public RDMASenderReceiver {
 
     // create channel for each rdmasr.
     virtual void connect(int fd); 
-    virtual void update_remote_metadata();
-    virtual void update_local_metadata();
+    virtual void update_remote_metadata() override;
+    virtual void update_local_metadata() override;
     bool connected() { return connected_; }
 
     virtual bool send(msghdr* msg, size_t mlen);
@@ -129,7 +129,7 @@ class RDMASenderReceiverEvent : public RDMASenderReceiver {
     bool connected_ = false;
 
     // this need to sync in initialization
-    size_t remote_rr_num_ = DEFAULT_MAX_POST_RECV;
+    size_t remote_rr_tail_ = DEFAULT_MAX_POST_RECV, remote_rr_head_ = 0;
 };
 
 #endif

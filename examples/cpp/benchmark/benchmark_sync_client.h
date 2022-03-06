@@ -26,6 +26,7 @@
 
 #endif
 
+using std::unique_ptr;
 using benchmark::BENCHMARK;
 using benchmark::Complex;
 using benchmark::Data_Bytes;
@@ -47,6 +48,7 @@ class BenchmarkSyncClient {
   public:
     BenchmarkSyncClient(std::shared_ptr<Channel> channel)
       : stub_(BENCHMARK::NewStub(channel)) {}
+    virtual ~BenchmarkSyncClient() {printf("BenchmarkSyncClient destructor\n");}
     
     // sync services
     void SyncSayHello();
@@ -57,7 +59,8 @@ class BenchmarkSyncClient {
                       size_t _reply_size_);
 
   private:
-    std::unique_ptr<BENCHMARK::Stub> stub_;
+    unique_ptr<BENCHMARK::Stub> stub_;
+    TimerPackage timer_;
 };
 
 void BenchmarkSyncClient::SyncSayHello() {
@@ -78,6 +81,7 @@ void BenchmarkSyncClient::SyncUnary(size_t batch_size, size_t _request_size_,
   size_t min_reply_size = _reply_size_ / 2, max_reply_size = _reply_size_ * 2;
   size_t request_size, reply_size;
   for (size_t i = 0; i < batch_size; i++) {
+    // timer_.Start("SyncUnary: %d", i);
     ClientContext context;
     Complex reply;
     // request_size = random(min_request_size, max_request_size);
@@ -95,6 +99,7 @@ void BenchmarkSyncClient::SyncUnary(size_t batch_size, size_t _request_size_,
           "SyncUnary failed: actual reply size != expected reply size\n");
       abort();
     }
+    // timer_.Stop();
     // printf("SyncUnary succeed\n");
   }
 }
@@ -105,7 +110,7 @@ void BenchmarkSyncClient::SyncClientStream(size_t batch_size, size_t _request_si
   size_t min_request_size = _request_size_ / 2, max_request_size = _request_size_ * 2;
   size_t request_size;
   size_t total_request_size = 0;
-  std::unique_ptr<ClientWriter<Complex>> writer(
+  unique_ptr<ClientWriter<Complex>> writer(
       stub_->ClientStream(&context, &reply));
   for (size_t i = 0; i < batch_size; i++) {
     request_size = random(min_request_size, max_request_size);
@@ -138,7 +143,7 @@ void BenchmarkSyncClient::SyncServerStream(size_t batch_size, size_t _reply_size
   request.mutable_numbers()->set_number1(batch_size);
   request.mutable_numbers()->set_number2(min_reply_size);
   request.mutable_numbers()->set_number3(max_reply_size);
-  std::unique_ptr<ClientReader<Complex>> reader(
+  unique_ptr<ClientReader<Complex>> reader(
       stub_->ServerStream(&context, request));
   while (reader->Read(&reply)) {
     size_t actual_min_reply = reply.numbers().number1();

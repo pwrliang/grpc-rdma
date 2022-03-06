@@ -120,6 +120,8 @@ struct pollable {
   std::map<int, grpc_fd*> rdma_fds;
 
   gpr_mu rdma_mu;
+
+  std::unique_ptr<TimerPackage> rdma_timer;
 };
 
 static const char* pollable_type_string(pollable_type t) {
@@ -292,6 +294,10 @@ static void pollable_unref(pollable* p, const grpc_core::DebugLocation& dbg_loc,
     p->rdma_fds.clear();
     gpr_mu_unlock(&p->rdma_mu);
     gpr_mu_destroy(&p->rdma_mu);
+    if (p->rdma_timer) {
+      // printf("pollable %d unref, delete rdma timer\n", p->epfd);
+      delete p->rdma_timer.release();
+    }
     // printf("pollable(%d) is unrefed\n", p->epfd);
     gpr_free(p);
   }
@@ -733,6 +739,10 @@ static grpc_error_handle pollable_add_fd(pollable* p, grpc_fd* fd) {
   // }
 
   if (fd->rdmasr) {
+    if (!p->rdma_timer) {
+      p->rdma_timer.reset(new TimerPackage());
+      // printf("pollable %d add rdma timer\n", p->epfd);
+    }
     // p->rdma_fds.insert(fd);
     gpr_mu_lock(&p->rdma_mu);
     p->rdma_fds.erase(fd->fd);
@@ -1061,6 +1071,7 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
   int r;
   gpr_mu_lock(&p->rdma_mu);
   if (!p->rdma_fds.empty()) {
+    // p->rdma_timer->Start("pollable %d epoll", p->epfd);
     rdma_log(RDMA_DEBUG, "pollable %p epoll starts", p);
     timeout = 0;
     bool rdma_found = false;
@@ -1089,11 +1100,8 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
           fd_become_writable(fd);
         }
       }
-      // if (count++ % 1000000 == 0 && fd) {
-      //   printf("pollable(%d) epoll ..., %d, %d, %p, %d\n", 
-      //     p->epfd, p->rdma_fds.size(), fd->fd, fd->rdmasr, fd->rdmasr->check_incoming_());
-      // }
     } while (((r < 0 && errno == EINTR) || r == 0) && !rdma_found);
+    // p->rdma_timer->Stop();
     rdma_log(RDMA_DEBUG, "pollable %p ends, r = %d, found_read_incoming = %d", p, r, rdma_found);
     gpr_mu_unlock(&p->rdma_mu);
   } else {

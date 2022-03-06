@@ -17,7 +17,7 @@
 // -----< RDMAConnEvent >-----
 
 RDMAConnEvent::RDMAConnEvent(int fd, RDMANode* node, RDMASenderReceiverEvent* rdmasr)
-  : extra_rr_num_(DEFAULT_MAX_POST_RECV) {
+  : posted_rr_num(0) {
   fd_ = fd;
   node_ = node;
   ibv_context* ctx = node_->get_ctx();
@@ -161,7 +161,13 @@ size_t RDMAConnEvent::poll_recv_completions_and_post_recvs(uint8_t* addr, size_t
     }
     recv_bytes += recv_wcs_[i].byte_len;
   }
+  completed_rr_num = (completed_rr_num + completed) % DEFAULT_MAX_POST_RECV;
+  // posted_rr_num.fetch_sub(completed);
   post_recvs(addr, length, lkey, completed);
+
+  // this number is in [0, DEFAULT_MAX_POST_RECV - 1];
+  size_t avail_rr_num = (posted_rr_num + DEFAULT_MAX_POST_RECV - completed_rr_num) % DEFAULT_MAX_POST_RECV;
+  if (avail_rr_num)
   rdma_log(RDMA_DEBUG, "RDMAConnEvent::poll_recv_completions_and_post_recvs, poll out %d completion (%d bytes) from rcq",
            completed, recv_bytes);
   
@@ -179,7 +185,7 @@ void RDMAConnEvent::post_recvs(uint8_t* addr, size_t length, uint32_t lkey, size
   INIT_SGE(&sge, addr, length, lkey);
   INIT_RR(&rr, &sge);
 
-  extra_rr_num_.fetch_add(n);
+  posted_rr_num = (posted_rr_num + n) % DEFAULT_MAX_POST_RECV;
   int ret;
   while (n--) {
     ret = ibv_post_recv(qp_, &rr, &bad_wr);
