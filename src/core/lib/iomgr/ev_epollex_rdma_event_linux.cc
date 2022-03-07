@@ -161,7 +161,7 @@ static void pollable_unref(pollable* p, const grpc_core::DebugLocation& dbg_loc,
  */
 
 struct grpc_fd {
-  grpc_fd(int fd, const char* name, bool track_err)
+  grpc_fd(int fd, const char* name, bool track_err, bool)
       : fd(fd), track_err(track_err) {
     gpr_mu_init(&orphan_mu);
     gpr_mu_init(&pollable_mu);
@@ -447,7 +447,7 @@ static grpc_fd* fd_create(int fd, const char* name, bool track_err) {
   }
 
   // return new (new_fd) grpc_fd(fd, name, track_err);
-  new (new_fd) grpc_fd(fd, name, track_err);
+  new (new_fd) grpc_fd(fd, name, track_err, true);
   new_fd->rdmasr = nullptr;
 
   return new_fd;
