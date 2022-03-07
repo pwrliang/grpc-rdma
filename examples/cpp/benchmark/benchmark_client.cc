@@ -18,7 +18,7 @@ void MPI_summary_time(int64_t time, const char* prefix, const char* unit) {
       prefix, _rdma_internal_world_size_, total_time, unit, total_time / _rdma_internal_world_size_, unit);
 }
 
-void MPI_Summary_throughput(double tpt, const char* prefix, const char* unit) {
+void MPI_summary_throughput(double tpt, const char* prefix, const char* unit) {
   MPI_Barrier(MPI_COMM_WORLD);
   if (_rdma_internal_world_rank_ != 0) {
     MPI_Send(&tpt, 1, MPI_DOUBLE, 0, 1, MPI_COMM_WORLD);
@@ -33,16 +33,31 @@ void MPI_Summary_throughput(double tpt, const char* prefix, const char* unit) {
           prefix, _rdma_internal_world_size_, total_tpt, unit, total_tpt / _rdma_internal_world_size_, unit);
 }
 
+void MPI_summary_cpu(double cpu, const char* prefix, const char* unit) {
+  MPI_Barrier(MPI_COMM_WORLD);
+  if (_rdma_internal_world_rank_ != 0) {
+    MPI_Send(&cpu, 1, MPI_DOUBLE, 0, 1, MPI_COMM_WORLD);
+    return;
+  }
+  double total_cpu = cpu, _cpu_;
+  for (int i = 1; i < _rdma_internal_world_size_; i++) {
+    MPI_Recv(&_cpu_, 1, MPI_DOUBLE, i, 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+    total_cpu += _cpu_;
+  }
+  printf("%s, world size = %d, total cpu usage = %f %s, average cpu usage = %f %s\n",
+          prefix, _rdma_internal_world_size_, total_cpu, unit, total_cpu / _rdma_internal_world_size_, unit);
+}
+
 
 DEFINE_string(server_address, "localhost:50051", "");
 DEFINE_bool(sync_enable, true, "");
 DEFINE_bool(async_enable, false, "");
 DEFINE_string(platform, "TCP", "which transport protocol used");
 DEFINE_string(verbosity, "ERROR", "");
-DEFINE_string(data_sizes, "1024", "");
+DEFINE_string(data_sizes, "1024,1024*256,1024*1024", "");
 // DEFINE_string(data_sizes, "1024", "");
 // DEFINE_string(batch_sizes, "1000,10000,20000,50000,100000", "");
-DEFINE_string(batch_sizes, "10000", "");
+DEFINE_string(batch_sizes, "1000,10000", "");
 
 int main(int argc, char** argv) {
   MPI_Init(&argc, &argv);
@@ -71,7 +86,7 @@ int main(int argc, char** argv) {
       grpc::CreateChannel(server_address, grpc::InsecureChannelCredentials()));
   
     client.SyncSayhello();
-    printf("rank %d: SyncSayhello finished\n", _rdma_internal_world_rank_);
+    // printf("rank %d: SyncSayhello finished\n", _rdma_internal_world_rank_);
 
     // sync services test
     for (int data_size: data_sizes) {

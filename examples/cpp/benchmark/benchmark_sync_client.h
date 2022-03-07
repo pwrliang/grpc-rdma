@@ -99,7 +99,7 @@ void BenchmarkSyncClient::SyncUnary(size_t batch_size, size_t _request_size_,
       abort();
     }
     // timer_.Stop();
-    // printf("SyncUnary succeed\n");
+    // printf("SyncUnary succeed, %d\n", i);
   }
 }
 

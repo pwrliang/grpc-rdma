@@ -82,18 +82,18 @@ class TimerPackage {
     size_t TimeoutMS() { return accumulative_timeout_ms_.load(); }
     void Stop();
 
-private:
-  static std::atomic_size_t global_count;
-  const size_t local_id;
-  std::atomic_size_t timeout_ms_;
-  std::condition_variable timer_;
-  std::mutex timer_mu_;
-  std::atomic_bool alive_;
-  std::condition_variable start_;
-  std::mutex start_mu_;
-  std::atomic_size_t accumulative_timeout_ms_;
-  std::thread* thread_;
-  char* message_ = nullptr;
+  private:
+    static std::atomic_size_t global_count;
+    const size_t local_id;
+    std::atomic_size_t timeout_ms_;
+    std::condition_variable timer_;
+    std::mutex timer_mu_;
+    std::atomic_bool alive_;
+    std::condition_variable start_;
+    std::mutex start_mu_;
+    std::atomic_size_t accumulative_timeout_ms_;
+    std::thread* thread_;
+    char* message_ = nullptr;
 };
 
 

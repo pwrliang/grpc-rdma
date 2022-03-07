@@ -46,7 +46,8 @@ using grpc::ClientAsyncWriter;
 using grpc::Status;
 
 void MPI_summary_time(int64_t time, const char* prefix, const char* unit);
-void MPI_Summary_throughput(double tpt, const char* prefix, const char* unit);
+void MPI_summary_throughput(double tpt, const char* prefix, const char* unit);
+void MPI_summary_cpu(double cpu, const char* prefix, const char* unit);
 
 class BenchmarkClient {
   public:
@@ -84,28 +85,49 @@ void BenchmarkClient::AsyncOperations(const size_t batch_size, const size_t data
 void BenchmarkClient::SyncOperations(const size_t batch_size, const size_t data_size) {
   std::stringstream ss;
   size_t us;
+  double process_percent, global_percent;
+  GlobalCPUTimePackage global_cpu_pkg;
+  ProcessCPUTimePackage process_cpu_pkg;
 
-  sync_client_->SyncSayHello();
+  // global_cpu_measure_init(global_cpu_pkg);
+  // process_cpu_measure_init(process_cpu_pkg);
+  // sync_client_->SyncSayHello();
+  // sync_client_->SyncUnary(batch_size, data_size / 2, data_size * 2);
+  // double process_percent = process_cpu_measure(process_cpu_pkg);
+  // double global_percent = global_cpu_measure(global_cpu_pkg);
+  // printf("%d, %f, %f\n", global_cpu_pkg.processors_num, global_percent, process_percent);
 
   auto t0 = std::chrono::high_resolution_clock::now();
+  global_cpu_measure_init(global_cpu_pkg);
+  process_cpu_measure_init(process_cpu_pkg);
   sync_client_->SyncUnary(batch_size, data_size / 2, data_size * 2);
   auto t1 = std::chrono::high_resolution_clock::now();
+  global_percent = global_cpu_measure(global_cpu_pkg);
+  process_percent = process_cpu_measure(process_cpu_pkg);
   us = std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count();
   ss.str("");
   ss << "SyncUnary, batch size = " << batch_size
       << ", data size = " << data_size;
   MPI_summary_time(us, ss.str().c_str(), "us");
-  MPI_Summary_throughput(double(batch_size) / us * 1000000, ss.str().c_str(), "rpcs/s");
+  MPI_summary_throughput(double(batch_size) / us * 1000000, ss.str().c_str(), "rpcs/s");
+  MPI_summary_cpu(global_percent, ss.str().c_str(), "%");
+  MPI_summary_cpu(process_percent, ss.str().c_str(), "%");
 
-  // auto t2 = std::chrono::high_resolution_clock::now();
-  // sync_client_->SyncClientStream(batch_size, data_size);
-  // auto t3 = std::chrono::high_resolution_clock::now();
-  // us = std::chrono::duration_cast<std::chrono::microseconds>(t3 - t2).count();
-  // ss.str("");
-  // ss << "SyncClientStream, batch size = " << batch_size
-  //     << ", data size = " << data_size;
-  // MPI_summary_time(us, ss.str().c_str(), "us");
-  // MPI_Summary_throughput(double(batch_size) / us * 1000000, ss.str().c_str(), "rpcs/s");
+  auto t2 = std::chrono::high_resolution_clock::now();
+  global_percent = global_cpu_measure(global_cpu_pkg);
+  process_percent = process_cpu_measure(process_cpu_pkg);
+  sync_client_->SyncClientStream(batch_size, data_size);
+  auto t3 = std::chrono::high_resolution_clock::now();
+  global_percent = global_cpu_measure(global_cpu_pkg);
+  process_percent = process_cpu_measure(process_cpu_pkg);
+  us = std::chrono::duration_cast<std::chrono::microseconds>(t3 - t2).count();
+  ss.str("");
+  ss << "SyncClientStream, batch size = " << batch_size
+      << ", data size = " << data_size;
+  MPI_summary_time(us, ss.str().c_str(), "us");
+  MPI_summary_throughput(double(batch_size) / us * 1000000, ss.str().c_str(), "rpcs/s");
+  MPI_summary_cpu(global_percent, ss.str().c_str(), "%");
+  MPI_summary_cpu(process_percent, ss.str().c_str(), "%");
 
   // auto t4 = std::chrono::high_resolution_clock::now();
   // sync_client_->SyncServerStream(batch_size, data_size);
@@ -115,7 +137,7 @@ void BenchmarkClient::SyncOperations(const size_t batch_size, const size_t data_
   // ss << "SyncServerStream, batch size = " << batch_size
   //     << ", data size = " << data_size;
   // MPI_summary_time(us, ss.str().c_str(), "us");
-  // MPI_Summary_throughput(double(batch_size) / us * 1000000, ss.str().c_str(), "rpcs/s");
+  // MPI_summary_throughput(double(batch_size) / us * 1000000, ss.str().c_str(), "rpcs/s");
 
   // auto t6 = std::chrono::high_resolution_clock::now();
   // sync_client_->SyncBiStream(batch_size, data_size / 2, data_size * 2);
@@ -125,7 +147,7 @@ void BenchmarkClient::SyncOperations(const size_t batch_size, const size_t data_
   // ss << "SyncBiStream, batch size = " << batch_size
   //     << ", data size = " << data_size;
   // MPI_summary_time(us, ss.str().c_str(), "us");
-  // MPI_Summary_throughput(double(batch_size) / us * 1000000, ss.str().c_str(), "rpcs/s");
+  // MPI_summary_throughput(double(batch_size) / us * 1000000, ss.str().c_str(), "rpcs/s");
 }
 
 

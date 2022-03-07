@@ -165,36 +165,36 @@ class AsyncClientStreamService {
     std::function<void(Complex*)> reply_func_;
 };
 
-// class AsyncServerStreamService {
-//   public:
-//     enum ServerAsyncWriterStatus { CREATE, WRITE, WRITEDONE, FINISH };
-//     AsyncServerStreamService (BENCHMARK::AsyncService* service, 
-//                        CompletionQueue* call_cq, ServerCompletionQueue* notification_cq);
-//     void Start (std::function<void(Complex*)> request_func, std::function<bool(Complex*)> reply_func);
-//     void Proceed();
+class AsyncServerStreamService {
+  public:
+    enum ServerAsyncWriterStatus { CREATE, WRITE, WRITEDONE, FINISH };
+    AsyncServerStreamService (BENCHMARK::AsyncService* service, 
+                       CompletionQueue* call_cq, ServerCompletionQueue* notification_cq);
+    void Start (std::function<void(Complex*)> request_func, std::function<bool(Complex*)> reply_func);
+    void Proceed();
 
-//   private:
-//     void Create();
-//     void Write();
-//     void WritesDone();
-//     void Finish();
+  private:
+    void Create();
+    void Write();
+    void WritesDone();
+    void Finish();
 
-//     BENCHMARK::AsyncService* service_;
-//     ServerCompletionQueue* notification_cq_;
-//     CompletionQueue* call_cq_;
+    BENCHMARK::AsyncService* service_;
+    ServerCompletionQueue* notification_cq_;
+    CompletionQueue* call_cq_;
 
-//     unique_ptr<AsyncServicesTag> tag_;
-//     ServerContext ctx_;
-//     ServerAsyncWriter<Complex, Complex> writer_;
-//     Complex request_;
-//     Complex reply_;
-//     ServerAsyncWriterStatus status_;
-//     Status finished_status_;
-//     std::mutex read_mu_;
+    unique_ptr<AsyncServicesTag> tag_;
+    ServerContext ctx_;
+    ServerAsyncWriter<Complex> writer_;
+    Complex request_;
+    Complex reply_;
+    ServerAsyncWriterStatus status_;
+    Status finished_status_;
+    std::mutex read_mu_;
 
-//     std::function<void(Complex*)> request_func_;
-//     std::function<bool(Complex*)> reply_func_;
-// };
+    std::function<void(Complex*)> request_func_;
+    std::function<bool(Complex*)> reply_func_;
+};
 
 struct AsyncServicesTag {
   AsyncServicesTag(ServiceType type) : type_(type) {}
@@ -446,6 +446,23 @@ void AsyncClientStreamService::ReadDone() {
 void AsyncClientStreamService::Finish() {
   tag_->service_ = nullptr;
   delete this;
+}
+
+// -----< AsyncServerStreamService >-----
+AsyncServerStreamService::AsyncServerStreamService(BENCHMARK::AsyncService* service,
+                                                   CompletionQueue* call_cq,
+                                                   ServerCompletionQueue* notification_cq)
+  : service_(service), writer_(&ctx_), tag_(new AsyncServicesTag(SERVERSTREAM)),
+    call_cq_(call_cq), notification_cq_(notification_cq) {
+  tag_->service_ = static_cast<void*>(this);
+}
+
+// void AsyncServerStreamService::Start() {
+
+// }
+
+void AsyncServerStreamService::Create() {
+
 }
 
 
