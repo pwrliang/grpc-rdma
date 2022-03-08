@@ -947,6 +947,9 @@ static grpc_error_handle pollable_process_events(grpc_pollset* pollset,
       if (fd->rdmasr->check_incoming()) {
         fd_become_readable(fd);
       }
+      if (fd->rdmasr->if_write_again()) {
+        fd_become_writable(fd);
+      }
     } else if (1 & reinterpret_cast<intptr_t>(data_ptr)) {
       rdma_log(RDMA_DEBUG, "pollable_process_event, epfd = %d, event[%d] is pollset_wakeup",
                pollable_obj->epfd, n);

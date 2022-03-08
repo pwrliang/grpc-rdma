@@ -101,31 +101,31 @@ void BenchmarkClient::AsyncOperations(const size_t batch_size, const size_t data
   MPI_summary_time(us, ss.str().c_str(), "us");
   MPI_summary_throughput(double(batch_size) / us * 1000000, ss.str().c_str(), "rpcs/s");
 
-  cq = new CompletionQueue;
-  worker = new std::thread(async_client_->NextAndProcees, cq);
-  auto t4 = std::chrono::high_resolution_clock::now();
-  async_client_->AsyncServerStreamStart(cq, batch_size, data_size);
-  worker->join();
-  auto t5 = std::chrono::high_resolution_clock::now();
-  us = std::chrono::duration_cast<std::chrono::microseconds>(t5 - t4).count();
-  ss.str("");
-  ss << "AyncServerStream, batch size = " << batch_size
-      << ", data size = " << data_size;
-  MPI_summary_time(us, ss.str().c_str(), "us");
-  MPI_summary_throughput(double(batch_size) / us * 1000000, ss.str().c_str(), "rpcs/s");
+  // cq = new CompletionQueue;
+  // worker = new std::thread(async_client_->NextAndProcees, cq);
+  // auto t4 = std::chrono::high_resolution_clock::now();
+  // async_client_->AsyncServerStreamStart(cq, batch_size, data_size);
+  // worker->join();
+  // auto t5 = std::chrono::high_resolution_clock::now();
+  // us = std::chrono::duration_cast<std::chrono::microseconds>(t5 - t4).count();
+  // ss.str("");
+  // ss << "AyncServerStream, batch size = " << batch_size
+  //     << ", data size = " << data_size;
+  // MPI_summary_time(us, ss.str().c_str(), "us");
+  // MPI_summary_throughput(double(batch_size) / us * 1000000, ss.str().c_str(), "rpcs/s");
 
-  cq = new CompletionQueue;
-  worker = new std::thread(async_client_->NextAndProcees, cq);
-  auto t6 = std::chrono::high_resolution_clock::now();
-  async_client_->AsyncBiStreamStart(cq, batch_size, data_size, data_size);
-  worker->join();
-  auto t7 = std::chrono::high_resolution_clock::now();
-  us = std::chrono::duration_cast<std::chrono::microseconds>(t7 - t6).count();
-  ss.str("");
-  ss << "AyncBiStream, batch size = " << batch_size
-      << ", data size = " << data_size;
-  MPI_summary_time(us, ss.str().c_str(), "us");
-  MPI_summary_throughput(double(batch_size) / us * 1000000, ss.str().c_str(), "rpcs/s");
+  // cq = new CompletionQueue;
+  // worker = new std::thread(async_client_->NextAndProcees, cq);
+  // auto t6 = std::chrono::high_resolution_clock::now();
+  // async_client_->AsyncBiStreamStart(cq, batch_size, data_size, data_size);
+  // worker->join();
+  // auto t7 = std::chrono::high_resolution_clock::now();
+  // us = std::chrono::duration_cast<std::chrono::microseconds>(t7 - t6).count();
+  // ss.str("");
+  // ss << "AyncBiStream, batch size = " << batch_size
+  //     << ", data size = " << data_size;
+  // MPI_summary_time(us, ss.str().c_str(), "us");
+  // MPI_summary_throughput(double(batch_size) / us * 1000000, ss.str().c_str(), "rpcs/s");
 }
 
 void BenchmarkClient::SyncOperations(const size_t batch_size, const size_t data_size) {

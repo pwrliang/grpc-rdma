@@ -225,7 +225,7 @@ static void rdma_do_read(grpc_rdma* rdma) {
   } while (read_bytes == 0);
   rdma->total_recv_size += read_bytes;
   rdma_log(RDMA_DEBUG, "rdma_do_read recv %d bytes", read_bytes);
-  // printf("rdma recv %d bytes data, total recv size = %lld\n", read_bytes, rdma->total_recv_size);
+  printf("rdma recv %d bytes data, total recv size = %lld\n", read_bytes, rdma->total_recv_size);
 
   if (read_bytes <= rdma->incoming_buffer->length) {
     grpc_slice_buffer_trim_end(rdma->incoming_buffer,
@@ -289,15 +289,19 @@ static void rdma_handle_read(void* arg /* grpc_rdma */, grpc_error_handle error)
     RDMA_UNREF(rdma, "read");
   } else {
     if (rdma->rdmasr->check_and_ack_incomings_locked() == 0) {
-      if (tcp_do_read(rdma) == 0) {
+      int ret = tcp_do_read(rdma);
+      if (ret == 0) {
         printf("case A, close rdma\n");
         grpc_slice_buffer_reset_and_unref_internal(rdma->incoming_buffer);
         call_read_cb(rdma, rdma_annotate_error(
                      GRPC_ERROR_CREATE_FROM_STATIC_STRING("Socket closed"),rdma));
         RDMA_UNREF(rdma, "read");
-      } else {
+      } else if (ret == -1 && errno == EAGAIN) {
         rdma_log(RDMA_DEBUG, "rdma_handle_read, no data, call notify_on_read");
         notify_on_read(rdma);
+      } else {
+        rdma_log(RDMA_ERROR, "rdma_handle_read, no data, tcp return %d, %d\n", ret, errno);
+        abort();
       }
     } else {
       rdma_log(RDMA_DEBUG, "rdma_handle_read, data found, call rdma_continue_read");
@@ -390,11 +394,11 @@ static bool rdma_flush(grpc_rdma* rdma, grpc_error_handle* error) {
         grpc_slice_buffer_remove_first(rdma->outgoing_buffer);
       }
       rdma->rdmasr->write_again();
-      // printf("thread %lld send %ld bytes data failed\n", getpid(), sending_length);
+      printf("thread %lld: fd %d send %ld bytes data failed\n", getpid(), rdma->fd, sending_length);
       return false;
     }
     rdma->total_send_size += sending_length;
-    // printf("thread %lld send %ld bytes data succeed, total send size = %lld\n", getpid(), sending_length, rdma->total_send_size);
+    printf("thread %lld: fd %d send %ld bytes data succeed, total send size = %lld\n", getpid(), rdma->fd, sending_length, rdma->total_send_size);
 
 
     if (outgoing_slice_idx == rdma->outgoing_buffer->count) {
@@ -570,7 +574,7 @@ grpc_endpoint* grpc_rdma_event_create(grpc_fd* em_fd,
   rdma->rdmasr->connect(rdma->fd);
   grpc_fd_set_rdmasr_event(em_fd, rdma->rdmasr);
   rdma_log(RDMA_INFO, "rdmasr %p is created, attached to fd %d", rdma->rdmasr, rdma->fd);
-  // printf("rdmasr %p is created, attached to fd: %p, %d\n", rdma->rdmasr, rdma->em_fd, rdma->fd);
+  printf("rdmasr %p is created, attached to fd: %p, %d\n", rdma->rdmasr, rdma->em_fd, rdma->fd);
   return &rdma->base;
 }
 

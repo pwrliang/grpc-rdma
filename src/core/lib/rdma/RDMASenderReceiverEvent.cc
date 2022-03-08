@@ -48,6 +48,13 @@ void RDMASenderReceiverEvent::connect(int fd) {
   conn_data_event_->post_recvs(ringbuf_event_->get_buf(), ringbuf_sz_, local_ringbuf_mr_.lkey(), DEFAULT_MAX_POST_RECV - 1);
   update_remote_metadata(); // set remote_rr_tail
 
+  char tmp;
+  if (conn_data_event_->sync_data((char*)"s", &tmp, 1)) {
+    rdma_log(RDMA_ERROR,
+             "RDMASenderReceiverEvent::connect, failed to sync after connect");
+    exit(-1);
+  }
+
   rdma_log(RDMA_INFO, "RDMASenderReceiverEvent connected");
   connected_ = true;
 }
@@ -63,6 +70,7 @@ void RDMASenderReceiverEvent::update_remote_metadata() {
   conn_metadata_->post_send_and_poll_completion(remote_metadata_recvbuf_mr_, 0,
                                        metadata_sendbuf_mr_, 0, 
                                        metadata_sendbuf_sz_, IBV_WR_RDMA_WRITE, true);
+  printf("update_remote, %lld, %lld\n", ringbuf_->get_head(), conn_data_event_->get_posted_rr_num());
   rdma_log(RDMA_INFO, "RDMASenderReceiver::update_remote_metadata, %d, %d", 
            reinterpret_cast<size_t*>(metadata_sendbuf_)[0],
            reinterpret_cast<size_t*>(metadata_sendbuf_)[1]);
@@ -131,7 +139,7 @@ bool RDMASenderReceiverEvent::send(msghdr* msg, size_t mlen) {
 
   update_local_metadata(); // update remote_ringbuf_head_ and remote_rr_tail
   size_t used = (remote_ringbuf_sz + remote_ringbuf_tail_ - remote_ringbuf_head_) % remote_ringbuf_sz;
-  size_t avail_rr_num = remote_rr_tail_ - remote_rr_head_;
+  size_t avail_rr_num = (remote_rr_tail_ - remote_rr_head_ + DEFAULT_MAX_POST_RECV) % DEFAULT_MAX_POST_RECV;
   if (used + mlen >= remote_ringbuf_sz - 1 || avail_rr_num <= 2) return false;
 
   uint8_t* start = sendbuf_;
@@ -152,7 +160,8 @@ bool RDMASenderReceiverEvent::send(msghdr* msg, size_t mlen) {
 
   conn_data_event_->post_send_and_poll_completion(remote_ringbuf_mr_, remote_ringbuf_tail_,
                                                       sendbuf_mr_, 0, mlen, IBV_WR_RDMA_WRITE_WITH_IMM, false);
-  remote_rr_head_++;
+  // remote_rr_head_++;
+  remote_rr_head_ = (remote_rr_head_ + 1) % DEFAULT_MAX_POST_RECV;
   remote_ringbuf_tail_ = (remote_ringbuf_tail_ + mlen) % remote_ringbuf_sz;
   total_send_sz += mlen;
   return true;

@@ -51,6 +51,7 @@ enum ServiceType { SAYHELLO, UNARY, CLIENTSTREAM, SERVERSTREAM, BISTREAM, SERVIC
 typedef struct AsyncServicesTag AsyncServicesTag;
 
 static std::atomic_int64_t rpc_count{0};
+static std::atomic_int16_t async_unary_count{0};
 
 class BenchmarkAsyncClient {
   public:
@@ -438,7 +439,7 @@ void AsyncUnaryService::Finished() {
   if (!finished_status_.ok() || !reply_func_(&reply_)) {
     printf("AsyncUnaryService failed\n");
   } else {
-    // printf("rank %d: AsyncUnaryService succeed\n", _rdma_internal_world_rank_);
+    printf("rank %d: AsyncUnaryService %lld succeed\n", _rdma_internal_world_rank_, async_unary_count.fetch_add(1));
   }
   tag_->service_ = nullptr;
   if (rpc_count.fetch_add(-1) == 1) {

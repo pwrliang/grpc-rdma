@@ -230,7 +230,7 @@ static void rdma_do_read(grpc_rdma* rdma) {
   total_read_byte += read_bytes;
   rdma->total_recv_bytes += read_bytes;
   rdma_log(RDMA_INFO, "rdma_do_read recv %d bytes", total_read_byte);
-  // printf("thread %lld recv %lld bytes data\n", getpid(), total_read_byte);
+  printf("thread %lld recv %lld bytes data\n", getpid(), total_read_byte);
 
   if (total_read_byte <= rdma->incoming_buffer->length) {
     grpc_slice_buffer_trim_end(rdma->incoming_buffer,
@@ -396,10 +396,10 @@ static bool rdma_flush(grpc_rdma* rdma, grpc_error_handle* error) {
         grpc_slice_buffer_remove_first(rdma->outgoing_buffer);
       }
       rdma->rdmasr->write_again();
-      // printf("thread %lld send %ld bytes data failed\n", getpid(), sending_length);
+      printf("thread %lld send %ld bytes data failed\n", getpid(), sending_length);
       return false;
     }
-    // printf("thread %lld send %ld bytes data succeed\n", getpid(), sending_length);
+    printf("thread %lld send %ld bytes data succeed\n", getpid(), sending_length);
 
     if (outgoing_slice_idx == rdma->outgoing_buffer->count) {
       *error = GRPC_ERROR_NONE;
@@ -575,7 +575,7 @@ grpc_endpoint* grpc_rdma_bp_create(grpc_fd* em_fd,
   rdma->alive.store(true);
   grpc_fd_set_rdmasr_bp(em_fd, rdma->rdmasr);
   rdma_log(RDMA_INFO, "rdmasr %p is created, attached to fd %d", rdma->rdmasr, rdma->fd);
-  // printf("rdmasr %p is created, attached to fd: %d\n", rdma->rdmasr, rdma->fd);
+  printf("rdmasr %p is created, attached to fd: %d\n", rdma->rdmasr, rdma->fd);
   return &rdma->base;
 }
 

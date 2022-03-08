@@ -39,6 +39,7 @@ void RDMASenderReceiverBP::connect(int fd) {
   conn_data_bp_->sync_mr(local_ringbuf_mr_, remote_ringbuf_mr_);
 
   rdma_log(RDMA_DEBUG, "RDMASenderReceiverBP connected");
+  printf("RDMASenderReceiverBP is connected\n");
   connected_ = true;
 }
 

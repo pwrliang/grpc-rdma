@@ -768,7 +768,7 @@ static grpc_error_handle pollable_add_fd(pollable* p, grpc_fd* fd) {
     fd->rdma_pollables.insert(p);
     gpr_mu_unlock(&fd->rdma_mu);
     gpr_mu_unlock(&p->rdma_mu);
-    // printf("pollable(%d) add rdma fd(%d), %d\n", p->epfd, fd->fd, p->rdma_fds.size());
+    printf("pollable(%d) add rdma fd(%d), %d\n", p->epfd, fd->fd, p->rdma_fds.size());
   } else {
     // printf("pollable(%d) add fd(%d)\n", p->epfd, fd->fd);
   }
@@ -1114,7 +1114,7 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
         if (fd->rdmasr->check_incoming()) {
           rdma_found = true;
           rdma_log(RDMA_DEBUG, "fd %d become readable", fd->fd);
-          // printf("pollable(%d) epoll fd(%d) become readable\n", p->epfd, fd->fd);
+          printf("pollable(%d) epoll fd(%d) become readable\n", p->epfd, fd->fd);
           fd_become_readable(fd);
         }
         if (fd->rdmasr->if_write_again()) {
