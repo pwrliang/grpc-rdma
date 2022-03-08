@@ -15,13 +15,13 @@
 #include <chrono>
 #include <thread>
 
-const size_t DEFAULT_MAX_SEND_WR = 100;
-const size_t DEFAULT_MAX_RECV_WR = 100;
-const size_t DEFAULT_MAX_SEND_SGE = 2;
-const size_t DEFAULT_MAX_RECV_SGE = 2;
-const size_t DEFAULT_CQE = 1000;
-const size_t DEFAULT_MAX_POST_RECV = 100;
-const size_t DEFAULT_EVENT_ACK_LIMIT = 50;
+const size_t DEFAULT_MAX_SEND_WR = 1000;
+const size_t DEFAULT_MAX_RECV_WR = 1000;
+const size_t DEFAULT_MAX_SEND_SGE = 20;
+const size_t DEFAULT_MAX_RECV_SGE = 20;
+const size_t DEFAULT_CQE = 10000;
+const size_t DEFAULT_MAX_POST_RECV = 200;
+const size_t DEFAULT_EVENT_ACK_LIMIT = 5000;
 
 class RDMASenderReceiver;
 class RDMASenderReceiverBP;
@@ -79,8 +79,7 @@ class RDMAConnEvent : public RDMAConn {
     virtual ~RDMAConnEvent();
 
     int get_channel_fd() { return channel_->fd; }
-    size_t get_posted_rr_num() { return posted_rr_num; }
-    bool if_update_remote() { return if_update_remote_; }
+    size_t get_posted_rr_num() { return posted_rr_num_; }
 
     bool get_event_locked();
 
@@ -91,14 +90,14 @@ class RDMAConnEvent : public RDMAConn {
     // int poll_send_completion();
     size_t poll_recv_completions_and_post_recvs(uint8_t* addr, size_t length, uint32_t lkey);
     
+    size_t garbage_ = 0;
   protected:
     ibv_comp_channel* channel_ = nullptr;
     ibv_wc recv_wcs_[DEFAULT_MAX_POST_RECV];
     size_t unacked_events_num_ = 0;
     
     // this number indicates how many recv requests are posted since last update_remote_metadata
-    size_t posted_rr_num = 0, completed_rr_num = 0;
-    bool if_update_remote_ = false;
+    size_t posted_rr_num_ = 0;
 };
 
 

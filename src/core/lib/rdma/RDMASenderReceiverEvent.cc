@@ -63,7 +63,6 @@ void RDMASenderReceiverEvent::update_remote_metadata() {
   conn_metadata_->post_send_and_poll_completion(remote_metadata_recvbuf_mr_, 0,
                                        metadata_sendbuf_mr_, 0, 
                                        metadata_sendbuf_sz_, IBV_WR_RDMA_WRITE, true);
-  // conn_data_event_->reset_extra_rr_num();
   rdma_log(RDMA_INFO, "RDMASenderReceiver::update_remote_metadata, %d, %d", 
            reinterpret_cast<size_t*>(metadata_sendbuf_)[0],
            reinterpret_cast<size_t*>(metadata_sendbuf_)[1]);
@@ -112,9 +111,10 @@ size_t RDMASenderReceiverEvent::recv(msghdr* msg) {
   unread_mlens_ = 0;
   garbage_ += read_size;
   total_recv_sz += read_size;
-  if (garbage_ >= ringbuf_sz_ / 2 || conn_data_event_->if_update_remote()) {
+  if (garbage_ >= ringbuf_sz_ / 2 || conn_data_event_->garbage_ >= DEFAULT_MAX_POST_RECV / 2) {
     update_remote_metadata();
     garbage_ = 0;
+    conn_data_event_->garbage_ = 0;
   }
   return read_size;
 }

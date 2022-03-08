@@ -500,7 +500,11 @@ static void fd_orphan(grpc_fd* fd, grpc_closure* on_done, int* release_fd,
     }
     *release_fd = fd->fd;
   } else {
+    // printf("else\n");
     close(fd->fd);
+    if (fd->rdmasr) {
+      close(fd->rdmasr->get_channel_fd());
+    }
     is_fd_closed = true;
   }
   // TODO(sreek): handle fd removal (where is_fd_closed=false)
