@@ -59,7 +59,7 @@ class BenchmarkSyncClient {
 
   private:
     unique_ptr<BENCHMARK::Stub> stub_;
-    TimerPackage timer_;
+    // TimerPackage timer_;
 };
 
 void BenchmarkSyncClient::SyncSayHello() {
@@ -205,7 +205,9 @@ void BenchmarkSyncClient::SyncBiStream(size_t batch_size, size_t _request_size_,
   if (actual_batch_size != batch_size ||
       actual_total_request_size != expected_total_request_size ||
       actual_total_reply_size != expected_total_reply_size) {
-    printf("SyncBiStream failed: actual reply size != expected reply size\n");
+    printf("SyncBiStream failed: actual reply size(%lld, %lld, %lld) != expected reply size(%lld, %lld, %lld)\n",
+            actual_batch_size, actual_total_request_size, actual_total_reply_size,
+            batch_size, expected_total_request_size, expected_total_reply_size);
     abort();
   }
 }

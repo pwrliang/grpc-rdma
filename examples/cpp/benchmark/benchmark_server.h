@@ -51,6 +51,8 @@ using grpc::ServerReaderWriter;
 using grpc::ServerWriter;
 using grpc::Status;
 
+const size_t cpu_measure_interval_ms = 1000;
+
 class BenchmarkServer {
   public:
     BenchmarkServer(const std::string server_address, bool async_enable);
@@ -64,6 +66,7 @@ class BenchmarkServer {
     bool async_enable_;
     std::unique_ptr<BenchmarkSyncServer> sync_server_;
     std::unique_ptr<BenchmarkAsyncServer> async_server_;
+    // CPUMeasurePackage cpu_measure_pkg_;
 };
 
 

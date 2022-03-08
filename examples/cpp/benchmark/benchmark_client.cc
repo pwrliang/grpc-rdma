@@ -2,7 +2,8 @@
 #include <mpi.h>
 
 void MPI_summary_time(int64_t time, const char* prefix, const char* unit) {
-  MPI_Barrier(MPI_COMM_WORLD);
+  // MPI_Barrier(MPI_COMM_WORLD);
+  sleep(1);
   if (_rdma_internal_world_rank_ != 0) {
     MPI_Send(&time, 1, MPI_INT64_T, 0, 0, MPI_COMM_WORLD);
     return;
@@ -19,7 +20,8 @@ void MPI_summary_time(int64_t time, const char* prefix, const char* unit) {
 }
 
 void MPI_summary_throughput(double tpt, const char* prefix, const char* unit) {
-  MPI_Barrier(MPI_COMM_WORLD);
+  // MPI_Barrier(MPI_COMM_WORLD);
+  sleep(1);
   if (_rdma_internal_world_rank_ != 0) {
     MPI_Send(&tpt, 1, MPI_DOUBLE, 0, 1, MPI_COMM_WORLD);
     return;
@@ -34,7 +36,8 @@ void MPI_summary_throughput(double tpt, const char* prefix, const char* unit) {
 }
 
 void MPI_summary_cpu(double cpu, const char* prefix, const char* unit) {
-  MPI_Barrier(MPI_COMM_WORLD);
+  // MPI_Barrier(MPI_COMM_WORLD);
+  sleep(1);
   if (_rdma_internal_world_rank_ != 0) {
     MPI_Send(&cpu, 1, MPI_DOUBLE, 0, 1, MPI_COMM_WORLD);
     return;
@@ -54,10 +57,10 @@ DEFINE_bool(sync_enable, true, "");
 DEFINE_bool(async_enable, false, "");
 DEFINE_string(platform, "TCP", "which transport protocol used");
 DEFINE_string(verbosity, "ERROR", "");
-DEFINE_string(data_sizes, "1024,1024*256,1024*1024", "");
+DEFINE_string(data_sizes, "64,1024,64*1024", "");
+DEFINE_string(batch_sizes, "5000,10000", "");
 // DEFINE_string(data_sizes, "1024", "");
-// DEFINE_string(batch_sizes, "1000,10000,20000,50000,100000", "");
-DEFINE_string(batch_sizes, "1000,10000", "");
+// DEFINE_string(batch_sizes, "1000", "");
 
 int main(int argc, char** argv) {
   MPI_Init(&argc, &argv);
@@ -85,20 +88,23 @@ int main(int argc, char** argv) {
     BenchmarkClient client(
       grpc::CreateChannel(server_address, grpc::InsecureChannelCredentials()));
   
+    // warmup 
     client.SyncSayhello();
-    // printf("rank %d: SyncSayhello finished\n", _rdma_internal_world_rank_);
+    MPI_Barrier(MPI_COMM_WORLD);
 
-    // sync services test
     for (int data_size: data_sizes) {
       for (int batch_size: batch_sizes) {
-        MPI_Barrier(MPI_COMM_WORLD);
+        // MPI_Barrier(MPI_COMM_WORLD);
+        sleep(1);
         client.SyncOperations(batch_size, data_size);
-        // client.AsyncOperations(batch_size, data_size);
+        // MPI_Barrier(MPI_COMM_WORLD);
+        sleep(1);
+        client.AsyncOperations(batch_size, data_size);
       }
     }
 
 
-    sleep(5);
+    sleep(2);
   }
 
   MPI_Finalize();

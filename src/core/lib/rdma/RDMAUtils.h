@@ -83,8 +83,10 @@ class TimerPackage {
     void Stop();
 
   private:
+    static void ThreadRunThis(TimerPackage* pkg);
+  
     static std::atomic_size_t global_count;
-    const size_t local_id;
+    const size_t local_id_;
     std::atomic_size_t timeout_ms_;
     std::condition_variable timer_;
     std::mutex timer_mu_;
@@ -94,6 +96,7 @@ class TimerPackage {
     std::atomic_size_t accumulative_timeout_ms_;
     std::thread* thread_;
     char* message_ = nullptr;
+    std::thread::id start_thread_id_;
 };
 
 

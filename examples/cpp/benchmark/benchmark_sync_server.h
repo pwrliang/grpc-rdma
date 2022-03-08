@@ -59,7 +59,7 @@ class BenchmarkSyncService final : public BENCHMARK::Service {
     Status BiStream(ServerContext* context, ServerReaderWriter<Complex, Complex>* stream) override;
   private:
     std::mutex mu_;
-    TimerPackage timer_;
+    // TimerPackage timer_;
 };
 
 class BenchmarkSyncServer {

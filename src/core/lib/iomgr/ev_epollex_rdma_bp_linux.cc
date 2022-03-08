@@ -121,7 +121,7 @@ struct pollable {
 
   gpr_mu rdma_mu;
 
-  std::unique_ptr<TimerPackage> rdma_timer;
+  // std::unique_ptr<TimerPackage> rdma_timer;
 };
 
 static const char* pollable_type_string(pollable_type t) {
@@ -299,7 +299,7 @@ static void pollable_unref(pollable* p, const grpc_core::DebugLocation& dbg_loc,
     p->rdma_fds.clear();
     gpr_mu_unlock(&p->rdma_mu);
     gpr_mu_destroy(&p->rdma_mu);
-    p->rdma_timer.reset();
+    // p->rdma_timer.reset();
     // printf("pollable(%d) is unrefed\n", p->epfd);
     gpr_free(p);
   }
@@ -720,7 +720,7 @@ static grpc_error_handle pollable_create(pollable_type type, pollable** p) {
   (*p)->event_cursor = 0;
   (*p)->event_count = 0;
   new (&(*p)->rdma_fds) std::map<int, grpc_fd*>();
-  new (&(*p)->rdma_timer) std::unique_ptr<TimerPackage>(new TimerPackage());
+  // new (&(*p)->rdma_timer) std::unique_ptr<TimerPackage>(new TimerPackage());
   gpr_mu_init(&(*p)->rdma_mu);
   // printf("pollable is created, epfd = %d\n", epfd);
 
@@ -1092,7 +1092,7 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
   gpr_mu_lock(&p->rdma_mu);
   if (!p->rdma_fds.empty()) {
     // printf("thread %lld: pollable %d epoll starts\n", std::this_thread::get_id(), p->epfd);
-    p->rdma_timer->Start("pollable %d epoll: %d", p->epfd, p->rdma_fds.size());
+    // p->rdma_timer->Start("pollable %d epoll: %d", p->epfd, p->rdma_fds.size());
     rdma_log(RDMA_DEBUG, "pollable %p epoll starts", p);
     timeout = 0;
     bool rdma_found = false;
@@ -1123,19 +1123,19 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
         }
       }
 
-      if (p->rdma_timer->TimeoutMS() > print_on_timeout) {
-        print_on_timeout *= 2;
-        for (std::map<int, grpc_fd*>::iterator it = p->rdma_fds.begin(); it != p->rdma_fds.end(); it++) {
-          fd = it->second;
-          if (fd->rdmasr == nullptr) {
-            abort();
-          }
-          printf("pollable %d epoll timeout, fd = %d\n", p->epfd, fd->fd);
-        }
-      }
+      // if (p->rdma_timer->TimeoutMS() > print_on_timeout) {
+      //   print_on_timeout *= 2;
+      //   for (std::map<int, grpc_fd*>::iterator it = p->rdma_fds.begin(); it != p->rdma_fds.end(); it++) {
+      //     fd = it->second;
+      //     if (fd->rdmasr == nullptr) {
+      //       abort();
+      //     }
+      //     printf("pollable %d epoll timeout (%lld), fd = %d\n", p->epfd, p->rdma_timer->TimeoutMS(), fd->fd);
+      //   }
+      // }
 
     } while (((r < 0 && errno == EINTR) || r == 0) && !rdma_found);
-    p->rdma_timer->Stop();
+    // p->rdma_timer->Stop();
     // printf("thread %lld: pollable %d epoll finished\n", std::this_thread::get_id(), p->epfd);
     rdma_log(RDMA_DEBUG, "pollable %p ends, r = %d, found_read_incoming = %d", p, r, rdma_found);
     gpr_mu_unlock(&p->rdma_mu);
@@ -1306,6 +1306,12 @@ static long sys_gettid(void) { return syscall(__NR_gettid); }
 static grpc_error_handle pollset_work(grpc_pollset* pollset,
                                       grpc_pollset_worker** worker_hdl,
                                       grpc_millis deadline) {
+
+  // printf("deadline = %lld\n", deadline);
+  // deadline = 1;
+
+  // deadline = grpc_timespec_to_millis_round_up(gpr_time_from_millis(1, GPR_TIMESPAN));
+
   GPR_TIMER_SCOPE("pollset_work", 0);
 #ifdef GRPC_EPOLLEX_CREATE_WORKERS_ON_HEAP
   grpc_pollset_worker* worker =
@@ -1331,7 +1337,7 @@ static grpc_error_handle pollset_work(grpc_pollset* pollset,
     pollset->kicked_without_poller = false;
   } else {
     // one worker per thread
-    // all thread stuck in while loop inside begin_worker
+    // all thread stuck in while loop inside begin_worker except one
     if (begin_worker(pollset, WORKER_PTR, worker_hdl, deadline)) { 
       // true, if and only if worker == pollset->active_pollable->root_worker
       gpr_tls_set(&g_current_thread_pollset, (intptr_t)pollset);

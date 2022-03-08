@@ -14,6 +14,7 @@
 #include <mpi.h>
 #include <getopt.h>
 #include <sstream>
+#include <map>
 #include <condition_variable>
 #include <mutex>
 #include <atomic>
@@ -88,7 +89,7 @@ double global_cpu_measure(GlobalCPUTimePackage& pkg) {
   } else {
     percent = (time_sample.tms_stime - pkg.sys_cpu) + (time_sample.tms_utime - pkg.user_cpu);
     percent /= (current_cpu - pkg.cpu);
-    percent /= pkg.processors_num;
+    // percent /= pkg.processors_num;
     percent *= 100;
   }
 
@@ -138,35 +139,50 @@ double process_cpu_measure(ProcessCPUTimePackage& pkg) {
   return percent;
 }
 
-// class CPUMeasurePackage {
-//   public:
-//     CPUMeasurePackage(size_t time_interval_ms);
+class CPUMeasurePackage {
+  public:
+    CPUMeasurePackage(size_t time_interval_ms);
+    ~CPUMeasurePackage();
+    void stop() { alive_.store(false); }
 
-//   private:
-//     std::thread* thread_;
+    // std::vector<double> global_cpu_list_;
+    // std::vector<double> process_cpu_list_;
+    std::map<unsigned long long, double> global_cpu_list_;
+    std::map<unsigned long long, double> process_cpu_list_;
 
-//     GlobalCPUTimePackage global_pkg;
-//     std::vector<double> global_cpu_list;
+  private:
+    std::thread* thread_;
+    GlobalCPUTimePackage global_pkg_;
+    ProcessCPUTimePackage process_pkg_;
+    std::atomic_bool alive_;
+    std::condition_variable timer_;
+};
 
-//     ProcessCPUTimePackage process_pkg;
-//     std::vector<double> process_cpu_list;
+CPUMeasurePackage::CPUMeasurePackage(size_t time_interval_ms) {
+  global_cpu_measure_init(global_pkg_);
+  process_cpu_measure_init(process_pkg_);
+  alive_.store(true);
+  thread_ = new std::thread([&, time_interval_ms](){
+    std::mutex mu;
+    std::unique_lock<std::mutex> lck(mu);
+    while (alive_) {
+      timer_.wait_for(lck, std::chrono::milliseconds(time_interval_ms));
+      double global_cpu = global_cpu_measure(global_pkg_);
+      double process_cpu = process_cpu_measure(process_pkg_);
+      std::chrono::system_clock::time_point tp = std::chrono::high_resolution_clock::now();
+      unsigned long long now = std::chrono::high_resolution_clock::now().time_since_epoch().count();
+      printf("%lld, %f, %f\n", now, global_cpu, process_cpu);
+      global_cpu_list_.insert(std::pair<unsigned long long, double>(now, global_cpu));
+      process_cpu_list_.insert(std::pair<unsigned long long, double>(now, process_cpu));
+    }
+  });
+}
 
-//     std::atomic_bool alive_;
-
-//     std::condition_variable timer_;
-
-//     std::mutex mu_;
-// };
-
-// CPUMeasurePackage::CPUMeasurePackage(size_t time_interval_ms) {
-//   thread_ = new std::thread([&, time_interval_ms](){
-//     std::unique_lock<std::mutex> lck(mu_);
-//     while (alive_) {
-//       timer_.wait_for(lck, std::chrono::milliseconds(time_interval_ms));
-
-//     }
-//   });
-// }
+CPUMeasurePackage::~CPUMeasurePackage() {
+  alive_.store(false);
+  thread_->join();
+  delete thread_;
+}
 
 
 

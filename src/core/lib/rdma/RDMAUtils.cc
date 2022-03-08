@@ -135,46 +135,48 @@ void RDMANode::close() {
 // -----< TimerPackage >-----
 std::atomic_size_t TimerPackage::global_count(0);
 
-TimerPackage::TimerPackage(size_t timeout_ms) : timeout_ms_(timeout_ms), local_id(global_count.fetch_add(1)) {
+TimerPackage::TimerPackage(size_t timeout_ms) : timeout_ms_(timeout_ms), local_id_(global_count.fetch_add(1)) {
   alive_.store(false);
-  thread_ = new std::thread([&](){
-    std::unique_lock<std::mutex> start_lck(start_mu_);
-    std::unique_lock<std::mutex> timer_lck(timer_mu_);
-    accumulative_timeout_ms_.store(0);
-    // printf("Initiate a timer (%d), timeout %lld ms\n", local_id, timeout_ms_.load());
-    alive_.store(true);
-    while (alive_) {
-
-      // phase 1:
-      // wait for start_ 
-      start_.wait(start_lck);
-      // start_.notify_XXX and start_mu_.unlock are called
-
-      // phase 2:
-      // started, either be notified or timeout or not alive
-      for (size_t i = 0; 
-           timer_.wait_for(timer_lck, std::chrono::milliseconds(timeout_ms_.load())) == std::cv_status::timeout && alive_; 
-           i++) {
-        // timeout
-        accumulative_timeout_ms_.fetch_add(timeout_ms_.load());
-        // printf("Timer (%d): timeout (%lld ms x %d): %s\n", local_id, timeout_ms_.load(), i + 1, message_);
-      }
-
-      // not alive or be notified(never timeout or be notified after timeouts);
-      
-      // not alive: break from the while loop
-
-      // notified: stopped
-      // if never timeout: go to phase 1, stop caller return;
-      // if timeouted: go to phase 1, stop caller blocked
-    }
-  });
-
+  accumulative_timeout_ms_.store(0);
+  thread_ = new std::thread(ThreadRunThis, this);
   // thread_ will wait in phase 1 after constructor
+}
+
+void TimerPackage::ThreadRunThis(TimerPackage* pkg) {
+  std::unique_lock<std::mutex> start_lck(pkg->start_mu_);
+  std::unique_lock<std::mutex> timer_lck(pkg->timer_mu_);
+  pkg->accumulative_timeout_ms_.store(0);
+  pkg->alive_.store(true);
+  while (pkg->alive_.load()) {
+
+    // phase 1:
+    // wait for start_ 
+    pkg->start_.wait(start_lck);
+    // start_.notify_XXX and start_mu_.unlock are called
+
+    // phase 2:
+    // started, either be notified or timeout or not alive
+    for (size_t i = 0; 
+         pkg->alive_.load() && pkg->timer_.wait_for(timer_lck, std::chrono::milliseconds(pkg->timeout_ms_.load())) == std::cv_status::timeout;
+         i++) {
+      // timeout
+      pkg->accumulative_timeout_ms_.fetch_add(pkg->timeout_ms_.load());
+      // printf("Timer (%d): timeout (%lld ms x %d): %s\n", pkg->local_id_, pkg->timeout_ms_.load(), i + 1, pkg->message_);     
+    }
+    // not alive or be notified(never timeout or be notified after timeouts);
+      
+    // not alive: break from the while loop
+
+    // notified: stopped
+    // if never timeout: go to phase 1, stop caller return;
+    // if timeouted: go to phase 1, stop caller blocked
+  }
+  return;
 }
 
 // expect timer now is in phase 1
 TimerPackage::~TimerPackage() {
+  while (!alive_.load()) { std::this_thread::yield(); }
   alive_.store(false);
   start_mu_.lock();
   start_.notify_all();
@@ -196,10 +198,12 @@ void TimerPackage::Start(const char *format, ...) {
   va_start(args, format);
   if (vasprintf(&message_, format, args) == -1) {
       va_end(args);
+      printf("return in start\n");
       return;
   }
   va_end(args);
-  while (!alive_) { std::this_thread::yield(); } // make sure stat_lck is created (start_mu_ is locked)
+  while (!alive_.load()) { std::this_thread::yield(); } // make sure stat_lck is created (start_mu_ is locked)
+  start_thread_id_ = std::this_thread::get_id();
   start_mu_.lock(); // start_.wait is called
   start_.notify_one();
   start_mu_.unlock();
@@ -207,6 +211,8 @@ void TimerPackage::Start(const char *format, ...) {
 }
 
 void TimerPackage::Stop() {
+  if (std::this_thread::get_id() != start_thread_id_) printf("start and stop in different thread\n");
+  while (!alive_.load()) { std::this_thread::yield(); }
   timer_mu_.lock();
   timer_.notify_one();
   timer_mu_.unlock();

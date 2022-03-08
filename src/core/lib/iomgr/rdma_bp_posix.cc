@@ -296,13 +296,11 @@ static void rdma_handle_read(void* arg /* grpc_rdma */, grpc_error_handle error)
     if (rdma->rdmasr->check_and_ack_incomings_locked() == 0) {
       if (tcp_do_read(rdma) == 0) {
         rdma->alive.store(false);
-        // printf("case A, close rdma, fd = %d, total_recv_bytes = %lld\n", rdma->fd, rdma->total_recv_bytes);
+        printf("case A, close rdma, fd = %d\n", rdma->fd);
         grpc_slice_buffer_reset_and_unref_internal(rdma->incoming_buffer);
         call_read_cb(rdma, rdma_annotate_error(
                      GRPC_ERROR_CREATE_FROM_STATIC_STRING("Socket closed"),rdma));
-        // printf("case AA, close rdma, fd = %d\n", rdma->fd);
         RDMA_UNREF(rdma, "read");
-        // printf("case AAA, close rdma, fd = %d\n", rdma->fd);
       } else {
         notify_on_read(rdma);
       }
@@ -310,7 +308,7 @@ static void rdma_handle_read(void* arg /* grpc_rdma */, grpc_error_handle error)
       rdma_log(RDMA_INFO, "rdma_handle_read, found %d bytes data, call rdma_continue_read", 
                 rdma->rdmasr->get_unread_data_size());
       if (tcp_do_read(rdma) == 0) {
-        // printf("case B\n");
+        printf("case B\n");
       }
       rdma_continue_read(rdma);
     }
