@@ -24,8 +24,9 @@ class RDMASenderReceiver {
     RDMANode* get_node() { return &node_; }
     size_t get_unread_data_size() { return unread_mlens_; }
     virtual size_t get_max_send_size() { return max_send_size_; }
-    bool if_write_again() { return write_again_.exchange(false); } // if previous is true, only one thread return true
+    bool if_write_again() { return write_again_.load(); } // if previous is true, only one thread return true
     void write_again() { write_again_.store(true); }
+    void write_again_done() { write_again_.store(false); }
   
   protected:
     virtual void connect(int fd);

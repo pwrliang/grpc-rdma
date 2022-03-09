@@ -94,35 +94,20 @@ bool RDMAConnEvent::get_event_locked() {
 size_t RDMAConnEvent::get_events_locked(uint8_t* addr, size_t length, uint32_t lkey) {
   ibv_cq* cq = nullptr;
   void* ev_ctx = nullptr;
-  if (ibv_get_cq_event(channel_, &cq, &ev_ctx) == 0) {
-    if (cq != rcq_) {
-      rdma_log(RDMA_ERROR, "RDMAConnEvent::get_event_locked, unknown CQ got event");
-      exit(-1);
-    }
-    unacked_events_num_++;
-    if (ibv_req_notify_cq(cq, 0)) {
-      rdma_log(RDMA_ERROR, "RDMAConnEvent::get_event_locked, require notifcation on rcq failed");
-      exit(-1);
-    }
-    cq = nullptr;
-    ev_ctx = nullptr;
+  if (ibv_get_cq_event(channel_, &cq, &ev_ctx) == -1) return 0;
+  if (cq != rcq_) {
+    rdma_log(RDMA_ERROR, "RDMAConnEvent::get_event_locked, unknown CQ got event");
+    exit(-1);
   }
+  if (ibv_req_notify_cq(cq, 0)) {
+    rdma_log(RDMA_ERROR, "RDMAConnEvent::get_event_locked, require notifcation on rcq failed");
+    exit(-1);
+  }
+  unacked_events_num_++;
   if (unacked_events_num_ >= DEFAULT_EVENT_ACK_LIMIT) {
     ibv_ack_cq_events(rcq_, unacked_events_num_);
     unacked_events_num_ = 0;
   }
-  // ibv_cq* cq = nullptr;
-  // void* ev_ctx = nullptr;
-  // if (ibv_get_cq_event(channel_, &cq, &ev_ctx) == -1) return 0;
-  // if (cq != rcq_) {
-  //   rdma_log(RDMA_ERROR, "RDMAConnEvent::get_event_locked, unknown CQ got event");
-  //   exit(-1);
-  // }
-  // unacked_events_num_++;
-  // if (ibv_req_notify_cq(cq, 0)) {
-  //   rdma_log(RDMA_ERROR, "RDMAConnEvent::get_event_locked, require notifcation on rcq failed");
-  //   exit(-1);
-  // }
   return poll_recv_completions_and_post_recvs(addr, length, lkey);
 }
 
