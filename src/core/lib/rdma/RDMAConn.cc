@@ -315,7 +315,7 @@ int RDMAConn::sync() {
   return 0;
 }
 
-int RDMAConn::poll_send_completion() {
+void RDMAConn::poll_send_completion() {
   int num_entries;
   ibv_wc wc;
   do {
@@ -331,10 +331,10 @@ int RDMAConn::poll_send_completion() {
              "RDMAConn::poll_send_completion, failed to poll scq, status %d, fd = %d", wc.status, fd_);
     exit(-1);
   }
-  return wc.status;
+  return;
 }
 
-int RDMAConn::post_send_and_poll_completion(ibv_send_wr* sr, bool update_remote) {
+void RDMAConn::post_send_and_poll_completion(ibv_send_wr* sr, bool update_remote) {
   // std::unique_lock<std::mutex> lck(mtx_);
 
   struct ibv_send_wr* bad_wr = nullptr;
@@ -364,18 +364,17 @@ int RDMAConn::post_send_and_poll_completion(MemRegion& remote_mr, size_t remote_
   INIT_SR(&sr1, &sge1, opcode, (uint8_t*)remote_mr.addr() + remote_tail, remote_mr.rkey(), 1, r_len);
   rdma_log(RDMA_INFO, "RDMAConn::post_send_and_poll_completion, send %d data to remote %d",
            r_len, remote_tail);
-  int ret1 = post_send_and_poll_completion(&sr1, update_remote);
-
-  if (ret1) return ret1;
+  post_send_and_poll_completion(&sr1, update_remote);
 
   if (r_len < sz) {
     INIT_SGE(&sge2, (uint8_t*)local_mr.addr() + local_offset + r_len, sz - r_len, local_mr.lkey());
     INIT_SR(&sr2, &sge2, opcode, remote_mr.addr(), remote_mr.rkey(), 1, sz - r_len);
     rdma_log(RDMA_INFO, "RDMAConn::post_send_and_poll_completion, send %d data to remote %d",
              sz - r_len, 0);
-    return post_send_and_poll_completion(&sr2, update_remote);
+    post_send_and_poll_completion(&sr2, update_remote);
+    return 2;
   } 
 
-  return ret1;
+  return 1;
 }
 

@@ -152,25 +152,25 @@ void BenchmarkClient::SyncOperations(const size_t batch_size, const size_t data_
   MPI_summary_time(us, ss.str().c_str(), "us");
   MPI_summary_throughput(double(batch_size) / us * 1000000, ss.str().c_str(), "rpcs/s");
 
-  auto t4 = std::chrono::high_resolution_clock::now();
-  sync_client_->SyncServerStream(batch_size, data_size);
-  auto t5 = std::chrono::high_resolution_clock::now();
-  us = std::chrono::duration_cast<std::chrono::microseconds>(t5 - t4).count();
-  ss.str("");
-  ss << "SyncServerStream, batch size = " << batch_size
-      << ", data size = " << data_size;
-  MPI_summary_time(us, ss.str().c_str(), "us");
-  MPI_summary_throughput(double(batch_size) / us * 1000000, ss.str().c_str(), "rpcs/s");
+  // auto t4 = std::chrono::high_resolution_clock::now();
+  // sync_client_->SyncServerStream(batch_size, data_size);
+  // auto t5 = std::chrono::high_resolution_clock::now();
+  // us = std::chrono::duration_cast<std::chrono::microseconds>(t5 - t4).count();
+  // ss.str("");
+  // ss << "SyncServerStream, batch size = " << batch_size
+  //     << ", data size = " << data_size;
+  // MPI_summary_time(us, ss.str().c_str(), "us");
+  // MPI_summary_throughput(double(batch_size) / us * 1000000, ss.str().c_str(), "rpcs/s");
 
-  auto t6 = std::chrono::high_resolution_clock::now();
-  sync_client_->SyncBiStream(batch_size, data_size / 2, data_size * 2);
-  auto t7 = std::chrono::high_resolution_clock::now();
-  us = std::chrono::duration_cast<std::chrono::microseconds>(t7 - t6).count();
-  ss.str("");
-  ss << "SyncBiStream, batch size = " << batch_size
-      << ", data size = " << data_size;
-  MPI_summary_time(us, ss.str().c_str(), "us");
-  MPI_summary_throughput(double(batch_size) / us * 1000000, ss.str().c_str(), "rpcs/s");
+  // auto t6 = std::chrono::high_resolution_clock::now();
+  // sync_client_->SyncBiStream(batch_size, data_size / 2, data_size * 2);
+  // auto t7 = std::chrono::high_resolution_clock::now();
+  // us = std::chrono::duration_cast<std::chrono::microseconds>(t7 - t6).count();
+  // ss.str("");
+  // ss << "SyncBiStream, batch size = " << batch_size
+  //     << ", data size = " << data_size;
+  // MPI_summary_time(us, ss.str().c_str(), "us");
+  // MPI_summary_throughput(double(batch_size) / us * 1000000, ss.str().c_str(), "rpcs/s");
 }
 
 

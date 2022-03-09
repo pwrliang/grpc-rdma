@@ -16,8 +16,7 @@
 
 // -----< RDMAConnEvent >-----
 
-RDMAConnEvent::RDMAConnEvent(int fd, RDMANode* node, RDMASenderReceiverEvent* rdmasr)
-  : posted_rr_num_(0) {
+RDMAConnEvent::RDMAConnEvent(int fd, RDMANode* node, RDMASenderReceiverEvent* rdmasr) {
   fd_ = fd;
   node_ = node;
   ibv_context* ctx = node_->get_ctx();
@@ -95,7 +94,7 @@ bool RDMAConnEvent::get_event_locked() {
 size_t RDMAConnEvent::get_events_locked(uint8_t* addr, size_t length, uint32_t lkey) {
   ibv_cq* cq = nullptr;
   void* ev_ctx = nullptr;
-  while (ibv_get_cq_event(channel_, &cq, &ev_ctx) == 0) {
+  if (ibv_get_cq_event(channel_, &cq, &ev_ctx) == 0) {
     if (cq != rcq_) {
       rdma_log(RDMA_ERROR, "RDMAConnEvent::get_event_locked, unknown CQ got event");
       exit(-1);
@@ -147,8 +146,7 @@ size_t RDMAConnEvent::poll_recv_completions_and_post_recvs(uint8_t* addr, size_t
     recv_bytes += recv_wcs_[i].byte_len;
   }
   
-  post_recvs(addr, length, lkey, completed);
-  garbage_ += completed;
+  rr_garbage_ += completed;
 
 
   rdma_log(RDMA_DEBUG, "RDMAConnEvent::poll_recv_completions_and_post_recvs, poll out %d completion (%d bytes) from rcq",
@@ -161,63 +159,63 @@ size_t RDMAConnEvent::poll_recv_completions_and_post_recvs(uint8_t* addr, size_t
 
 void RDMAConnEvent::post_recvs(uint8_t* addr, size_t length, uint32_t lkey, size_t n = 1) {
   if (n == 0) return;
-  struct ibv_recv_wr rr;
-  struct ibv_sge sge;
+  // struct ibv_recv_wr rr;
+  // struct ibv_sge sge;
   struct ibv_recv_wr* bad_wr = NULL;
 
   // INIT_SGE(&sge, addr, length, lkey);
   // INIT_RR(&rr, &sge);
 
-  posted_rr_num_ = (posted_rr_num_ + n) % DEFAULT_MAX_POST_RECV;
-  int ret;
+  // posted_rr_num_ = (posted_rr_num_ + n) % DEFAULT_MAX_POST_RECV;
+
   while (n--) {
-    INIT_SGE(&recv_sges_[post_rr_tail_], addr, length, lkey);
-    INIT_RR(&recv_wrs_[post_rr_tail_], &recv_sges_[post_rr_tail_]);
-    ret = ibv_post_recv(qp_, &recv_wrs_[post_rr_tail_], &bad_wr);
+    INIT_SGE(&recv_sges_[rr_tail_], addr, length, lkey);
+    INIT_RR(&recv_wrs_[rr_tail_], &recv_sges_[rr_tail_]);
+    int ret = ibv_post_recv(qp_, &recv_wrs_[rr_tail_], &bad_wr);
     if (ret) {
       rdma_log(RDMA_ERROR, "Failed to post RR, errno = %d, wr_id = %d", ret,
                bad_wr->wr_id);
       exit(-1);
     }
-    post_rr_tail_ = (post_rr_tail_ + 1) % DEFAULT_MAX_POST_RECV;
+    rr_tail_ = (rr_tail_ + 1) % DEFAULT_MAX_POST_RECV;
   }
 
 }
 
-int RDMAConnEvent::post_send(MemRegion& remote_mr, size_t remote_tail, 
-                              MemRegion& local_mr, size_t local_offset,
-                              size_t sz, ibv_wr_opcode opcode) {
-  if (remote_mr.is_local() || local_mr.is_remote()) {
-    rdma_log(RDMA_ERROR, "RDMAConn::post_send_and_poll_completion, MemRegion incorrect");
-    exit(-1);
-  }
+// int RDMAConnEvent::post_send(MemRegion& remote_mr, size_t remote_tail, 
+//                               MemRegion& local_mr, size_t local_offset,
+//                               size_t sz, ibv_wr_opcode opcode) {
+//   if (remote_mr.is_local() || local_mr.is_remote()) {
+//     rdma_log(RDMA_ERROR, "RDMAConn::post_send_and_poll_completion, MemRegion incorrect");
+//     exit(-1);
+//   }
 
-  size_t remote_cap = remote_mr.length();
-  size_t r_len = MIN(remote_cap - remote_tail, sz);
-  size_t avail_sr_num = get_avail_sr_num();
-  struct ibv_send_wr* bad_wr = nullptr;
-  if (r_len == sz) { // need one sr
-    if (avail_sr_num < 1) return -1;
-    INIT_SGE(&send_sges_[posted_sr_tail_], (uint8_t*)local_mr.addr() + local_offset, sz, local_mr.lkey());
-    INIT_SR(&send_wrs_[posted_sr_tail_], &send_sges_[posted_sr_tail_], opcode, (uint8_t*)remote_mr.addr() + remote_tail, remote_mr.rkey(), 1, sz);
-    if (ibv_post_send(qp_, &send_wrs_[posted_sr_tail_], &bad_wr) != 0) {
-      rdma_log(RDMA_ERROR, "RDMAConnEvent::post_send, failed to post send");
-      exit(-1);
-    }
-    posted_sr_tail_ = (posted_sr_tail_ + 1) % DEFAULT_MAX_POST_SEND;
-  } else { // need two srs
-    if (avail_sr_num < 2) return -1;
-    INIT_SGE(&send_sges_[posted_sr_tail_], (uint8_t*)local_mr.addr() + local_offset, r_len, local_mr.lkey());
-    INIT_SR(&send_wrs_[posted_sr_tail_], &send_sges_[posted_sr_tail_], opcode, (uint8_t*)remote_mr.addr() + remote_tail, remote_mr.rkey(), 1, r_len);
-    size_t second_sr_id = (posted_sr_tail_ + 1) % DEFAULT_MAX_POST_SEND;
-    INIT_SGE(&send_sges_[second_sr_id], (uint8_t*)local_mr.addr() + local_offset + r_len, sz - r_len, local_mr.lkey());
-    INIT_SR(&send_wrs_[second_sr_id], &send_sges_[second_sr_id], opcode, remote_mr.addr(), remote_mr.rkey(), 1, sz - r_len);
-    send_wrs_[posted_sr_tail_].next = &send_wrs_[second_sr_id];
-    if (ibv_post_send(qp_, &send_wrs_[posted_sr_tail_], &bad_wr) != 0) {
-      rdma_log(RDMA_ERROR, "RDMAConnEvent::post_send, failed to post send");
-      exit(-1);
-    }
-    posted_sr_tail_ = (posted_sr_tail_ + 2) % DEFAULT_MAX_POST_SEND;
-  }
-  return 0;
-}
+//   size_t remote_cap = remote_mr.length();
+//   size_t r_len = MIN(remote_cap - remote_tail, sz);
+//   size_t avail_sr_num = get_avail_sr_num();
+//   struct ibv_send_wr* bad_wr = nullptr;
+//   if (r_len == sz) { // need one sr
+//     if (avail_sr_num < 1) return -1;
+//     INIT_SGE(&send_sges_[posted_sr_tail_], (uint8_t*)local_mr.addr() + local_offset, sz, local_mr.lkey());
+//     INIT_SR(&send_wrs_[posted_sr_tail_], &send_sges_[posted_sr_tail_], opcode, (uint8_t*)remote_mr.addr() + remote_tail, remote_mr.rkey(), 1, sz);
+//     if (ibv_post_send(qp_, &send_wrs_[posted_sr_tail_], &bad_wr) != 0) {
+//       rdma_log(RDMA_ERROR, "RDMAConnEvent::post_send, failed to post send");
+//       exit(-1);
+//     }
+//     posted_sr_tail_ = (posted_sr_tail_ + 1) % DEFAULT_MAX_POST_SEND;
+//   } else { // need two srs
+//     if (avail_sr_num < 2) return -1;
+//     INIT_SGE(&send_sges_[posted_sr_tail_], (uint8_t*)local_mr.addr() + local_offset, r_len, local_mr.lkey());
+//     INIT_SR(&send_wrs_[posted_sr_tail_], &send_sges_[posted_sr_tail_], opcode, (uint8_t*)remote_mr.addr() + remote_tail, remote_mr.rkey(), 1, r_len);
+//     size_t second_sr_id = (posted_sr_tail_ + 1) % DEFAULT_MAX_POST_SEND;
+//     INIT_SGE(&send_sges_[second_sr_id], (uint8_t*)local_mr.addr() + local_offset + r_len, sz - r_len, local_mr.lkey());
+//     INIT_SR(&send_wrs_[second_sr_id], &send_sges_[second_sr_id], opcode, remote_mr.addr(), remote_mr.rkey(), 1, sz - r_len);
+//     send_wrs_[posted_sr_tail_].next = &send_wrs_[second_sr_id];
+//     if (ibv_post_send(qp_, &send_wrs_[posted_sr_tail_], &bad_wr) != 0) {
+//       rdma_log(RDMA_ERROR, "RDMAConnEvent::post_send, failed to post send");
+//       exit(-1);
+//     }
+//     posted_sr_tail_ = (posted_sr_tail_ + 2) % DEFAULT_MAX_POST_SEND;
+//   }
+//   return 0;
+// }

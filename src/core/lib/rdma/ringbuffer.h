@@ -73,6 +73,7 @@ class RingBufferEvent : public RingBuffer {
 
     size_t read_to_msghdr(msghdr* msg, size_t size) { return read_to_msghdr(msg, head_, size); }
 
+  friend class RDMASenderReceiverEvent;
   protected:
     size_t read_to_msghdr(msghdr* msg, size_t head, size_t expected_read_size);
 };
