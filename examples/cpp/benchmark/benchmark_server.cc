@@ -3,8 +3,8 @@
 
 DEFINE_string(server_address, "0.0.0.0:50051", "");
 DEFINE_bool(async_enable, false, ""); // true for async, false for sync
-DEFINE_int32(async_cq_num, 2, "");
-DEFINE_int32(async_thread_num, 4, "");
+DEFINE_int32(async_cq_num, 28, "");
+DEFINE_int32(async_thread_num, 28, "");
 DEFINE_string(platform, "TCP", "which transport protocol used");
 DEFINE_string(verbosity, "ERROR", "");
 

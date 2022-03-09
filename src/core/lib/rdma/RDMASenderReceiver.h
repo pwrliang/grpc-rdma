@@ -121,7 +121,8 @@ class RDMASenderReceiverEvent : public RDMASenderReceiver {
     bool check_incoming();
     size_t check_and_ack_incomings_locked();
     
-    int get_channel_fd() { return conn_data_event_->get_channel_fd(); }
+    int get_send_channel_fd() { return conn_data_event_->send_channel_->fd; }
+    int get_recv_channel_fd() { return conn_data_event_->recv_channel_->fd; }
     
   protected:
     std::atomic_bool checked_;
