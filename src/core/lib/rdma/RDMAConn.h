@@ -84,6 +84,8 @@ class RDMAConnEvent : public RDMAConn {
 
     size_t get_recv_events_locked(uint8_t* addr, size_t length, uint32_t lkey);
 
+    size_t get_send_events_locked();
+
     void post_recvs(uint8_t* addr, size_t length, uint32_t lkey, size_t n);
 
     // int poll_send_completion();
@@ -92,14 +94,16 @@ class RDMAConnEvent : public RDMAConn {
     int post_send(MemRegion& remote_mr, size_t remote_tail, 
                   MemRegion& local_mr, size_t local_offset,
                   size_t sz, ibv_wr_opcode opcode);
+    size_t poll_send_completions();
     
   protected:
     ibv_comp_channel* send_channel_ = nullptr;
     ibv_comp_channel* recv_channel_ = nullptr;
     ibv_wc recv_wcs_[DEFAULT_MAX_POST_RECV];
+    ibv_wc send_wcs_[DEFAULT_MAX_POST_SEND];
 
     ibv_recv_wr recv_wrs_[DEFAULT_MAX_POST_RECV];
-    ibv_sge recv_sges_[DEFAULT_MAX_POST_SEND];
+    ibv_sge recv_sges_[DEFAULT_MAX_POST_RECV];
     size_t rr_tail_ = 0, rr_garbage_ = 0;
     size_t unacked_recv_events_num_ = 0;
 

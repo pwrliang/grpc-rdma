@@ -34,8 +34,8 @@ grpc_endpoint* grpc_endpoint_create(grpc_fd* fd, const grpc_channel_args* args,
   // size_t id = global_endpoint_num.fetch_add(1);
   // printf("%d-th endpoint is creating\n", id);
   switch (grpc_check_iomgr_platform()) {
-    // case IOMGR_RDMA_EVENT:
-    //   return grpc_rdma_event_create(fd, args, peer_string);
+    case IOMGR_RDMA_EVENT:
+      return grpc_rdma_event_create(fd, args, peer_string);
     case IOMGR_RDMA_BP:
       return grpc_rdma_bp_create(fd, args, peer_string);
     case IOMGR_TCP:

@@ -97,13 +97,6 @@ class RDMASenderReceiverBP : public RDMASenderReceiver {
     bool connected_ = false;
 };
 
-// ibv_comp_channel* rdma_create_channel(RDMANode* node);
-// int rdma_destroy_channel(ibv_comp_channel* channel);
-// void rdma_epoll_add_channel(int epfd, ibv_comp_channel* channel);
-// void rdma_epoll_del_channel(int epfd, ibv_comp_channel* channel);
-// bool rdma_is_available_event(struct epoll_event* ev);
-// void* rdma_check_incoming(struct epoll_event* ev);
-
 class RDMASenderReceiverEvent : public RDMASenderReceiver {
   public:
     RDMASenderReceiverEvent();
@@ -120,6 +113,7 @@ class RDMASenderReceiverEvent : public RDMASenderReceiver {
 
     bool check_incoming();
     size_t check_and_ack_incomings_locked();
+    size_t ack_outgoings();
     
     int get_send_channel_fd() { return conn_data_event_->send_channel_->fd; }
     int get_recv_channel_fd() { return conn_data_event_->recv_channel_->fd; }
