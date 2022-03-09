@@ -59,7 +59,7 @@ DEFINE_string(platform, "TCP", "which transport protocol used");
 DEFINE_string(verbosity, "ERROR", "");
 // DEFINE_string(data_sizes, "64,1024,64*1024", "");
 // DEFINE_string(batch_sizes, "5000,10000", "");
-DEFINE_string(data_sizes, "1024", "");
+DEFINE_string(data_sizes, "64,256,1024,1024*4,1024*16,1024*64", "");
 DEFINE_string(batch_sizes, "10000", "");
 
 int main(int argc, char** argv) {
