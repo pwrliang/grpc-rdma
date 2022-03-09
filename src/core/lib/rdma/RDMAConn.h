@@ -21,6 +21,7 @@ const size_t DEFAULT_MAX_SEND_SGE = 20;
 const size_t DEFAULT_MAX_RECV_SGE = 20;
 const size_t DEFAULT_CQE = 10000;
 const size_t DEFAULT_MAX_POST_RECV = 200;
+const size_t DEFAULT_MAX_POST_SEND = 200;
 const size_t DEFAULT_EVENT_ACK_LIMIT = 5000;
 
 class RDMASenderReceiver;
@@ -29,7 +30,7 @@ class RDMASenderReceiverEvent;
 
 void INIT_SGE(ibv_sge* sge, void* lc_addr, size_t sz, uint32_t lkey);
 void INIT_SR(ibv_send_wr* sr, ibv_sge* sge, ibv_wr_opcode opcode, void* rt_addr,
-             uint32_t rkey, int num_sge, uint32_t imm_data);
+             uint32_t rkey, int num_sge, uint32_t imm_data, size_t id = 0, ibv_send_wr* next = nullptr);
 void INIT_RR(ibv_recv_wr* rr, ibv_sge* sge, int num_sge = 1);
 
 class RDMAConn {
@@ -80,6 +81,7 @@ class RDMAConnEvent : public RDMAConn {
 
     int get_channel_fd() { return channel_->fd; }
     size_t get_posted_rr_num() { return posted_rr_num_; }
+    size_t get_avail_sr_num() { return (DEFAULT_MAX_POST_SEND + posted_sr_tail_ - completed_sr_head_) % DEFAULT_MAX_POST_SEND; }
 
     bool get_event_locked();
 
@@ -89,13 +91,25 @@ class RDMAConnEvent : public RDMAConn {
 
     // int poll_send_completion();
     size_t poll_recv_completions_and_post_recvs(uint8_t* addr, size_t length, uint32_t lkey);
+
+    int post_send(MemRegion& remote_mr, size_t remote_tail, 
+                  MemRegion& local_mr, size_t local_offset,
+                  size_t sz, ibv_wr_opcode opcode);
     
     size_t garbage_ = 0;
   protected:
     ibv_comp_channel* channel_ = nullptr;
     ibv_wc recv_wcs_[DEFAULT_MAX_POST_RECV];
+
+    ibv_recv_wr recv_wrs_[DEFAULT_MAX_POST_RECV];
+    ibv_sge recv_sges_[DEFAULT_MAX_POST_SEND];
+    size_t post_rr_tail_ = 0, completed_rr_head_ = 0;
+
+
+    ibv_send_wr send_wrs_[DEFAULT_MAX_POST_SEND];
+    ibv_sge send_sges_[DEFAULT_MAX_POST_SEND];
     size_t unacked_events_num_ = 0;
-    
+    size_t posted_sr_tail_ = 0, completed_sr_head_ = 0;
     // this number indicates how many recv requests are posted since last update_remote_metadata
     size_t posted_rr_num_ = 0;
 };

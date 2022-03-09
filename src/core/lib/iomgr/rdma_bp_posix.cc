@@ -46,6 +46,8 @@
 
 #define MIN_READBUF_SIZE (1024 * 1024)
 
+static std::atomic_size_t global_endpoint_count(0);
+
 namespace {
 struct grpc_rdma {
   grpc_rdma() {}
@@ -154,6 +156,7 @@ static void rdma_free(grpc_rdma* rdma) {
   // printf("rdma free, orphan fd %d\n", grpc_fd_wrapped_fd(rdma->em_fd));
   grpc_fd_orphan(rdma->em_fd, rdma->release_fd_cb, rdma->release_fd,
                  "rdma_unref_orphan");
+  printf("rdma free: fd = %d, global_endpoint_count = %d\n", rdma->fd, global_endpoint_count.fetch_sub(1) - 1);
   grpc_slice_buffer_destroy_internal(&rdma->last_read_buffer);
   grpc_resource_user_unref(rdma->resource_user);
   delete rdma->rdmasr;
@@ -230,7 +233,7 @@ static void rdma_do_read(grpc_rdma* rdma) {
   total_read_byte += read_bytes;
   rdma->total_recv_bytes += read_bytes;
   rdma_log(RDMA_INFO, "rdma_do_read recv %d bytes", total_read_byte);
-  printf("thread %lld recv %lld bytes data\n", getpid(), total_read_byte);
+  // printf("thread %lld recv %lld bytes data\n", getpid(), total_read_byte);
 
   if (total_read_byte <= rdma->incoming_buffer->length) {
     grpc_slice_buffer_trim_end(rdma->incoming_buffer,
@@ -396,10 +399,10 @@ static bool rdma_flush(grpc_rdma* rdma, grpc_error_handle* error) {
         grpc_slice_buffer_remove_first(rdma->outgoing_buffer);
       }
       rdma->rdmasr->write_again();
-      printf("thread %lld send %ld bytes data failed\n", getpid(), sending_length);
+      // printf("thread %lld send %ld bytes data failed\n", getpid(), sending_length);
       return false;
     }
-    printf("thread %lld send %ld bytes data succeed\n", getpid(), sending_length);
+    // printf("thread %lld send %ld bytes data succeed\n", getpid(), sending_length);
 
     if (outgoing_slice_idx == rdma->outgoing_buffer->count) {
       *error = GRPC_ERROR_NONE;
@@ -575,7 +578,8 @@ grpc_endpoint* grpc_rdma_bp_create(grpc_fd* em_fd,
   rdma->alive.store(true);
   grpc_fd_set_rdmasr_bp(em_fd, rdma->rdmasr);
   rdma_log(RDMA_INFO, "rdmasr %p is created, attached to fd %d", rdma->rdmasr, rdma->fd);
-  printf("rdmasr %p is created, attached to fd: %d\n", rdma->rdmasr, rdma->fd);
+  global_endpoint_count.fetch_add(1);
+  // printf("rdmasr %p is created, attached to fd: %d, global count = %d\n", rdma->rdmasr, rdma->fd, global_endpoint_count.fetch_add(1) + 1);
   return &rdma->base;
 }
 

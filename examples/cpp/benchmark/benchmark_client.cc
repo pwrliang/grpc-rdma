@@ -60,13 +60,13 @@ DEFINE_string(verbosity, "ERROR", "");
 // DEFINE_string(data_sizes, "64,1024,64*1024", "");
 // DEFINE_string(batch_sizes, "5000,10000", "");
 DEFINE_string(data_sizes, "1024*64", "");
-DEFINE_string(batch_sizes, "10000", "");
+DEFINE_string(batch_sizes, "5000", "");
 
 int main(int argc, char** argv) {
   MPI_Init(&argc, &argv);
   MPI_Comm_size(MPI_COMM_WORLD, &_rdma_internal_world_size_);
   MPI_Comm_rank(MPI_COMM_WORLD, &_rdma_internal_world_rank_);
-  printf("world rank = %d, world size = %d\n", _rdma_internal_world_rank_, _rdma_internal_world_size_);
+  // printf("world rank = %d, world size = %d\n", _rdma_internal_world_rank_, _rdma_internal_world_size_);
   
 
   ::gflags::ParseCommandLineFlags(&argc, &argv, true);
@@ -98,19 +98,21 @@ int main(int argc, char** argv) {
 
     for (int data_size: data_sizes) {
       for (int batch_size: batch_sizes) {
-        // MPI_Barrier(MPI_COMM_WORLD);
+        MPI_Barrier(MPI_COMM_WORLD);
         // sleep(1);
-        // client.SyncOperations(batch_size, data_size);
-        // MPI_Barrier(MPI_COMM_WORLD);
+        client.SyncOperations(batch_size, data_size);
+        MPI_Barrier(MPI_COMM_WORLD);
         // sleep(1);
         client.AsyncOperations(batch_size, data_size);
       }
     }
 
 
-    sleep(2);
-    MPI_Barrier(MPI_COMM_WORLD);
+    // sleep(2);
+    // MPI_Barrier(MPI_COMM_WORLD);
   }
+
+  sleep(1000);
 
   MPI_Finalize();
   return 0;

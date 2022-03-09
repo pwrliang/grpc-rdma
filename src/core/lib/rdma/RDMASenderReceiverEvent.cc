@@ -160,6 +160,7 @@ bool RDMASenderReceiverEvent::send(msghdr* msg, size_t mlen) {
 
   conn_data_event_->post_send_and_poll_completion(remote_ringbuf_mr_, remote_ringbuf_tail_,
                                                       sendbuf_mr_, 0, mlen, IBV_WR_RDMA_WRITE_WITH_IMM, false);
+  // conn_data_event_->post_send(remote_ringbuf_mr_, remote_ringbuf_tail_, sendbuf_mr_, 0, mlen, IBV_WR_RDMA_WRITE_WITH_IMM);
   // remote_rr_head_++;
   remote_rr_head_ = (remote_rr_head_ + 1) % DEFAULT_MAX_POST_RECV;
   remote_ringbuf_tail_ = (remote_ringbuf_tail_ + mlen) % remote_ringbuf_sz;

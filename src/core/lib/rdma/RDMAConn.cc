@@ -24,11 +24,11 @@ void INIT_SGE(ibv_sge* sge, void* lc_addr, size_t sz, uint32_t lkey) {
 }
 
 void INIT_SR(ibv_send_wr* sr, ibv_sge* sge, ibv_wr_opcode opcode, void* rt_addr,
-             uint32_t rkey, int num_sge, uint32_t imm_data) {
-  static int id = 0;
+             uint32_t rkey, int num_sge, uint32_t imm_data, size_t id, ibv_send_wr* next) {
+  // static int id = 0;
   memset(sr, 0, sizeof(ibv_send_wr));
-  sr->next = NULL;
-  sr->wr_id = 0;
+  sr->next = next;
+  sr->wr_id = id;
   sr->sg_list = sge;
   sr->num_sge = num_sge;
   sr->opcode = opcode;
@@ -351,7 +351,7 @@ int RDMAConn::post_send_and_poll_completion(MemRegion& remote_mr, size_t remote_
                                              MemRegion& local_mr, size_t local_offset,
                                              size_t sz, ibv_wr_opcode opcode, bool update_remote) {
   if (remote_mr.is_local() || local_mr.is_remote()) {
-    rdma_log(RDMA_ERROR, "RDMAConnEvent::rdma_write, MemRegion incorrect");
+    rdma_log(RDMA_ERROR, "RDMAConn::post_send_and_poll_completion, MemRegion incorrect");
     exit(-1);
   }
 

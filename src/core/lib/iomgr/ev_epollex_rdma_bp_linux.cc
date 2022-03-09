@@ -121,6 +121,8 @@ struct pollable {
 
   gpr_mu rdma_mu;
 
+  size_t warmup_timeout_ms;
+
   // std::unique_ptr<TimerPackage> rdma_timer;
 };
 
@@ -547,7 +549,7 @@ static void fd_orphan(grpc_fd* fd, grpc_closure* on_done, int* release_fd,
       while (!gpr_mu_trylock(&p->rdma_mu)) {
         gpr_mu_unlock(&fd->rdma_mu);
         std::this_thread::yield();
-        gpr_mu_lock(&fd->pollable_mu);
+        gpr_mu_lock(&fd->rdma_mu);
       }
       p->rdma_fds.erase(fd->fd);
       gpr_mu_unlock(&p->rdma_mu);
@@ -720,6 +722,7 @@ static grpc_error_handle pollable_create(pollable_type type, pollable** p) {
   (*p)->event_cursor = 0;
   (*p)->event_count = 0;
   new (&(*p)->rdma_fds) std::map<int, grpc_fd*>();
+  (*p)->warmup_timeout_ms = 100;
   // new (&(*p)->rdma_timer) std::unique_ptr<TimerPackage>(new TimerPackage());
   gpr_mu_init(&(*p)->rdma_mu);
   // printf("pollable is created, epfd = %d\n", epfd);
@@ -768,7 +771,7 @@ static grpc_error_handle pollable_add_fd(pollable* p, grpc_fd* fd) {
     fd->rdma_pollables.insert(p);
     gpr_mu_unlock(&fd->rdma_mu);
     gpr_mu_unlock(&p->rdma_mu);
-    printf("pollable(%d) add rdma fd(%d), %d\n", p->epfd, fd->fd, p->rdma_fds.size());
+    // printf("pollable(%d) add rdma fd(%d), %d\n", p->epfd, fd->fd, p->rdma_fds.size());
   } else {
     // printf("pollable(%d) add fd(%d)\n", p->epfd, fd->fd);
   }
@@ -1094,13 +1097,12 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
     // printf("thread %lld: pollable %d epoll starts\n", std::this_thread::get_id(), p->epfd);
     // p->rdma_timer->Start("pollable %d epoll: %d", p->epfd, p->rdma_fds.size());
     rdma_log(RDMA_DEBUG, "pollable %p epoll starts", p);
-    timeout = 0;
     bool rdma_found = false;
     grpc_fd* fd = nullptr;
     size_t count = 0;
     size_t print_on_timeout = 10000;
     do {
-      r = epoll_wait(p->epfd, p->events, MAX_EPOLL_EVENTS, timeout);
+      r = epoll_wait(p->epfd, p->events, MAX_EPOLL_EVENTS, p->warmup_timeout_ms);
       for (std::map<int, grpc_fd*>::iterator it = p->rdma_fds.begin(); it != p->rdma_fds.end(); it++) {
         fd = it->second;
         if (fd->rdmasr == nullptr) {
@@ -1114,7 +1116,7 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
         if (fd->rdmasr->check_incoming()) {
           rdma_found = true;
           rdma_log(RDMA_DEBUG, "fd %d become readable", fd->fd);
-          printf("pollable(%d) epoll fd(%d) become readable\n", p->epfd, fd->fd);
+          // printf("pollable(%d) epoll fd(%d) become readable\n", p->epfd, fd->fd);
           fd_become_readable(fd);
         }
         if (fd->rdmasr->if_write_again()) {
@@ -1135,6 +1137,7 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
       // }
 
     } while (((r < 0 && errno == EINTR) || r == 0) && !rdma_found);
+    p->warmup_timeout_ms = r;
     // p->rdma_timer->Stop();
     // printf("thread %lld: pollable %d epoll finished\n", std::this_thread::get_id(), p->epfd);
     rdma_log(RDMA_DEBUG, "pollable %p ends, r = %d, found_read_incoming = %d", p, r, rdma_found);

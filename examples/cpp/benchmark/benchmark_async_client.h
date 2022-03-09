@@ -103,7 +103,7 @@ class AsyncUnaryService {
   public:
     enum ClientAsyncResponseReaderStatus { CREATE, FINISHED };
     AsyncUnaryService (BENCHMARK::Stub* stub, CompletionQueue* cq);
-    void Start (std::function<void(Complex*)> request_func, std::function<bool(Complex*)> reply_func);
+    void Start (std::function<void(Complex*)> request_func, std::function<bool(Complex*)> reply_func, bool shut_down = false);
     void Proceed();
 
   private:
@@ -123,6 +123,8 @@ class AsyncUnaryService {
 
     std::function<void(Complex*)> request_func_;
     std::function<bool(Complex*)> reply_func_;
+
+    bool shut_down_flag_;
 };
 
 
@@ -130,7 +132,7 @@ class AsyncClientStreamService {
   public:
     enum ClientAsyncWriterStatus { CREATE, WRITE, WRITESDONE, FINISHING, FINISHED};
     AsyncClientStreamService (BENCHMARK::Stub* stub, CompletionQueue* cq);
-    void Start (std::function<void(Complex*)> request_func, std::function<bool(Complex*)> reply_func, size_t batch_size);
+    void Start (std::function<void(Complex*)> request_func, std::function<bool(Complex*)> reply_func, size_t batch_size, bool shut_down = false);
     void Proceed(bool ok = true);
 
   private:
@@ -154,13 +156,15 @@ class AsyncClientStreamService {
     std::function<void(Complex*)> request_func_;
     std::function<bool(Complex*)> reply_func_;
     size_t batch_size_ = 0;
+
+    bool shut_down_flag_;
 };
 
 class AsyncServerStreamService {
   public:
     enum ClientAsyncReaderStatus { CREATE, FIRSTREAD, READ, FINISHED};
     AsyncServerStreamService (BENCHMARK::Stub* stub, CompletionQueue* cq);
-    void Start (std::function<void(Complex*)> request_func, std::function<bool(Complex*)> reply_func);
+    void Start (std::function<void(Complex*)> request_func, std::function<bool(Complex*)> reply_func, bool shut_down = false);
     void Proceed(bool ok = true);
 
   private:
@@ -185,13 +189,15 @@ class AsyncServerStreamService {
     std::function<void(Complex*)> request_func_;
     std::function<bool(Complex*)> reply_func_;
     size_t batch_size_ = 0;
+
+    bool shut_down_flag_;
 };
 
 class AsyncBiStreamService {
   public:
     enum ClientAsyncReaderWriterStatus { CREATE, FIRSTWRITE, WRITE, READ, WRITESDONE, LASTREAD, FINISHING, FINISHED };
     AsyncBiStreamService (BENCHMARK::Stub* stub, CompletionQueue* cq);
-    void Start (std::function<void(Complex*)> request_func, std::function<bool(Complex*)> reply_func, size_t batch_size);
+    void Start (std::function<void(Complex*)> request_func, std::function<bool(Complex*)> reply_func, size_t batch_size, bool shut_down = false);
     void Proceed(bool ok = true);
 
   private:
@@ -219,6 +225,8 @@ class AsyncBiStreamService {
     std::function<void(Complex*)> request_func_;
     std::function<bool(Complex*)> reply_func_;
     size_t batch_size_ = 0;
+
+    bool shut_down_flag_;
 };
 
 struct AsyncServicesTag {
@@ -277,7 +285,7 @@ void BenchmarkAsyncClient::AsyncUnaryStart(CompletionQueue* cq, size_t batch_siz
   };
   while (batch_size--) {
     AsyncUnaryService* service = new AsyncUnaryService(stub_.get(), cq);
-    service->Start(request_func, reply_func);
+    service->Start(request_func, reply_func, batch_size == 0);
     service = nullptr;
   }
 }
@@ -306,7 +314,7 @@ void BenchmarkAsyncClient::AsyncClientStreamStart(CompletionQueue* cq, size_t ba
   };
 
   AsyncClientStreamService* service = new AsyncClientStreamService(stub_.get(), cq);
-  service->Start(request_func, reply_func, batch_size);
+  service->Start(request_func, reply_func, batch_size, true);
   service = nullptr;
 }
 
@@ -329,7 +337,7 @@ void BenchmarkAsyncClient::AsyncServerStreamStart(CompletionQueue* cq, size_t ba
     return false;
   };
   AsyncServerStreamService* service = new AsyncServerStreamService(stub_.get(), cq);
-  service->Start(request_func, reply_func);
+  service->Start(request_func, reply_func, true);
   service = nullptr;
 }
 
@@ -357,7 +365,7 @@ void BenchmarkAsyncClient::AsyncBiStreamStart(CompletionQueue* cq, size_t batch_
     return (*total_reply_size == 0 && *total_request_size == 0);
   };
   AsyncBiStreamService* service = new AsyncBiStreamService(stub_.get(), cq);
-  service->Start(request_func, reply_func, batch_size);
+  service->Start(request_func, reply_func, batch_size, true);
 }
 
 
@@ -407,12 +415,14 @@ void AsyncSayHelloService::Finished() {
 AsyncUnaryService::AsyncUnaryService(BENCHMARK::Stub* stub, CompletionQueue* cq)
   : stub_(stub), cq_(cq), tag_(new AsyncServicesTag(UNARY)) {
   tag_->service_ = static_cast<void*>(this); 
+  shut_down_flag_ = false;
 }
 
-void AsyncUnaryService::Start(std::function<void(Complex*)> request_func, std::function<bool(Complex*)> reply_func) {
+void AsyncUnaryService::Start(std::function<void(Complex*)> request_func, std::function<bool(Complex*)> reply_func, bool shut_down) {
   request_func_ = request_func;
   reply_func_ = reply_func;
   status_ = CREATE;
+  shut_down_flag_ = shut_down;
   Proceed();
 }
 
@@ -439,10 +449,10 @@ void AsyncUnaryService::Finished() {
   if (!finished_status_.ok() || !reply_func_(&reply_)) {
     printf("AsyncUnaryService failed\n");
   } else {
-    printf("rank %d: AsyncUnaryService %lld succeed\n", _rdma_internal_world_rank_, async_unary_count.fetch_add(1));
+    // printf("rank %d: AsyncUnaryService %lld succeed\n", _rdma_internal_world_rank_, async_unary_count.fetch_add(1));
   }
   tag_->service_ = nullptr;
-  if (rpc_count.fetch_add(-1) == 1) {
+  if (shut_down_flag_) {
     cq_->Shutdown();
   }
   delete this;
@@ -453,13 +463,15 @@ void AsyncUnaryService::Finished() {
 AsyncClientStreamService::AsyncClientStreamService(BENCHMARK::Stub* stub, CompletionQueue* cq) 
   : stub_(stub), cq_(cq), tag_(new AsyncServicesTag(CLIENTSTREAM)) { 
   tag_->service_ = static_cast<void*>(this); 
+  shut_down_flag_ = false;
 }
 
-void AsyncClientStreamService::Start(std::function<void(Complex*)> request_func, std::function<bool(Complex*)> reply_func, size_t batch_size) {
+void AsyncClientStreamService::Start(std::function<void(Complex*)> request_func, std::function<bool(Complex*)> reply_func, size_t batch_size, bool shut_down) {
   request_func_ = request_func;
   reply_func_ = reply_func;
   batch_size_ = batch_size;
   status_ = CREATE;
+  shut_down_flag_ = shut_down;
   Proceed();
 }
 
@@ -514,7 +526,7 @@ void AsyncClientStreamService::Finished() {
     // printf("AsyncClientStreamService succeed\n");
   }
   tag_->service_ = nullptr;
-  if (rpc_count.fetch_add(-1) == 1) {
+  if (shut_down_flag_) {
     cq_->Shutdown();
   }
   delete this;
@@ -524,12 +536,14 @@ void AsyncClientStreamService::Finished() {
 AsyncServerStreamService::AsyncServerStreamService(BENCHMARK::Stub* stub, CompletionQueue* cq)
   : stub_(stub), cq_(cq), tag_(new AsyncServicesTag(SERVERSTREAM)) {
   tag_->service_ = static_cast<void*>(this); 
+  shut_down_flag_ = false;
 }
 
-void AsyncServerStreamService::Start (std::function<void(Complex*)> request_func, std::function<bool(Complex*)> reply_func) {
+void AsyncServerStreamService::Start (std::function<void(Complex*)> request_func, std::function<bool(Complex*)> reply_func, bool shut_down) {
   request_func_ = request_func;
   reply_func_ = reply_func;
   status_ = CREATE;
+  shut_down_flag_ = shut_down;
   Proceed();
 }
 
@@ -582,7 +596,7 @@ void AsyncServerStreamService::Finished() {
     // printf("AsyncServerStreamService succeed\n");
   }
   tag_->service_ = nullptr;
-  if (rpc_count.fetch_add(-1) == 1) {
+  if (shut_down_flag_) {
     cq_->Shutdown();
   }
   delete this;
@@ -594,11 +608,12 @@ AsyncBiStreamService::AsyncBiStreamService(BENCHMARK::Stub* stub, CompletionQueu
   tag_->service_ = static_cast<void*>(this); 
 }
 
-void AsyncBiStreamService::Start(std::function<void(Complex*)> request_func, std::function<bool(Complex*)> reply_func, size_t batch_size) {
+void AsyncBiStreamService::Start(std::function<void(Complex*)> request_func, std::function<bool(Complex*)> reply_func, size_t batch_size, bool shut_down) {
   request_func_ = request_func;
   reply_func_ = reply_func;
   batch_size_ = batch_size;
   status_ = CREATE;
+  shut_down_flag_ = shut_down;
   Proceed();
 }
 
@@ -687,7 +702,7 @@ void AsyncBiStreamService::Finished() {
     // printf("AsyncClientStreamService succeed\n");
   }
   tag_->service_ = nullptr;
-  if (rpc_count.fetch_add(-1) == 1) {
+  if (shut_down_flag_) {
     cq_->Shutdown();
   }
   delete this;

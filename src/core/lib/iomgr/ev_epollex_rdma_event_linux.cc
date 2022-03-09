@@ -646,7 +646,7 @@ static grpc_error_handle pollable_add_rdma_channel_fd(pollable* p, grpc_fd* fd) 
   const int epfd = p->epfd;
   const int rdma_channel_fd = fd->rdmasr->get_channel_fd();
   struct epoll_event ev_fd;
-  ev_fd.events = static_cast<uint32_t>(EPOLLIN | EPOLLET | EPOLLEXCLUSIVE);
+  ev_fd.events = static_cast<uint32_t>(EPOLLIN | EPOLLET | EPOLLOUT | EPOLLEXCLUSIVE);
   ev_fd.data.ptr = reinterpret_cast<void*>(reinterpret_cast<intptr_t>(fd) | 3);
   if (epoll_ctl(epfd, EPOLL_CTL_ADD, rdma_channel_fd, &ev_fd) != 0) {
     switch (errno) {
@@ -944,12 +944,15 @@ static grpc_error_handle pollable_process_events(grpc_pollset* pollset,
           ~static_cast<intptr_t>(3) &
           reinterpret_cast<intptr_t>(ev->data.ptr));
       GPR_ASSERT(fd->rdmasr);
+      printf("fd %d event = %d\n", fd->fd, ev->events);
       if (fd->rdmasr->check_incoming()) {
         fd_become_readable(fd);
       }
-      if (fd->rdmasr->if_write_again()) {
-        fd_become_writable(fd);
-      }
+      // if ((ev->events & EPOLLIN) != 0) fd_become_readable(fd);
+
+      // if (fd->rdmasr->if_write_again()) {
+      //   fd_become_writable(fd);
+      // }
     } else if (1 & reinterpret_cast<intptr_t>(data_ptr)) {
       rdma_log(RDMA_DEBUG, "pollable_process_event, epfd = %d, event[%d] is pollset_wakeup",
                pollable_obj->epfd, n);

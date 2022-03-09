@@ -59,13 +59,17 @@
 #include "src/core/lib/iomgr/tcp_server.h"
 #include "src/core/lib/iomgr/tcp_server_utils_posix.h"
 #include "src/core/lib/iomgr/unix_sockets_posix.h"
+#include "src/core/lib/iomgr/iomgr_internal.h"
 
 static grpc_error_handle tcp_server_create(grpc_closure* shutdown_complete,
                                            const grpc_channel_args* args,
                                            grpc_tcp_server** server) {
   grpc_tcp_server* s =
       static_cast<grpc_tcp_server*>(gpr_zalloc(sizeof(grpc_tcp_server)));
+
+  // in rdma mode, set it false
   s->so_reuseport = grpc_is_socket_reuse_port_supported();
+  s->so_reuseport = s->so_reuseport && (grpc_check_iomgr_platform() == IOMGR_TCP);
   s->expand_wildcard_addrs = false;
   for (size_t i = 0; i < (args == nullptr ? 0 : args->num_args); i++) {
     if (0 == strcmp(GRPC_ARG_ALLOW_REUSEPORT, args->args[i].key)) {

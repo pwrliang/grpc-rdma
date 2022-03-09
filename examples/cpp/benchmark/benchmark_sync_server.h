@@ -19,6 +19,7 @@
 #include <grpcpp/server.h>
 #include <grpcpp/server_builder.h>
 #include <grpcpp/server_context.h>
+#include <grpcpp/impl/channel_argument_option.h>
 #include "benchmark_utils.h"
 
 #ifdef BAZEL_BUILD
@@ -78,6 +79,7 @@ class BenchmarkSyncServer {
 // -----< BenchmarkSyncServer >-----
 BenchmarkSyncServer::BenchmarkSyncServer(const std::string server_address)
   : builder_(new ServerBuilder()), sync_service_(new BenchmarkSyncService()) {
+  // builder_->SetOption(grpc::MakeChannelArgumentOption(GRPC_ARG_ALLOW_REUSEPORT, 0));
   builder_->AddListeningPort(server_address, grpc::InsecureServerCredentials());
   builder_->RegisterService(sync_service_.get());
   server_ = builder_->BuildAndStart();
