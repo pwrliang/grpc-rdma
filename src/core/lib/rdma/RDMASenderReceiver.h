@@ -129,7 +129,7 @@ class RDMASenderReceiverEvent : public RDMASenderReceiver {
     bool connected_ = false;
 
     // this need to sync in initialization
-    size_t remote_rr_tail_ = DEFAULT_MAX_POST_RECV, remote_rr_head_ = 0;
+    size_t remote_rr_tail_ = 0, remote_rr_head_ = 0;
 };
 
 #endif
