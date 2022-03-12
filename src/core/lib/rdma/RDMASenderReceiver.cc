@@ -61,7 +61,7 @@ RDMASenderReceiver::RDMASenderReceiver()
 }
 
 RDMASenderReceiver::~RDMASenderReceiver() {
-  delete(sendbuf_);
+  delete[] sendbuf_;
   free(metadata_recvbuf_);
   free(metadata_sendbuf_);
   ringbuf_ = nullptr;

@@ -12,7 +12,7 @@ RingBuffer::RingBuffer(size_t capacity) : capacity_(capacity) {
 }
 
 RingBuffer::~RingBuffer() {
-  delete buf_;
+  delete[] buf_;
 }
 
 size_t RingBuffer::update_head(size_t inc) {
