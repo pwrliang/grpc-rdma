@@ -257,6 +257,7 @@ ChannelArguments ServerBuilder::BuildChannelArgs() {
 }
 
 std::unique_ptr<grpc::Server> ServerBuilder::BuildAndStart() {
+  SetOption(grpc::MakeChannelArgumentOption(GRPC_ARG_ALLOW_REUSEPORT, 0));
   ChannelArguments args = BuildChannelArgs();
 
   // == Determine if the server has any syncrhonous methods ==
