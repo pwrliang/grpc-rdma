@@ -2,7 +2,6 @@
 #include "log.h"
 #include "fcntl.h"
 #include <thread>
-// #include <grpc/impl/codegen/log.h>
 #define IBV_DEV_NAME "mlx5_0"
 
 // -----< RDMASenderReceiver >-----
@@ -31,7 +30,7 @@ RDMASenderReceiver::RDMASenderReceiver()
              "set sendbuf size to %d", sendbuf_sz_);
   }
 
-  ibv_pd* pd = node_.get_pd();
+  auto pd = node_.get_pd();
 
   sendbuf_ = new uint8_t[sendbuf_sz_];
   if (sendbuf_mr_.local_reg(pd, sendbuf_, sendbuf_sz_)) {
@@ -65,7 +64,6 @@ RDMASenderReceiver::~RDMASenderReceiver() {
   free(metadata_recvbuf_);
   free(metadata_sendbuf_);
   ringbuf_ = nullptr;
-  conn_data_ = nullptr;
   delete conn_metadata_;
 }
 

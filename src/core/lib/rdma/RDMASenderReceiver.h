@@ -8,92 +8,91 @@
 #include <mutex>
 #include <vector>
 #include "RDMAConn.h"
-#include "ringbuffer.h"
 #include "log.h"
+#include "ringbuffer.h"
 
 const size_t DEFAULT_RINGBUF_SZ = 1024ull * 1024 * 16;
 const size_t DEFAULT_SENDBUF_SZ = 1024ull * 1024 * 16;
 const size_t DEFAULT_HEADBUF_SZ = 64;
 
 class RDMASenderReceiver {
-  public:
+ public:
+  RDMASenderReceiver();
+  virtual ~RDMASenderReceiver();
 
-    RDMASenderReceiver();
-    virtual ~RDMASenderReceiver();
-    
-    RDMANode* get_node() { return &node_; }
-    size_t get_unread_data_size() { return unread_mlens_; }
-    virtual size_t get_max_send_size() { return max_send_size_; }
-    bool if_write_again() { return write_again_.exchange(false); } // if previous is true, only one thread return true
-    void write_again() { write_again_.store(true); }
-  
-  protected:
-    virtual void connect(int fd);
-    virtual void update_remote_metadata();
-    virtual void update_local_metadata();
+  RDMANode* get_node() { return &node_; }
+  size_t get_unread_data_size() { return unread_mlens_; }
+  virtual size_t get_max_send_size() { return max_send_size_; }
+  bool if_write_again() {
+    return write_again_.exchange(false);
+  }  // if previous is true, only one thread return true
+  void write_again() { write_again_.store(true); }
 
-    static RDMANode node_;
-    static std::atomic_bool node_opened_;
-    static std::atomic_bool node_opened_done_;
+ protected:
+  virtual void connect(int fd);
+  virtual void update_remote_metadata();
+  virtual void update_local_metadata();
 
-    int fd_;
-    RDMAConn* conn_data_ = nullptr; // no ownership 
-    RDMAConn* conn_metadata_ = nullptr; 
+  static RDMANode node_;
+  static std::atomic_bool node_opened_;
+  static std::atomic_bool node_opened_done_;
 
-    size_t ringbuf_sz_, remote_ringbuf_head_ = 0, remote_ringbuf_tail_ = 0;
-    RingBuffer* ringbuf_ = nullptr; // no ownership
-    MemRegion local_ringbuf_mr_, remote_ringbuf_mr_;
-    size_t garbage_ = 0;
-    size_t unread_mlens_ = 0;
-    unsigned long long int total_recv_sz = 0;
+  int fd_;
+  RDMAConn* conn_metadata_ = nullptr;
 
-    size_t sendbuf_sz_;
-    uint8_t* sendbuf_ = nullptr;
-    MemRegion sendbuf_mr_;
-    size_t max_send_size_ = 0;
-    unsigned long long int total_send_sz = 0;
-    std::atomic<bool> write_again_;
+  size_t ringbuf_sz_, remote_ringbuf_head_ = 0, remote_ringbuf_tail_ = 0;
+  RingBuffer* ringbuf_ = nullptr;  // no ownership
+  MemRegion local_ringbuf_mr_, remote_ringbuf_mr_;
+  size_t garbage_ = 0;
+  size_t unread_mlens_ = 0;
+  size_t total_recv_sz = 0;
 
-    size_t metadata_recvbuf_sz_;
-    void* metadata_recvbuf_ = nullptr;
-    MemRegion local_metadata_recvbuf_mr_, remote_metadata_recvbuf_mr_;
-    
-    size_t metadata_sendbuf_sz_;
-    void* metadata_sendbuf_ = nullptr;
-    MemRegion metadata_sendbuf_mr_;
+  size_t sendbuf_sz_;
+  uint8_t* sendbuf_ = nullptr;
+  MemRegion sendbuf_mr_;
+  size_t max_send_size_ = 0;
+  size_t total_send_sz = 0;
+  std::atomic<bool> write_again_;
+
+  size_t metadata_recvbuf_sz_;
+  void* metadata_recvbuf_ = nullptr;
+  MemRegion local_metadata_recvbuf_mr_, remote_metadata_recvbuf_mr_;
+
+  size_t metadata_sendbuf_sz_;
+  void* metadata_sendbuf_ = nullptr;
+  MemRegion metadata_sendbuf_mr_;
 };
 
-
 /*
- * 1. update_remote_metadata after garbage >= ringbuf_size_ / 2, so sendbuf_size_ <= ringbuf_size_ / 2.
+ * 1. update_remote_metadata after garbage >= ringbuf_size_ / 2, so
+ * sendbuf_size_ <= ringbuf_size_ / 2.
  * 2. reset ringbuf fisrt, then update head.
  * 3. mlen: length of pure data; len: mlen + sizeof(size_t) + 1.
  */
 class RDMASenderReceiverBP : public RDMASenderReceiver {
-  public:
-    RDMASenderReceiverBP();
-    virtual ~RDMASenderReceiverBP();
+ public:
+  RDMASenderReceiverBP();
+  virtual ~RDMASenderReceiverBP();
 
-    virtual void connect(int fd);
-    bool connected() { return connected_; }
+  virtual void connect(int fd);
+  bool connected() { return connected_; }
 
-    virtual bool send(msghdr* msg, size_t mlen);
-    virtual size_t recv(msghdr* msg, size_t msghdr_size);
+  virtual bool send(msghdr* msg, size_t mlen);
+  virtual size_t recv(msghdr* msg, size_t msghdr_size);
 
-    // this should be thread safe, 
-    bool check_incoming();
+  // this should be thread safe,
+  bool check_incoming();
 
-    bool check_incoming_() { return ringbuf_bp_->check_head(); }
+  bool check_incoming_() { return ringbuf_bp_->check_head(); }
 
-    size_t check_and_ack_incomings_locked();
+  size_t check_and_ack_incomings_locked();
 
-    void diagnosis();
-
-  protected:
-    std::atomic_bool checked_; // there is a thread already found new incoming data
-    RingBufferBP* ringbuf_bp_ = nullptr;
-    RDMAConnBP* conn_data_bp_ = nullptr;
-    bool connected_ = false;
+ protected:
+  std::atomic_bool
+      checked_;  // there is a thread already found new incoming data
+  RingBufferBP* ringbuf_bp_ = nullptr;
+  RDMAConnBP* conn_data_bp_ = nullptr;
+  bool connected_ = false;
 };
 
 // ibv_comp_channel* rdma_create_channel(RDMANode* node);
@@ -104,32 +103,32 @@ class RDMASenderReceiverBP : public RDMASenderReceiver {
 // void* rdma_check_incoming(struct epoll_event* ev);
 
 class RDMASenderReceiverEvent : public RDMASenderReceiver {
-  public:
-    RDMASenderReceiverEvent();
-    virtual ~RDMASenderReceiverEvent();
+ public:
+  RDMASenderReceiverEvent();
+  virtual ~RDMASenderReceiverEvent();
 
-    // create channel for each rdmasr.
-    virtual void connect(int fd); 
-    virtual void update_remote_metadata() override;
-    virtual void update_local_metadata() override;
-    bool connected() { return connected_; }
+  // create channel for each rdmasr.
+  virtual void connect(int fd);
+  virtual void update_remote_metadata() override;
+  virtual void update_local_metadata() override;
+  bool connected() { return connected_; }
 
-    virtual bool send(msghdr* msg, size_t mlen);
-    virtual size_t recv(msghdr* msg);
+  virtual bool send(msghdr* msg, size_t mlen);
+  virtual size_t recv(msghdr* msg);
 
-    bool check_incoming();
-    size_t check_and_ack_incomings_locked();
-    
-    int get_channel_fd() { return conn_data_event_->get_channel_fd(); }
-    
-  protected:
-    std::atomic_bool checked_;
-    RingBufferEvent* ringbuf_event_ = nullptr;
-    RDMAConnEvent* conn_data_event_ = nullptr;
-    bool connected_ = false;
+  bool check_incoming();
+  size_t check_and_ack_incomings_locked();
 
-    // this need to sync in initialization
-    size_t remote_rr_tail_ = 0, remote_rr_head_ = 0;
+  int get_channel_fd() { return conn_data_event_->get_channel_fd(); }
+
+ protected:
+  std::atomic_bool checked_;
+  RingBufferEvent* ringbuf_event_ = nullptr;
+  RDMAConnEvent* conn_data_event_ = nullptr;
+  bool connected_ = false;
+
+  // this need to sync in initialization
+  size_t remote_rr_tail_ = 0, remote_rr_head_ = 0;
 };
 
 #endif

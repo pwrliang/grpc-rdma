@@ -105,8 +105,6 @@ size_t RingBufferBP::read_to_msghdr(msghdr* msg, size_t msghdr_size,
     exit(-1);
   }
 
-  // print_ringbuf();
-
   uint8_t* iov_rbase;
   size_t iov_idx = 0, iov_offset = 0, iov_rlen;
   size_t mlen = check_mlen(head), m_offset = 0, m_rlen;
@@ -170,15 +168,6 @@ size_t RingBufferBP::read_to_msghdr(msghdr* msg, size_t msghdr_size,
   // update_head(lens);
 
   return lens;
-}
-
-void RingBufferBP::print_ringbuf() {
-  printf("ringbuf:");
-  for (size_t i = 0; i < capacity_; i++) {
-    if (i % 50 == 0) printf("\n");
-    printf("%2d ", buf_[i]);
-  }
-  printf("\n");
 }
 
 // -----< RingBufferEvent >-----

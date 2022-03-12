@@ -42,10 +42,9 @@ class RingBuffer {
 class RingBufferBP : public RingBuffer {
  public:
   explicit RingBufferBP(size_t capacity) : RingBuffer(capacity) {
-    bzero(zeros, 1024 * 1024 * 16);
+    bzero(zeros, 1024ul * 1024 * 16);
   }
 
-  // uint8_t check_head() { return buf_[head_]; }
   bool check_head();
   size_t check_mlens() { return check_mlens(head_); }
   size_t check_mlen() { return check_mlen(head_); }
@@ -54,8 +53,6 @@ class RingBufferBP : public RingBuffer {
                         size_t& expected_lens) {
     return read_to_msghdr(msg, msghdr_size, head_, expected_lens);
   }
-
-  void print_ringbuf();
 
  protected:
   uint8_t check_tail(size_t head, size_t mlen);
@@ -75,7 +72,7 @@ class RingBufferBP : public RingBuffer {
 
 class RingBufferEvent : public RingBuffer {
  public:
-  RingBufferEvent(size_t capcatiy) : RingBuffer(capcatiy) {}
+  explicit RingBufferEvent(size_t capcatiy) : RingBuffer(capcatiy) {}
 
   size_t read_to_msghdr(msghdr* msg, size_t size) {
     return read_to_msghdr(msg, head_, size);
