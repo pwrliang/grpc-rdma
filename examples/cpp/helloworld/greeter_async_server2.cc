@@ -53,6 +53,7 @@ class ServerImpl final {
     std::string server_address("0.0.0.0:50051");
 
     ServerBuilder builder;
+    builder.SetOption(grpc::MakeChannelArgumentOption(GRPC_ARG_ALLOW_REUSEPORT, 0));
     builder.AddListeningPort(server_address, grpc::InsecureServerCredentials());
     builder.RegisterService(&service_);
     for (int i = 0; i < 28; i++) {
@@ -81,7 +82,7 @@ class ServerImpl final {
         new CallData(service_, cq_);
 
 //        std::string prefix("Hello ");
-        reply_.mutable_message()->resize(2000);
+        reply_.mutable_message()->resize(1024);
         status_ = FINISH;
         responder_.Finish(reply_, Status::OK, this);
       } else {

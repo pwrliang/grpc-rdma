@@ -136,6 +136,7 @@ int main(int argc, char** argv) {
     greeter.SayHello(user);  // The actual RPC call!
   }
 
+
   std::cout << "Press control-c to quit" << std::endl << std::endl;
   thread_.join();  // blocks forever
 
