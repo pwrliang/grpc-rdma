@@ -585,16 +585,16 @@ static void fd_orphan(grpc_fd* fd, grpc_closure* on_done, int* release_fd,
   //     printf("rdma fd %d is orphaning A, pollable epfd = %d, size = %d\n", fd->fd, pollable_obj->epfd, pollable_obj->rdma_fds.size());
   //   }
   //   gpr_mu_lock(&fd->pollable_mu);
-    
+
   //   while (!fd->rdma_pollables.empty()) {
   //     pollable* p = *(fd->rdma_pollables.begin());
-  //     // printf("rdma fd (%d, %d) try to orphan pollable (%d)\n", 
+  //     // printf("rdma fd (%d, %d) try to orphan pollable (%d)\n",
   //     //         fd->fd, fd->rdma_pollables.size(), p->epfd);
   //     if (gpr_mu_trylock(&p->rdma_mu)) {
   //       p->rdma_fds.erase(fd->fd);
   //       gpr_mu_unlock(&p->rdma_mu);
   //       fd->rdma_pollables.erase(p);
-  //       printf("rdma fd (%d, %d) is orphaning B, pollable epfd = %d, size = %d\n", 
+  //       printf("rdma fd (%d, %d) is orphaning B, pollable epfd = %d, size = %d\n",
   //               fd->fd, fd->rdma_pollables.size(), p->epfd, p->rdma_fds.size());
   //     } else {
   //       gpr_mu_unlock(&fd->pollable_mu);
@@ -839,9 +839,9 @@ static grpc_error_handle kick_one_worker(grpc_pollset_worker* specific_worker) {
     specific_worker->kicked = true;
     return GRPC_ERROR_NONE;
   }
-  if (specific_worker == p->root_worker) { 
-    // specific_worker is not the current thread, but is a working thread for another pollset 
-    // pollset_kick may kick the second worker enqueued again the pollset, 
+  if (specific_worker == p->root_worker) {
+    // specific_worker is not the current thread, but is a working thread for another pollset
+    // pollset_kick may kick the second worker enqueued again the pollset,
     // now it become the root_worker, and will call pollable_epoll if necessary (cursor == count)
     GRPC_STATS_INC_POLLSET_KICK_WAKEUP_FD();
     if (GRPC_TRACE_FLAG_ENABLED(grpc_polling_trace)) {
@@ -1029,7 +1029,7 @@ static grpc_error_handle pollable_process_events(grpc_pollset* pollset,
     int n = pollable_obj->event_cursor++;
     struct epoll_event* ev = &pollable_obj->events[n];
     void* data_ptr = ev->data.ptr;
-    if (1 & reinterpret_cast<intptr_t>(data_ptr)) { 
+    if (1 & reinterpret_cast<intptr_t>(data_ptr)) {
       // current thread is woken up by grpc_wakeup_fd_wakeup inside kick_one_worker,
       // interested event happened.
       if (GRPC_TRACE_FLAG_ENABLED(grpc_polling_trace)) {
@@ -1098,10 +1098,17 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
     grpc_fd* fd = nullptr;
     size_t count = 0;
     size_t print_on_timeout = 10000;
+
     do {
-      r = epoll_wait(p->epfd, p->events, MAX_EPOLL_EVENTS, 0);
+      count = p->rdma_fds.size();
+      r = epoll_wait(p->epfd, p->events, MAX_EPOLL_EVENTS, 10);
+      GPR_ASSERT(count < 9999);
+
       for (std::map<int, grpc_fd*>::iterator it = p->rdma_fds.begin(); it != p->rdma_fds.end(); it++) {
         fd = it->second;
+        bool alive = fd->alive.load();
+        GPR_ASSERT(alive == true || alive == false);
+
         if (fd->rdmasr == nullptr) {
           rdma_log(RDMA_ERROR, "pollable %d epoll, found nullptr from fd %d of pollable %p", p->epfd, fd->fd);
           abort();
@@ -1337,23 +1344,29 @@ static grpc_error_handle pollset_work(grpc_pollset* pollset,
   } else {
     // one worker per thread
     // all thread stuck in while loop inside begin_worker except one
-    if (begin_worker(pollset, WORKER_PTR, worker_hdl, deadline)) { 
+    if (begin_worker(pollset, WORKER_PTR, worker_hdl, deadline)) {
       // true, if and only if worker == pollset->active_pollable->root_worker
       gpr_tls_set(&g_current_thread_pollset, (intptr_t)pollset);
       gpr_tls_set(&g_current_thread_worker, (intptr_t)WORKER_PTR);
+      // 调用epoll_wait等待事件
       if (WORKER_PTR->pollable_obj->event_cursor ==
           WORKER_PTR->pollable_obj->event_count) {
         append_error(&error, pollable_epoll(WORKER_PTR->pollable_obj, deadline),
                      err_desc);
       }
+
+//      printf("tid: %ld pollset: %p\n",sys_gettid(), pollset);
+      //调用closure.SetReady，让其他worker的read/write closure可以执行
       append_error(
           &error,
           pollable_process_events(pollset, WORKER_PTR->pollable_obj, false),
           err_desc);
+      // 执行read或write closure
       grpc_core::ExecCtx::Get()->Flush();
       gpr_tls_set(&g_current_thread_pollset, 0);
       gpr_tls_set(&g_current_thread_worker, 0);
     }
+    // 移除root_worker，让下个worker变成root_worker
     end_worker(pollset, WORKER_PTR, worker_hdl);
   }
 #ifdef GRPC_EPOLLEX_CREATE_WORKERS_ON_HEAP

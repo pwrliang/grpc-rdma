@@ -526,7 +526,7 @@ static const grpc_endpoint_vtable vtable = {rdma_read,
                                             rdma_get_local_address,
                                             rdma_get_fd,
                                             rdma_can_track_err};
-
+// 建立连接时调用grpc_rdma_bp_create
 grpc_endpoint* grpc_rdma_bp_create(grpc_fd* em_fd,
                                const grpc_channel_args* channel_args,
                                const char* peer_string) {

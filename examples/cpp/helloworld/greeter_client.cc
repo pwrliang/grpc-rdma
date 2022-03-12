@@ -96,7 +96,7 @@ int main(int argc, char** argv) {
       return 0;
     }
   } else {
-    target_str = "10.3.1.6:50051";
+    target_str = "0.0.0.0:50051";
   }
 
   setenv("GRPC_PLATFORM_TYPE", "RDMA_BP", 1);
@@ -104,9 +104,15 @@ int main(int argc, char** argv) {
   GreeterClient greeter(
       grpc::CreateChannel(target_str, grpc::InsecureChannelCredentials()));
   std::string user("world");
-  for(int i=0;i<5;i++) {
-    std::string reply = greeter.SayHello(user);
-    std::cout << "Greeter received: " << reply << std::endl;
+
+  for (int i = 0; i < 80000; i++) {
+    std::string x;
+    x.resize(128);
+    greeter.SayHello(x);
+    //    std::string reply = greeter.SayHello(user);
+    //    std::cout << "Greeter received: " << reply << std::endl;
   }
+  printf("Exit %d\n", getpid());
+
   return 0;
 }
