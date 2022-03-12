@@ -104,8 +104,8 @@ int RDMANode::open(const char* name) {
   }
 
   if (_rdma_internal_world_rank_ == 0) {
-    printf("device %s attribute: max_cqe = %ld, max_qp_wr = %d, max_sge = %d\n", 
-          name, dev_attr.max_cqe, dev_attr.max_qp_wr, dev_attr.max_sge);
+//    printf("device %s attribute: max_cqe = %ld, max_qp_wr = %d, max_sge = %d\n",
+//          name, dev_attr.max_cqe, dev_attr.max_qp_wr, dev_attr.max_sge);
   }
 
   ib_pd = ibv_alloc_pd(ib_ctx);

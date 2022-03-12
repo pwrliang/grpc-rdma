@@ -41,7 +41,7 @@ class RDMASenderReceiver {
     RDMAConn* conn_metadata_ = nullptr; 
 
     size_t ringbuf_sz_, remote_ringbuf_head_ = 0, remote_ringbuf_tail_ = 0;
-    RingBuffer* ringbuf_ = nullptr; // no ownership 
+    RingBuffer* ringbuf_ = nullptr; // no ownership
     MemRegion local_ringbuf_mr_, remote_ringbuf_mr_;
     size_t garbage_ = 0;
     size_t unread_mlens_ = 0;

@@ -20,7 +20,7 @@ RDMASenderReceiver::RDMASenderReceiver()
     node_.open(IBV_DEV_NAME);
     node_opened_done_.store(true);
   } else {
-    while (node_opened_done_.load()==false) {}
+    while (!node_opened_done_.load()) {}
   }
 
   write_again_.store(false);
@@ -66,9 +66,7 @@ RDMASenderReceiver::~RDMASenderReceiver() {
   free(metadata_sendbuf_);
   ringbuf_ = nullptr;
   conn_data_ = nullptr;
-  if (conn_metadata_) {
-    delete conn_data_;
-  }
+  delete conn_metadata_;
 }
 
 void RDMASenderReceiver::connect(int fd) {
@@ -84,7 +82,7 @@ void RDMASenderReceiver::update_remote_metadata() {
 
   reinterpret_cast<size_t*>(metadata_sendbuf_)[0] = ringbuf_->get_head();
   conn_metadata_->post_send_and_poll_completion(remote_metadata_recvbuf_mr_, 0,
-                                       metadata_sendbuf_mr_, 0, 
+                                       metadata_sendbuf_mr_, 0,
                                        metadata_sendbuf_sz_, IBV_WR_RDMA_WRITE, true);
   rdma_log(RDMA_INFO, "RDMASenderReceiver::update_remote_metadata, %d", reinterpret_cast<size_t*>(metadata_sendbuf_)[0]);
 }

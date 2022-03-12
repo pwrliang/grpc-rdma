@@ -24,12 +24,8 @@ RDMASenderReceiverBP::RDMASenderReceiverBP() {
 }
 
 RDMASenderReceiverBP::~RDMASenderReceiverBP() {
-  if (conn_data_bp_) {
-    delete conn_data_bp_;
-  }
-  if (ringbuf_bp_) {
-    delete ringbuf_bp_;
-  }
+  delete conn_data_bp_;
+  delete ringbuf_bp_;
 }
 
 void RDMASenderReceiverBP::connect(int fd) {
