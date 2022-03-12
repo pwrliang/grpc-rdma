@@ -1058,7 +1058,7 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
 
   if (has_rdma_fds) {
     rdma_log(RDMA_DEBUG, "pollable %p epoll starts", p);
-    bool rdma_found = false;
+    bool continue_poll = true;
 
     do {
       r = epoll_wait(p->epfd, p->events, MAX_EPOLL_EVENTS, 0);
@@ -1067,23 +1067,26 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
         GPR_ASSERT(fd->rdmasr != nullptr);
 
         if (fd->rdmasr->check_incoming()) {
-          rdma_found = true;
+          continue_poll = false;
           rdma_log(RDMA_DEBUG, "fd %d become readable", fd->fd);
           fd_become_readable(fd);
         }
 
         if (fd->rdmasr->if_write_again()) {
-          rdma_found = true;
+          continue_poll = false;
           fd_become_writable(fd);
         }
       }
+      if (p->rdma_fds.empty()) {
+        continue_poll = false;
+      }
       gpr_mu_unlock(&p->rdma_mu);
-    } while (((r < 0 && errno == EINTR) || r == 0) && !rdma_found);
+    } while (((r < 0 && errno == EINTR) || r == 0) && continue_poll);
     // p->rdma_timer->Stop();
     // printf("thread %lld: pollable %d epoll finished\n",
     // std::this_thread::get_id(), p->epfd);
-    rdma_log(RDMA_DEBUG, "pollable %p ends, r = %d, found_read_incoming = %d",
-             p, r, rdma_found);
+    rdma_log(RDMA_DEBUG, "pollable %p ends, r = %d, continue_poll = %d", p, r,
+             continue_poll);
   } else {
     if (timeout != 0) {
       GRPC_SCHEDULING_START_BLOCKING_REGION;
