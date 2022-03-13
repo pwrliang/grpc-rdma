@@ -81,10 +81,10 @@ size_t RDMASenderReceiverBP::recv(msghdr* msg, size_t msghdr_size) {
   unread_mlens_ = 0;
   garbage_ += lens;
   total_recv_sz += lens;
-  if (garbage_ >= ringbuf_sz_ / 2) { //garbage_ >= ringbuf_sz_ / 2
+//  if (garbage_ >= ringbuf_sz_ / 2) { //garbage_ >= ringbuf_sz_ / 2
     update_remote_metadata();
     garbage_ = 0;
-  }
+//  }
 
   return mlens;
 }
