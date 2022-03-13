@@ -111,21 +111,34 @@ class RDMASenderReceiverEvent : public RDMASenderReceiver {
     virtual bool send(msghdr* msg, size_t mlen);
     virtual size_t recv(msghdr* msg);
 
+    void check_data() { check_data_.store(true); }
+    void check_metadata() { check_metadata_.store(true); }
+
+    bool get_write_flag() { return write_flag_; }
+    void set_write_flag(bool flag) { write_flag_ = flag; }
+
     bool check_incoming();
     size_t check_and_ack_incomings_locked();
+    void check_and_ack_meta_incoming_locked();
     size_t ack_outgoings();
     
-    int get_send_channel_fd() { return conn_data_event_->send_channel_->fd; }
+    // int get_send_channel_fd() { return conn_data_event_->send_channel_->fd; }
     int get_recv_channel_fd() { return conn_data_event_->recv_channel_->fd; }
+    int get_metadata_recv_channel_fd() { return conn_metadata_event_->recv_channel_->fd; }
+
     
   protected:
-    std::atomic_bool checked_;
     RingBufferEvent* ringbuf_event_ = nullptr;
     RDMAConnEvent* conn_data_event_ = nullptr;
+    RDMAConnEvent* conn_metadata_event_ = nullptr;
     bool connected_ = false;
 
     // this need to sync in initialization
     size_t remote_rr_tail_ = 0, remote_rr_head_ = 0;
+
+    bool write_flag_ = false;
+    std::atomic_bool check_data_;
+    std::atomic_bool check_metadata_;
 };
 
 #endif

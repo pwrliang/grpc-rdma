@@ -98,8 +98,8 @@ int main(int argc, char** argv) {
 
     for (int data_size: data_sizes) {
       for (int batch_size: batch_sizes) {
-        MPI_Barrier(MPI_COMM_WORLD);
-        client.SyncOperations(batch_size, data_size);
+        // MPI_Barrier(MPI_COMM_WORLD);
+        // client.SyncOperations(batch_size, data_size);
         MPI_Barrier(MPI_COMM_WORLD);
         client.AsyncOperations(batch_size, data_size);
       }

@@ -20,8 +20,8 @@ const size_t DEFAULT_MAX_RECV_WR = 1000;
 const size_t DEFAULT_MAX_SEND_SGE = 20;
 const size_t DEFAULT_MAX_RECV_SGE = 20;
 const size_t DEFAULT_CQE = 10000;
-const size_t DEFAULT_MAX_POST_RECV = 200;
-const size_t DEFAULT_MAX_POST_SEND = 200;
+const size_t DEFAULT_MAX_POST_RECV = 20;
+const size_t DEFAULT_MAX_POST_SEND = 20;
 const size_t DEFAULT_EVENT_ACK_LIMIT = 5000;
 
 class RDMASenderReceiver;
@@ -77,7 +77,7 @@ class RDMAConnBP : public RDMAConn {
 class RDMAConnEvent : public RDMAConn {
   public:
     friend class RDMASenderReceiverEvent;
-    RDMAConnEvent(int fd, RDMANode* node, RDMASenderReceiverEvent* rdmasr);
+    RDMAConnEvent(int fd, RDMANode* node, ibv_comp_channel* recv_channel = nullptr);
     virtual ~RDMAConnEvent();
 
     // bool get_event_locked();

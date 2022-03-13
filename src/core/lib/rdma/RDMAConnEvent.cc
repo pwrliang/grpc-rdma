@@ -15,8 +15,7 @@
 #include "fcntl.h"
 
 // -----< RDMAConnEvent >-----
-
-RDMAConnEvent::RDMAConnEvent(int fd, RDMANode* node, RDMASenderReceiverEvent* rdmasr) {
+RDMAConnEvent::RDMAConnEvent(int fd, RDMANode* node, ibv_comp_channel* recv_channel) {
   fd_ = fd;
   node_ = node;
   ibv_context* ctx = node_->get_ctx();
@@ -25,27 +24,24 @@ RDMAConnEvent::RDMAConnEvent(int fd, RDMANode* node, RDMASenderReceiverEvent* rd
   ibv_device_attr dev_attr = node_->get_device_attr();
   union ibv_gid gid = node_->get_gid();
 
-  send_channel_ = ibv_create_comp_channel(ctx);
-  int send_flags = fcntl(send_channel_->fd, F_GETFL);
-  if (fcntl(send_channel_->fd, F_SETFL, send_flags | O_NONBLOCK) < 0) {
-    rdma_log(RDMA_ERROR, "RDMAConnEvent::RDMAConnEvent, failed to change channel fd to non-blocking");
-    exit(-1);
-  }
-  scq_ = ibv_create_cq(ctx, DEFAULT_CQE, rdmasr, send_channel_, 0);
+  scq_ = ibv_create_cq(ctx, DEFAULT_CQE, NULL, NULL, 0);
   if (!scq_) {
     rdma_log(RDMA_ERROR,
       "RDMAConnEvent::RDMAConnEvent, failed to create CQ for a connection");
     exit(-1);
   }
-  ibv_req_notify_cq(scq_, 0);
 
-  recv_channel_ = ibv_create_comp_channel(ctx);
-  int recv_flags = fcntl(recv_channel_->fd, F_GETFL);
-  if (fcntl(recv_channel_->fd, F_SETFL, recv_flags | O_NONBLOCK) < 0) {
-    rdma_log(RDMA_ERROR, "RDMAConnEvent::RDMAConnEvent, failed to change channel fd to non-blocking");
-    exit(-1);
+  if (recv_channel) {
+    rcq_ = ibv_create_cq(ctx, DEFAULT_CQE, NULL, recv_channel, 0);
+  } else {
+    recv_channel_ = ibv_create_comp_channel(ctx);
+    int recv_flags = fcntl(recv_channel_->fd, F_GETFL);
+    if (fcntl(recv_channel_->fd, F_SETFL, recv_flags | O_NONBLOCK) < 0) {
+      rdma_log(RDMA_ERROR, "RDMAConnEvent::RDMAConnEvent, failed to change channel fd to non-blocking");
+      exit(-1);
+    }
+    rcq_ = ibv_create_cq(ctx, DEFAULT_CQE, NULL, recv_channel_, 0);
   }
-  rcq_ = ibv_create_cq(ctx, DEFAULT_CQE, rdmasr, recv_channel_, 0);
   if (!rcq_) {
     rdma_log(RDMA_ERROR,
       "RDMAConnEvent::RDMAConnEvent, failed to create CQ for a connection");
@@ -130,6 +126,8 @@ size_t RDMAConnEvent::get_recv_events_locked(uint8_t* addr, size_t length, uint3
 size_t RDMAConnEvent::poll_recv_completions_and_post_recvs(uint8_t* addr, size_t length, uint32_t lkey) {
   int recv_bytes = 0;
   int completed = ibv_poll_cq(rcq_, DEFAULT_MAX_POST_RECV, recv_wcs_);
+
+  printf("poll_recv_completions_and_post_recvs, completed = %lld\n", completed);
 
   if (completed < 0) {
     rdma_log(RDMA_ERROR, "RDMAConnEvent::poll_recv_completion, ibv_poll_cq return %d", completed);

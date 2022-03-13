@@ -88,12 +88,13 @@ typedef struct pollable pollable;
 ///  - PO_FD - a pollable containing only one FD - used to optimize single-fd
 ///            pollsets (which are common with synchronous api usage)
 ///  - PO_MULTI - a pollable containing many fds
+#pragma pack(8)
 struct pollable {
   pollable_type type;  // immutable
   grpc_core::RefCount refs;
 
+  grpc_wakeup_fd wakeup; // make sure address of wakeup is a multiple of 8
   int epfd;
-  grpc_wakeup_fd wakeup;
 
   // The following are relevant only for type PO_FD
   grpc_fd* owner_fd;       // Set to the owner_fd if the type is PO_FD
@@ -488,16 +489,16 @@ static void fd_orphan(grpc_fd* fd, grpc_closure* on_done, int* release_fd,
     if (pollable_obj != nullptr) {  // For PO_FD.
       epoll_ctl(pollable_obj->epfd, EPOLL_CTL_DEL, fd->fd, &ev_fd);
       if (fd->rdmasr) { // never reach here before, bugs may happen if you reach here
-        epoll_ctl(pollable_obj->epfd, EPOLL_CTL_DEL, fd->rdmasr->get_send_channel_fd(), &ev_fd);
         epoll_ctl(pollable_obj->epfd, EPOLL_CTL_DEL, fd->rdmasr->get_recv_channel_fd(), &ev_fd);
+        epoll_ctl(pollable_obj->epfd, EPOLL_CTL_DEL, fd->rdmasr->get_metadata_recv_channel_fd(), &ev_fd);
       }
     }
     for (size_t i = 0; i < fd->pollset_fds.size(); ++i) {  // For PO_MULTI.
       const int epfd = fd->pollset_fds[i];
       epoll_ctl(epfd, EPOLL_CTL_DEL, fd->fd, &ev_fd);
       if (fd->rdmasr) { // never reach here before, bugs may happen if you reach here
-        epoll_ctl(epfd, EPOLL_CTL_DEL, fd->rdmasr->get_send_channel_fd(), &ev_fd);
         epoll_ctl(epfd, EPOLL_CTL_DEL, fd->rdmasr->get_recv_channel_fd(), &ev_fd);
+        epoll_ctl(epfd, EPOLL_CTL_DEL, fd->rdmasr->get_metadata_recv_channel_fd(), &ev_fd);
       }
     }
     *release_fd = fd->fd;
@@ -505,8 +506,8 @@ static void fd_orphan(grpc_fd* fd, grpc_closure* on_done, int* release_fd,
     // printf("else\n");
     close(fd->fd);
     if (fd->rdmasr) {
-      close(fd->rdmasr->get_send_channel_fd());
       close(fd->rdmasr->get_recv_channel_fd());
+      close(fd->rdmasr->get_metadata_recv_channel_fd());
     }
     is_fd_closed = true;
   }
@@ -612,6 +613,10 @@ static grpc_error_handle pollable_create(pollable_type type, pollable** p) {
   ev.events = static_cast<uint32_t>(EPOLLIN | EPOLLET);
   ev.data.ptr =
       reinterpret_cast<void*>(1 | reinterpret_cast<intptr_t>(&(*p)->wakeup));
+  if ((reinterpret_cast<intptr_t>(ev.data.ptr) & 5) == 5) {
+    gpr_log(GPR_ERROR, "pollable_create, wakeup address %p is incomptable with rdma", &(*p)->wakeup);
+    abort();
+  }
   if (epoll_ctl(epfd, EPOLL_CTL_ADD, (*p)->wakeup.read_fd, &ev) != 0) {
     err = GRPC_OS_ERROR(errno, "epoll_ctl");
     GRPC_FD_TRACE(
@@ -647,11 +652,12 @@ static grpc_error_handle pollable_add_rdma_channel_fd(pollable* p, grpc_fd* fd) 
   grpc_error_handle error = GRPC_ERROR_NONE;
   static const char* err_desc = "pollable_add_fd";
   const int epfd = p->epfd;
-  int rdma_send_channel_fd = fd->rdmasr->get_send_channel_fd();
-  struct epoll_event send_ev_fd;
-  send_ev_fd.events = static_cast<uint32_t>(EPOLLIN | EPOLLET | EPOLLEXCLUSIVE);
-  send_ev_fd.data.ptr = reinterpret_cast<void*>(reinterpret_cast<intptr_t>(fd) | 3);
-  if (epoll_ctl(epfd, EPOLL_CTL_ADD, rdma_send_channel_fd, &send_ev_fd) != 0) {
+
+  int rdma_meta_recv_channel_fd = fd->rdmasr->get_metadata_recv_channel_fd();
+  struct epoll_event meta_recv_ev_fd;
+  meta_recv_ev_fd.events = static_cast<uint32_t>(EPOLLIN | EPOLLET | EPOLLEXCLUSIVE);
+  meta_recv_ev_fd.data.ptr = reinterpret_cast<void*>(reinterpret_cast<intptr_t>(fd) | 3);
+  if (epoll_ctl(epfd, EPOLL_CTL_ADD, rdma_meta_recv_channel_fd, &meta_recv_ev_fd) != 0) {
     switch (errno) {
       case EEXIST:
         break;
@@ -659,6 +665,8 @@ static grpc_error_handle pollable_add_rdma_channel_fd(pollable* p, grpc_fd* fd) 
         append_error(&error, GRPC_OS_ERROR(errno, "epoll_ctl"), err_desc);
     }
   }
+  // printf("pollable_add_rdma_channel_fd %p to epfd %d\n", meta_recv_ev_fd.data.ptr, epfd);
+
   int rdma_recv_channel_fd = fd->rdmasr->get_recv_channel_fd();
   struct epoll_event recv_ev_fd;
   recv_ev_fd.events = static_cast<uint32_t>(EPOLLIN | EPOLLET | EPOLLEXCLUSIVE);
@@ -671,6 +679,8 @@ static grpc_error_handle pollable_add_rdma_channel_fd(pollable* p, grpc_fd* fd) 
         append_error(&error, GRPC_OS_ERROR(errno, "epoll_ctl"), err_desc);
     }
   }
+  // printf("pollable_add_rdma_channel_fd %p to epfd %d\n", recv_ev_fd.data.ptr, epfd);
+
   return error;
 }
 
@@ -700,6 +710,7 @@ static grpc_error_handle pollable_add_fd(pollable* p, grpc_fd* fd) {
         append_error(&error, GRPC_OS_ERROR(errno, "epoll_ctl"), err_desc);
     }
   }
+  // printf("pollable_add_fd %p to epfd %d\n", ev_fd.data.ptr, epfd);
 
   if (error == GRPC_ERROR_NONE && fd->rdmasr) {
     return pollable_add_rdma_channel_fd(p, fd);
@@ -958,10 +969,12 @@ static grpc_error_handle pollable_process_events(grpc_pollset* pollset,
       grpc_fd* fd = reinterpret_cast<grpc_fd*>(
           ~static_cast<intptr_t>(4) &
           reinterpret_cast<intptr_t>(ev->data.ptr));
+      // printf("pollable %d process_events, %p, %p, %lld, %lld, %lld\n", pollable_obj->epfd, data_ptr, fd, ev->data.fd, ev->data.u32, ev->data.u64);
       GPR_ASSERT(fd->rdmasr);
       if ((ev->events & EPOLLIN) != 0) {
-        printf("fd %d become writable\n", fd->fd);
-        fd_become_writable(fd);
+        printf("fd %d become readable, data\n", fd->fd);
+        fd->rdmasr->check_data();
+        fd_become_readable(fd);
       }
     } else if ((reinterpret_cast<intptr_t>(data_ptr) & 3) == 3) { // pollable_add_rdma_channel_fd
       grpc_fd* fd = reinterpret_cast<grpc_fd*>(
@@ -969,7 +982,8 @@ static grpc_error_handle pollable_process_events(grpc_pollset* pollset,
           reinterpret_cast<intptr_t>(ev->data.ptr));
       GPR_ASSERT(fd->rdmasr);
       if ((ev->events & EPOLLIN) != 0) {
-        printf("fd %d become readable\n", fd->fd);
+        printf("fd %d become readable, metadata\n", fd->fd);
+        fd->rdmasr->check_metadata();
         fd_become_readable(fd);
       }
     } else if (1 & reinterpret_cast<intptr_t>(data_ptr)) {

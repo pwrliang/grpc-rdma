@@ -23,7 +23,8 @@ RDMASenderReceiverEvent::RDMASenderReceiverEvent() {
   }
 
   ringbuf_ = ringbuf_event_;
-  checked_.store(false);
+  check_data_.store(false);
+  check_metadata_.store(false);
   max_send_size_ = sendbuf_sz_ - 1;
 
   rdma_log(RDMA_INFO, "RDMASenderReceiverEvent %p created", this);
@@ -39,10 +40,15 @@ RDMASenderReceiverEvent::~RDMASenderReceiverEvent() {
 }
 
 void RDMASenderReceiverEvent::connect(int fd) {
-  RDMASenderReceiver::connect(fd);
-  conn_data_event_ = new RDMAConnEvent(fd, &node_, this);
+  // RDMASenderReceiver::connect(fd);
+  conn_data_event_ = new RDMAConnEvent(fd, &node_);
+  conn_metadata_event_ = new RDMAConnEvent(fd, &node_);
   conn_data_ = conn_data_event_;
+  conn_metadata_ = conn_metadata_event_;
   conn_data_event_->sync_mr(local_ringbuf_mr_, remote_ringbuf_mr_);
+  conn_metadata_event_->sync_mr(local_metadata_recvbuf_mr_, remote_metadata_recvbuf_mr_);
+
+  conn_metadata_event_->post_recvs((uint8_t*)metadata_recvbuf_, metadata_recvbuf_sz_, local_metadata_recvbuf_mr_.lkey(), DEFAULT_MAX_POST_RECV - 1);
 
   // there are at most DEFAULT_MAX_POST_RECV - 1 outstanding recv requests
   conn_data_event_->post_recvs(ringbuf_event_->get_buf(), ringbuf_sz_, local_ringbuf_mr_.lkey(), DEFAULT_MAX_POST_RECV - 1);
@@ -67,9 +73,9 @@ void RDMASenderReceiverEvent::update_remote_metadata() {
 
   reinterpret_cast<size_t*>(metadata_sendbuf_)[0] = ringbuf_event_->head_;
   reinterpret_cast<size_t*>(metadata_sendbuf_)[1] = conn_data_event_->rr_tail_;
-  conn_metadata_->post_send_and_poll_completion(remote_metadata_recvbuf_mr_, 0,
+  conn_metadata_event_->post_send_and_poll_completion(remote_metadata_recvbuf_mr_, 0,
                                        metadata_sendbuf_mr_, 0, 
-                                       metadata_sendbuf_sz_, IBV_WR_RDMA_WRITE, true);
+                                       metadata_sendbuf_sz_, IBV_WR_RDMA_WRITE_WITH_IMM, true);
   // printf("update_remote, %lld, %lld\n", reinterpret_cast<size_t*>(metadata_sendbuf_)[0], reinterpret_cast<size_t*>(metadata_sendbuf_)[1]);
   rdma_log(RDMA_INFO, "RDMASenderReceiver::update_remote_metadata, %d, %d", 
            reinterpret_cast<size_t*>(metadata_sendbuf_)[0],
@@ -81,42 +87,47 @@ void RDMASenderReceiverEvent::update_local_metadata() {
   remote_rr_tail_ = reinterpret_cast<size_t*>(metadata_recvbuf_)[1];
 }
 
-// bool RDMASenderReceiverEvent::check_incoming() {
-//   // previous checked_ is true (new incoming data already found by another thread), 
-//   // keep checked_ true, 
-//   // return false, avoid call fd_become_readable twice for the same incoming data
-//   if (checked_.exchange(true)) return false;
-//   // previous checked_ is false (no incoming data found before), 
-//   // set checked_ true to prevent other thread entering
-//   // now check incoming
-
-//   // found new incoming data, 
-//   // return true, so fd_become_readable will be called, then RDMASenderReceiverEvent::check_and_ack_incomings_locked will be called 
-//   // leave checked_ true. 
-//   // before check_and_ack_incomings_locked , set checked_ to false, 
-//   // so extra channel fd event will be detected, and extra check_and_ack_incomings_locked will be called
-//   // but RCQ event will not be missed
-//   if (conn_data_event_->get_event_locked()) return true;
-
-//   // no new incoming data found, return false, 
-//   // leave checked_ false, so other thread could check again
-//   return !checked_.exchange(false);
-// }
-
 size_t RDMASenderReceiverEvent::ack_outgoings() {
   return conn_data_event_->get_send_events_locked();
 }
 
-size_t RDMASenderReceiverEvent::check_and_ack_incomings_locked() {
-  checked_.store(false);
-  unread_mlens_ = conn_data_event_->get_recv_events_locked(ringbuf_event_->buf_, ringbuf_sz_, local_ringbuf_mr_.lkey());
-  if (conn_data_event_->rr_garbage_ >= DEFAULT_MAX_POST_RECV / 2) {
-    conn_data_event_->post_recvs(ringbuf_event_->buf_, ringbuf_sz_, local_ringbuf_mr_.lkey(), conn_data_event_->rr_garbage_);
-    conn_data_event_->rr_garbage_ = 0;
-    update_remote_metadata();
-  }
+// size_t RDMASenderReceiverEvent::check_and_ack_incomings_locked() {
+//   unread_mlens_ = conn_data_event_->get_recv_events_locked(ringbuf_event_->buf_, ringbuf_sz_, local_ringbuf_mr_.lkey());
+//   if (conn_data_event_->rr_garbage_ >= DEFAULT_MAX_POST_RECV / 2) {
+//     conn_data_event_->post_recvs(ringbuf_event_->buf_, ringbuf_sz_, local_ringbuf_mr_.lkey(), conn_data_event_->rr_garbage_);
+//     conn_data_event_->rr_garbage_ = 0;
+//     update_remote_metadata();
+//   }
 
-  return unread_mlens_;
+//   return unread_mlens_;
+// }
+
+// void RDMASenderReceiverEvent::check_and_ack_meta_incoming_locked() {
+  // conn_metadata_event_->get_recv_events_locked((uint8_t*)metadata_recvbuf_, metadata_recvbuf_sz_, local_metadata_recvbuf_mr_.lkey());
+  // remote_ringbuf_head_ = reinterpret_cast<size_t*>(metadata_recvbuf_)[0];
+  // remote_rr_tail_ = reinterpret_cast<size_t*>(metadata_recvbuf_)[1];
+// }
+
+size_t RDMASenderReceiverEvent::check_and_ack_incomings_locked() {
+  size_t ret = 0;
+  if (check_data_.exchange(false)) {
+    printf("check_and_ack_incomings_locked, A\n");
+    unread_mlens_ = conn_data_event_->get_recv_events_locked(ringbuf_event_->buf_, ringbuf_sz_, local_ringbuf_mr_.lkey());
+    if (conn_data_event_->rr_garbage_ >= DEFAULT_MAX_POST_RECV / 2) {
+      conn_data_event_->post_recvs(ringbuf_event_->buf_, ringbuf_sz_, local_ringbuf_mr_.lkey(), conn_data_event_->rr_garbage_);
+      conn_data_event_->rr_garbage_ = 0;
+      update_remote_metadata();
+    }
+    ret = unread_mlens_;
+  }
+  if (check_metadata_.exchange(false)) {
+    printf("check_and_ack_incomings_locked, B\n");
+    conn_metadata_event_->get_recv_events_locked((uint8_t*)metadata_recvbuf_, metadata_recvbuf_sz_, local_metadata_recvbuf_mr_.lkey());
+    conn_metadata_event_->post_recvs((uint8_t*)metadata_recvbuf_, metadata_recvbuf_sz_, local_metadata_recvbuf_mr_.lkey(), 1);
+    remote_ringbuf_head_ = reinterpret_cast<size_t*>(metadata_recvbuf_)[0];
+    remote_rr_tail_ = reinterpret_cast<size_t*>(metadata_recvbuf_)[1];
+  }
+  return ret;
 }
 
 size_t RDMASenderReceiverEvent::recv(msghdr* msg) {
@@ -168,9 +179,11 @@ bool RDMASenderReceiverEvent::send(msghdr* msg, size_t mlen) {
     start += iov_len;
   }
 
-  int n = conn_data_event_->post_send(remote_ringbuf_mr_, remote_ringbuf_tail_,
-                                      sendbuf_mr_, 0, mlen, IBV_WR_RDMA_WRITE_WITH_IMM);
+  // int n = conn_data_event_->post_send(remote_ringbuf_mr_, remote_ringbuf_tail_,
+  //                                     sendbuf_mr_, 0, mlen, IBV_WR_RDMA_WRITE_WITH_IMM);
 
+  int n = conn_data_event_->post_send_and_poll_completion(remote_ringbuf_mr_, remote_ringbuf_tail_,
+                                      sendbuf_mr_, 0, mlen, IBV_WR_RDMA_WRITE_WITH_IMM, false);
   remote_rr_head_ = (remote_rr_head_ + n) % DEFAULT_MAX_POST_RECV;
   remote_ringbuf_tail_ = (remote_ringbuf_tail_ + mlen) % remote_ringbuf_sz;
   total_send_sz += mlen;
