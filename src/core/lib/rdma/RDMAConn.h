@@ -15,13 +15,13 @@
 #include <thread>
 #include "RDMAUtils.h"
 
-const size_t DEFAULT_MAX_SEND_WR = 1000;
-const size_t DEFAULT_MAX_RECV_WR = 1000;
-const size_t DEFAULT_MAX_SEND_SGE = 20;
-const size_t DEFAULT_MAX_RECV_SGE = 20;
-const size_t DEFAULT_CQE = 10000;
-const size_t DEFAULT_MAX_POST_RECV = 20;
-const size_t DEFAULT_MAX_POST_SEND = 20;
+const size_t DEFAULT_MAX_SEND_WR = 2000;
+const size_t DEFAULT_MAX_RECV_WR = 2000;
+const size_t DEFAULT_MAX_SEND_SGE = 20; // max is 30
+const size_t DEFAULT_MAX_RECV_SGE = 20; // max is 30
+const size_t DEFAULT_CQE = 1000;
+const size_t DEFAULT_MAX_POST_RECV = 1000;
+const size_t DEFAULT_MAX_POST_SEND = 1000;
 const size_t DEFAULT_EVENT_ACK_LIMIT = 5000;
 
 class RDMASenderReceiver;
@@ -39,7 +39,7 @@ class RDMAConn {
   typedef enum { UNINIT = 0, RESET, INIT, RTR, RTS, SQD, SQE, ERROR } state_t;
   RDMAConn() {}
   RDMAConn(int fd, RDMANode* node);
-  ~RDMAConn();
+  virtual ~RDMAConn();
 
   virtual void poll_send_completion();
   virtual void post_send_and_poll_completion(ibv_send_wr* sr,
@@ -108,9 +108,9 @@ class RDMAConnEvent : public RDMAConn {
     size_t rr_tail_ = 0, rr_garbage_ = 0;
     size_t unacked_recv_events_num_ = 0;
 
-    ibv_recv_wr recv_wrs_[DEFAULT_MAX_POST_RECV];
-    ibv_sge recv_sges_[DEFAULT_MAX_POST_SEND];
-    size_t rr_tail_ = 0, rr_garbage_ = 0;
+    // ibv_recv_wr recv_wrs_[DEFAULT_MAX_POST_RECV];
+    // ibv_sge recv_sges_[DEFAULT_MAX_POST_SEND];
+    // size_t rr_tail_ = 0, rr_garbage_ = 0;
 
     ibv_send_wr send_wrs_[DEFAULT_MAX_POST_SEND];
     ibv_sge send_sges_[DEFAULT_MAX_POST_SEND];

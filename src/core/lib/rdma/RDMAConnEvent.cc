@@ -131,7 +131,7 @@ size_t RDMAConnEvent::poll_recv_completions_and_post_recvs(uint8_t* addr,
   int recv_bytes = 0;
   int completed = ibv_poll_cq(rcq_.get(), DEFAULT_MAX_POST_RECV, recv_wcs_);
 
-  printf("poll_recv_completions_and_post_recvs, completed = %lld\n", completed);
+  // printf("poll_recv_completions_and_post_recvs, completed = %lld\n", completed);
 
   if (completed < 0) {
     rdma_log(RDMA_ERROR,

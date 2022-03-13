@@ -289,12 +289,14 @@ static void rdma_handle_read(void* arg /* grpc_rdma */, grpc_error_handle error)
     call_read_cb(rdma, GRPC_ERROR_REF(error));
     RDMA_UNREF(rdma, "read");
   } else {
+    // printf("rdma_handle_read\n");
     if (rdma->rdmasr->check_and_ack_incomings_locked() == 0) {
       // printf("rdma_handle_read, A\n");
       if (rdma->rdmasr->get_write_flag()) {
         // printf("rdma_handle_read, B\n");
         rdma->rdmasr->set_write_flag(false);
         grpc_fd_set_writable(rdma->em_fd);
+        notify_on_read(rdma);
         return;
       }
       int ret = tcp_do_read(rdma);
@@ -408,7 +410,7 @@ static bool rdma_flush(grpc_rdma* rdma, grpc_error_handle* error) {
         grpc_slice_buffer_remove_first(rdma->outgoing_buffer);
       }
 
-      printf("thread %lld send %ld bytes data failed\n", getpid(), sending_length);
+      // printf("thread %lld send %ld bytes data failed\n", getpid(), sending_length);
 
       rdma->rdmasr->set_write_flag(true);
 
@@ -439,6 +441,7 @@ static void rdma_handle_write(void* arg /* grpc_tcp */,
     return;
   }            
 
+  // printf("rdma_handle_write, sending length = %lld\n", rdma->outgoing_buffer->length);
   bool flush_result = rdma_flush(rdma, &error);
   if (!flush_result) {
     notify_on_write(rdma);

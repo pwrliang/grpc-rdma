@@ -32,7 +32,11 @@ RDMASenderReceiverEvent::RDMASenderReceiverEvent() {
 
 RDMASenderReceiverEvent::~RDMASenderReceiverEvent() {
   delete conn_data_event_;
+  conn_data_event_ = nullptr;
   delete ringbuf_event_;
+  ringbuf_event_ = nullptr;
+  // delete conn_metadata_event_;
+  conn_metadata_event_ = nullptr;
 }
 
 void RDMASenderReceiverEvent::connect(int fd) {
@@ -91,41 +95,27 @@ size_t RDMASenderReceiverEvent::ack_outgoings() {
   return conn_data_event_->get_send_events_locked();
 }
 
-// size_t RDMASenderReceiverEvent::check_and_ack_incomings_locked() {
-//   unread_mlens_ = conn_data_event_->get_recv_events_locked(ringbuf_event_->buf_, ringbuf_sz_, local_ringbuf_mr_.lkey());
-//   if (conn_data_event_->rr_garbage_ >= DEFAULT_MAX_POST_RECV / 2) {
-//     conn_data_event_->post_recvs(ringbuf_event_->buf_, ringbuf_sz_, local_ringbuf_mr_.lkey(), conn_data_event_->rr_garbage_);
-//     conn_data_event_->rr_garbage_ = 0;
-//     update_remote_metadata();
-//   }
-
-//   return unread_mlens_;
-// }
-
-// void RDMASenderReceiverEvent::check_and_ack_meta_incoming_locked() {
-  // conn_metadata_event_->get_recv_events_locked((uint8_t*)metadata_recvbuf_, metadata_recvbuf_sz_, local_metadata_recvbuf_mr_.lkey());
-  // remote_ringbuf_head_ = reinterpret_cast<size_t*>(metadata_recvbuf_)[0];
-  // remote_rr_tail_ = reinterpret_cast<size_t*>(metadata_recvbuf_)[1];
-// }
-
 size_t RDMASenderReceiverEvent::check_and_ack_incomings_locked() {
   size_t ret = 0;
   if (check_data_.exchange(false)) {
-    printf("check_and_ack_incomings_locked, A\n");
+    // printf("check_and_ack_incomings_locked, A\n");
     unread_mlens_ = conn_data_event_->get_recv_events_locked(ringbuf_event_->buf_, ringbuf_sz_, local_ringbuf_mr_.lkey());
     if (conn_data_event_->rr_garbage_ >= DEFAULT_MAX_POST_RECV / 2) {
       conn_data_event_->post_recvs(ringbuf_event_->buf_, ringbuf_sz_, local_ringbuf_mr_.lkey(), conn_data_event_->rr_garbage_);
+      // printf("update_remote_meta, %lld, %lld\n", conn_data_event_->rr_garbage_, conn_data_event_->rr_tail_);
       conn_data_event_->rr_garbage_ = 0;
       update_remote_metadata();
     }
     ret = unread_mlens_;
   }
   if (check_metadata_.exchange(false)) {
-    printf("check_and_ack_incomings_locked, B\n");
+    // printf("check_and_ack_incomings_locked, B\n");
     conn_metadata_event_->get_recv_events_locked((uint8_t*)metadata_recvbuf_, metadata_recvbuf_sz_, local_metadata_recvbuf_mr_.lkey());
-    conn_metadata_event_->post_recvs((uint8_t*)metadata_recvbuf_, metadata_recvbuf_sz_, local_metadata_recvbuf_mr_.lkey(), 1);
+    conn_metadata_event_->post_recvs((uint8_t*)metadata_recvbuf_, metadata_recvbuf_sz_, local_metadata_recvbuf_mr_.lkey(), conn_metadata_event_->rr_garbage_);
+    conn_metadata_event_->rr_garbage_ = 0;
     remote_ringbuf_head_ = reinterpret_cast<size_t*>(metadata_recvbuf_)[0];
     remote_rr_tail_ = reinterpret_cast<size_t*>(metadata_recvbuf_)[1];
+    // printf("update local, %lld, %lld\n", remote_ringbuf_head_, remote_rr_tail_);
   }
   return ret;
 }
@@ -165,7 +155,10 @@ bool RDMASenderReceiverEvent::send(msghdr* msg, size_t mlen) {
   size_t avail_rr_num =
       (remote_rr_tail_ - remote_rr_head_ + DEFAULT_MAX_POST_RECV) %
       DEFAULT_MAX_POST_RECV;
-  if (used + mlen >= remote_ringbuf_sz - 1 || avail_rr_num <= 2) return false;
+  if (used + mlen >= remote_ringbuf_sz - 1 || avail_rr_num <= 2) {
+    // printf("send failed, %lld, %lld\n", remote_ringbuf_head_, remote_rr_tail_);
+    return false;
+  }
 
   uint8_t* start = sendbuf_;
   for (size_t iov_idx = 0, nwritten = 0;
