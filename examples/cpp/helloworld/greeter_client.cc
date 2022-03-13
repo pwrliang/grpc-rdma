@@ -16,12 +16,11 @@
  *
  */
 
+#include <grpcpp/grpcpp.h>
 #include <iostream>
 #include <memory>
 #include <string>
-
-#include <grpcpp/grpcpp.h>
-
+#include <thread>
 #ifdef BAZEL_BUILD
 #include "examples/protos/helloworld.grpc.pb.h"
 #else
@@ -72,6 +71,7 @@ class GreeterClient {
 };
 
 int main(int argc, char** argv) {
+//  MPI_Init(&argc, &argv);
   // Instantiate the client. It requires a channel, out of which the actual RPCs
   // are created. This channel models a connection to an endpoint specified by
   // the argument "--target=" which is the only expected argument.
@@ -96,17 +96,50 @@ int main(int argc, char** argv) {
       return 0;
     }
   } else {
-    target_str = "10.3.1.6:50051";
+    target_str = "0.0.0.0:50051";
   }
 
-  setenv("GRPC_PLATFORM_TYPE", "RDMA_BP", 1);
-  // setenv("GRPC_PLATFORM_TYPE", "TCP", 1);
+  //  setenv("GRPC_PLATFORM_TYPE", "RDMA_BP", 1);
+  //   setenv("GRPC_PLATFORM_TYPE", "TCP", 1);
   GreeterClient greeter(
       grpc::CreateChannel(target_str, grpc::InsecureChannelCredentials()));
   std::string user("world");
-  for(int i=0;i<5;i++) {
-    std::string reply = greeter.SayHello(user);
-    std::cout << "Greeter received: " << reply << std::endl;
+
+  int n_thread = 2;
+  int n_total = 80000;
+
+  //  for (int i = 0; i < n_total; i++) {
+  //    std::string x;
+  //    x.resize(128);
+  //    greeter.SayHello(x);
+  //    if (i % 10000 == 0) {
+  //      printf("PID: %d, Item: %i\n", getpid(), i);
+  //    }
+  //  }
+
+  std::vector<std::thread> ths;
+
+
+  for (int th_id = 0; th_id < n_thread; th_id++) {
+    ths.emplace_back(
+        [&](int th_id) {
+          for (int i = 0; i < n_total / n_thread; i++) {
+            std::string x;
+            x.resize(128);
+            auto resp = greeter.SayHello(x);
+//            printf("tid: %d req_idx: %d\n", th_id, i);
+
+            if (i % 10000 == 0) {
+              printf("PID: %d, Item: %i\n", getpid(), i);
+            }
+          }
+        },
+        th_id);
   }
+  for (auto& th : ths) {
+    th.join();
+  }
+
+  printf("Exit %d\n", getpid());
   return 0;
 }

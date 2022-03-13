@@ -64,8 +64,6 @@ struct grpc_rdma {
 
   RDMASenderReceiverBP* rdmasr;
 
-  std::atomic_bool alive;
-
   // int min_read_chunk_size;
   // int max_read_chunk_size;
 
@@ -243,7 +241,6 @@ static void rdma_do_read(grpc_rdma* rdma) {
 
   call_read_cb(rdma, GRPC_ERROR_NONE);
   RDMA_UNREF(rdma, "read");
-  return;
 }
 
 static void rdma_continue_read(grpc_rdma* rdma) {
@@ -298,7 +295,6 @@ static void rdma_handle_read(void* arg /* grpc_rdma */, grpc_error_handle error)
   } else {
     if (rdma->rdmasr->check_and_ack_incomings_locked() == 0) {
       if (tcp_do_read(rdma) == 0) {
-        rdma->alive.store(false);
         printf("case A, close rdma, fd = %d\n", rdma->fd);
         grpc_slice_buffer_reset_and_unref_internal(rdma->incoming_buffer);
         call_read_cb(rdma, rdma_annotate_error(
@@ -392,7 +388,7 @@ static bool rdma_flush(grpc_rdma* rdma, grpc_error_handle* error) {
              sending_length, iov_size, total_sent_length, rdma->outgoing_buffer->length);
     // printf("thread %lld try to send %ld bytes data\n", getpid(), sending_length);
 
-    while (rdma->rdmasr->send(&msg, sending_length) == false) {
+    while (!rdma->rdmasr->send(&msg, sending_length)) {
       // not enough space in remote
       rdma->outgoing_byte_idx = unwind_byte_idx;
       for (size_t idx = 0; idx < unwind_slice_idx; idx++) {
@@ -428,7 +424,7 @@ static void rdma_handle_write(void* arg /* grpc_tcp */,
   bool flush_result = rdma_flush(rdma, &error);
   if (!flush_result) {
     notify_on_write(rdma);
-    GPR_DEBUG_ASSERT(error = GRPC_ERROR_NONE);
+    GPR_DEBUG_ASSERT(error == GRPC_ERROR_NONE);
   } else {
     cb = rdma->write_cb;
     rdma->write_cb = nullptr;
@@ -526,7 +522,7 @@ static const grpc_endpoint_vtable vtable = {rdma_read,
                                             rdma_get_local_address,
                                             rdma_get_fd,
                                             rdma_can_track_err};
-
+// 建立连接时调用grpc_rdma_bp_create
 grpc_endpoint* grpc_rdma_bp_create(grpc_fd* em_fd,
                                const grpc_channel_args* channel_args,
                                const char* peer_string) {
@@ -575,7 +571,6 @@ grpc_endpoint* grpc_rdma_bp_create(grpc_fd* em_fd,
                     grpc_schedule_on_exec_ctx);
   rdma->rdmasr = new RDMASenderReceiverBP();
   rdma->rdmasr->connect(rdma->fd);
-  rdma->alive.store(true);
   grpc_fd_set_rdmasr_bp(em_fd, rdma->rdmasr);
   rdma_log(RDMA_INFO, "rdmasr %p is created, attached to fd %d", rdma->rdmasr, rdma->fd);
   global_endpoint_count.fetch_add(1);

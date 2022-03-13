@@ -8,8 +8,8 @@
 #include <mutex>
 #include <vector>
 #include "RDMAConn.h"
-#include "ringbuffer.h"
 #include "log.h"
+#include "ringbuffer.h"
 
 const size_t DEFAULT_RINGBUF_SZ = 1024ull * 1024 * 16;
 const size_t DEFAULT_SENDBUF_SZ = 1024ull * 1024 * 16;
@@ -64,37 +64,36 @@ class RDMASenderReceiver {
     MemRegion metadata_sendbuf_mr_;
 };
 
-
 /*
- * 1. update_remote_metadata after garbage >= ringbuf_size_ / 2, so sendbuf_size_ <= ringbuf_size_ / 2.
+ * 1. update_remote_metadata after garbage >= ringbuf_size_ / 2, so
+ * sendbuf_size_ <= ringbuf_size_ / 2.
  * 2. reset ringbuf fisrt, then update head.
  * 3. mlen: length of pure data; len: mlen + sizeof(size_t) + 1.
  */
 class RDMASenderReceiverBP : public RDMASenderReceiver {
-  public:
-    RDMASenderReceiverBP();
-    virtual ~RDMASenderReceiverBP();
+ public:
+  RDMASenderReceiverBP();
+  virtual ~RDMASenderReceiverBP();
 
-    virtual void connect(int fd);
-    bool connected() { return connected_; }
+  virtual void connect(int fd);
+  bool connected() { return connected_; }
 
-    virtual bool send(msghdr* msg, size_t mlen);
-    virtual size_t recv(msghdr* msg, size_t msghdr_size);
+  virtual bool send(msghdr* msg, size_t mlen);
+  virtual size_t recv(msghdr* msg, size_t msghdr_size);
 
-    // this should be thread safe, 
-    bool check_incoming();
+  // this should be thread safe,
+  bool check_incoming();
 
-    bool check_incoming_() { return ringbuf_bp_->check_head(); }
+  bool check_incoming_() { return ringbuf_bp_->check_head(); }
 
-    size_t check_and_ack_incomings_locked();
+  size_t check_and_ack_incomings_locked();
 
-    void diagnosis();
-
-  protected:
-    std::atomic_bool checked_; // there is a thread already found new incoming data
-    RingBufferBP* ringbuf_bp_ = nullptr;
-    RDMAConnBP* conn_data_bp_ = nullptr;
-    bool connected_ = false;
+ protected:
+  std::atomic_bool
+      checked_;  // there is a thread already found new incoming data
+  RingBufferBP* ringbuf_bp_ = nullptr;
+  RDMAConnBP* conn_data_bp_ = nullptr;
+  bool connected_ = false;
 };
 
 class RDMASenderReceiverEvent : public RDMASenderReceiver {

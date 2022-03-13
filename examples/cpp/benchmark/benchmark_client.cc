@@ -59,8 +59,13 @@ DEFINE_string(platform, "TCP", "which transport protocol used");
 DEFINE_string(verbosity, "ERROR", "");
 // DEFINE_string(data_sizes, "64,1024,64*1024", "");
 // DEFINE_string(batch_sizes, "5000,10000", "");
+<<<<<<< HEAD
 DEFINE_string(data_sizes, "1024", "");
 DEFINE_string(batch_sizes, "1000", "");
+=======
+DEFINE_string(data_sizes, "64,256,1024,1024*4,1024*16,1024*64", "");
+DEFINE_string(batch_sizes, "10000", "");
+>>>>>>> e64c2b567acf142a98a3eaf50b986537bcb8337c
 
 int main(int argc, char** argv) {
   MPI_Init(&argc, &argv);

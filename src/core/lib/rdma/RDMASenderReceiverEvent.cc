@@ -1,24 +1,24 @@
-#include "RDMASenderReceiver.h"
-#include "log.h"
-#include "fcntl.h"
-#include <thread>
 #include <infiniband/verbs.h>
+#include <thread>
+#include "RDMASenderReceiver.h"
+#include "fcntl.h"
+#include "log.h"
 
 #ifndef EPOLLEXCLUSIVE
 #define EPOLLEXCLUSIVE (1 << 28)
 #endif
 
-
 // -----< RDMASenderReceiverEvent >-----
 
 RDMASenderReceiverEvent::RDMASenderReceiverEvent() {
-  ibv_pd* pd = node_.get_pd();
+  auto pd = node_.get_pd();
 
   ringbuf_event_ = new RingBufferEvent(ringbuf_sz_);
   if (local_ringbuf_mr_.local_reg(pd, ringbuf_event_->get_buf(), ringbuf_sz_)) {
-    rdma_log(RDMA_ERROR,
-             "RDMASenderReceiverEvent::RDMASenderReceiverEvent, failed to local_reg "
-             "local_ringbuf_mr");
+    rdma_log(
+        RDMA_ERROR,
+        "RDMASenderReceiverEvent::RDMASenderReceiverEvent, failed to local_reg "
+        "local_ringbuf_mr");
     exit(-1);
   }
 
@@ -31,12 +31,8 @@ RDMASenderReceiverEvent::RDMASenderReceiverEvent() {
 }
 
 RDMASenderReceiverEvent::~RDMASenderReceiverEvent() {
-  if (conn_data_event_) {
-    delete conn_data_event_;
-  }
-  if (ringbuf_event_) {
-    delete ringbuf_event_;
-  }
+  delete conn_data_event_;
+  delete ringbuf_event_;
 }
 
 void RDMASenderReceiverEvent::connect(int fd) {
@@ -51,8 +47,10 @@ void RDMASenderReceiverEvent::connect(int fd) {
   conn_metadata_event_->post_recvs((uint8_t*)metadata_recvbuf_, metadata_recvbuf_sz_, local_metadata_recvbuf_mr_.lkey(), DEFAULT_MAX_POST_RECV - 1);
 
   // there are at most DEFAULT_MAX_POST_RECV - 1 outstanding recv requests
-  conn_data_event_->post_recvs(ringbuf_event_->get_buf(), ringbuf_sz_, local_ringbuf_mr_.lkey(), DEFAULT_MAX_POST_RECV - 1);
-  update_remote_metadata(); // set remote_rr_tail
+  conn_data_event_->post_recvs(ringbuf_event_->get_buf(), ringbuf_sz_,
+                               local_ringbuf_mr_.lkey(),
+                               DEFAULT_MAX_POST_RECV - 1);
+  update_remote_metadata();  // set remote_rr_tail
 
   char tmp;
   if (conn_data_event_->sync_data((char*)"s", &tmp, 1)) {
@@ -67,7 +65,9 @@ void RDMASenderReceiverEvent::connect(int fd) {
 
 void RDMASenderReceiverEvent::update_remote_metadata() {
   if (!ringbuf_ || !conn_metadata_) {
-    rdma_log(RDMA_ERROR, "RDMASenderReceiver::update_remote_metadata, ringbuf or connector has not been initialized");
+    rdma_log(RDMA_ERROR,
+             "RDMASenderReceiver::update_remote_metadata, ringbuf or connector "
+             "has not been initialized");
     exit(-1);
   }
 
@@ -158,15 +158,18 @@ bool RDMASenderReceiverEvent::send(msghdr* msg, size_t mlen) {
 
   size_t remote_ringbuf_sz = remote_ringbuf_mr_.length();
 
-  update_local_metadata(); // update remote_ringbuf_head_ and remote_rr_tail
-  size_t used = (remote_ringbuf_sz + remote_ringbuf_tail_ - remote_ringbuf_head_) % remote_ringbuf_sz;
-  size_t avail_rr_num = (remote_rr_tail_ - remote_rr_head_ + DEFAULT_MAX_POST_RECV) % DEFAULT_MAX_POST_RECV;
+  update_local_metadata();  // update remote_ringbuf_head_ and remote_rr_tail
+  size_t used =
+      (remote_ringbuf_sz + remote_ringbuf_tail_ - remote_ringbuf_head_) %
+      remote_ringbuf_sz;
+  size_t avail_rr_num =
+      (remote_rr_tail_ - remote_rr_head_ + DEFAULT_MAX_POST_RECV) %
+      DEFAULT_MAX_POST_RECV;
   if (used + mlen >= remote_ringbuf_sz - 1 || avail_rr_num <= 2) return false;
 
   uint8_t* start = sendbuf_;
   for (size_t iov_idx = 0, nwritten = 0;
-       iov_idx < msg->msg_iovlen && nwritten < mlen;
-       iov_idx++) {
+       iov_idx < msg->msg_iovlen && nwritten < mlen; iov_idx++) {
     void* iov_base = msg->msg_iov[iov_idx].iov_base;
     size_t iov_len = msg->msg_iov[iov_idx].iov_len;
     nwritten += iov_len;

@@ -6,7 +6,7 @@
 // -----< RDMASenderReceiverBP >-----
 
 RDMASenderReceiverBP::RDMASenderReceiverBP() {
-  ibv_pd* pd = node_.get_pd();
+  auto pd = node_.get_pd();
 
   ringbuf_bp_ = new RingBufferBP(ringbuf_sz_);
   if (local_ringbuf_mr_.local_reg(pd, ringbuf_bp_->get_buf(), ringbuf_sz_)) {
@@ -24,28 +24,18 @@ RDMASenderReceiverBP::RDMASenderReceiverBP() {
 }
 
 RDMASenderReceiverBP::~RDMASenderReceiverBP() {
-  if (conn_data_bp_) {
-    delete conn_data_bp_;
-  }
-  if (ringbuf_bp_) {
-    delete ringbuf_bp_;
-  }
+  delete conn_data_bp_;
+  delete ringbuf_bp_;
 }
 
 void RDMASenderReceiverBP::connect(int fd) {
   RDMASenderReceiver::connect(fd);
   conn_data_bp_ = new RDMAConnBP(fd, &node_);
-  conn_data_ = conn_data_bp_;
   conn_data_bp_->sync_mr(local_ringbuf_mr_, remote_ringbuf_mr_);
 
   rdma_log(RDMA_DEBUG, "RDMASenderReceiverBP connected");
   // printf("RDMASenderReceiverBP is connected\n");
   connected_ = true;
-}
-
-void RDMASenderReceiverBP::diagnosis() {
-  // for gdb debug;
-  
 }
 
 bool RDMASenderReceiverBP::check_incoming() {

@@ -12,9 +12,7 @@ RingBuffer::RingBuffer(size_t capacity) : capacity_(capacity) {
 }
 
 RingBuffer::~RingBuffer() {
-  if (buf_) {
-    delete buf_;
-  }
+  delete[] buf_;
 }
 
 size_t RingBuffer::update_head(size_t inc) {
@@ -80,7 +78,7 @@ size_t RingBufferBP::check_mlens(size_t head) {
   }
   return mlens;
 }
- 
+
 size_t RingBufferBP::reset_buf_and_update_head(size_t lens) {
   if (head_ + lens > capacity_) {
     memset(buf_ + head_, 0, capacity_ - head_);
@@ -94,8 +92,7 @@ size_t RingBufferBP::reset_buf_and_update_head(size_t lens) {
 size_t RingBufferBP::read_to_msghdr(msghdr* msg, size_t msghdr_size,
                                     size_t head, size_t& expected_mlens) {
   if (expected_mlens == 0) {
-    rdma_log(RDMA_WARNING,
-             "RingBufferBP::read_to_msghdr, expected mlens == 0");
+    rdma_log(RDMA_WARNING, "RingBufferBP::read_to_msghdr, expected mlens == 0");
     return 0;
   }
   if (head >= capacity_) {
@@ -108,17 +105,14 @@ size_t RingBufferBP::read_to_msghdr(msghdr* msg, size_t msghdr_size,
     exit(-1);
   }
 
-  // print_ringbuf();
-
   uint8_t* iov_rbase;
   size_t iov_idx = 0, iov_offset = 0, iov_rlen;
   size_t mlen = check_mlen(head), m_offset = 0, m_rlen;
-  size_t mlens = 0, lens = 0,
-         buf_offset = (head + sizeof(size_t)) % capacity_, n;
+  size_t mlens = 0, lens = 0, buf_offset = (head + sizeof(size_t)) % capacity_,
+         n;
   bool passed_expected_flag = false;
   assert(mlen > 0);
-  while (iov_idx < msg->msg_iovlen &&
-         mlen > 0) {
+  while (iov_idx < msg->msg_iovlen && mlen > 0) {
     iov_rlen = msg->msg_iov[iov_idx].iov_len -
                iov_offset;  // rest space of current slice
     m_rlen = mlen -
@@ -142,12 +136,12 @@ size_t RingBufferBP::read_to_msghdr(msghdr* msg, size_t msghdr_size,
       mlens += mlen;
       lens += sizeof(size_t) + mlen + 1;
 
-      // when we have chance to read, read greedily. 
+      // when we have chance to read, read greedily.
       if (mlens == expected_mlens) passed_expected_flag = true;
       head =
           (head + sizeof(size_t) + mlen + 1) % capacity_;  // move to next head
-      mlen = check_mlen(head);  // check mlen of the new head
-      if (mlens + mlen > msghdr_size) break; // msghdr could not hold new mlen
+      mlen = check_mlen(head);                // check mlen of the new head
+      if (mlens + mlen > msghdr_size) break;  // msghdr could not hold new mlen
       m_offset = 0;
 
       // move buf_offset to the first place right after the head of the next
@@ -167,21 +161,13 @@ size_t RingBufferBP::read_to_msghdr(msghdr* msg, size_t msghdr_size,
 
   expected_mlens = mlens;
 
-  // printf("\nringbuf: head = %d, lens = %d, mlens = %d\n", head_, lens, mlens);
+  // printf("\nringbuf: head = %d, lens = %d, mlens = %d\n", head_, lens,
+  // mlens);
 
   reset_buf_and_update_head(lens);
   // update_head(lens);
 
   return lens;
-}
-
-void RingBufferBP::print_ringbuf() {
-  printf("ringbuf:");
-  for (size_t i = 0; i < capacity_; i++) {
-    if (i % 50 == 0) printf("\n");
-    printf("%2d ", buf_[i]);
-  }
-  printf("\n");
 }
 
 // -----< RingBufferEvent >-----
@@ -207,7 +193,8 @@ size_t RingBufferEvent::read_to_msghdr(msghdr* msg, size_t head,
   uint8_t *iov_rbase, *rb_ptr;
   for (size_t i = 0, iov_offset = 0, n;
        lens < expected_read_size && i < msg->msg_iovlen; lens += n) {
-    iov_rlen = msg->msg_iov[i].iov_len - iov_offset; // rest space of current slice
+    iov_rlen =
+        msg->msg_iov[i].iov_len - iov_offset;  // rest space of current slice
     iov_rbase = (uint8_t*)(msg->msg_iov[i].iov_base) + iov_offset;
     rb_ptr = buf_ + head;
     n = MIN3(capacity_ - head, expected_read_size - lens, iov_rlen);
