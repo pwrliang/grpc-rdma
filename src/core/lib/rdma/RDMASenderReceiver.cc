@@ -65,6 +65,7 @@ RDMASenderReceiver::~RDMASenderReceiver() {
   free(metadata_sendbuf_);
   ringbuf_ = nullptr;
   delete conn_metadata_;
+  conn_metadata_ = nullptr;
 }
 
 void RDMASenderReceiver::connect(int fd) {

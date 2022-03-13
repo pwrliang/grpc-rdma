@@ -78,6 +78,7 @@ struct grpc_rdma {
   grpc_slice_buffer* outgoing_buffer;
   /* byte within outgoing_buffer->slices[0] to write next */
   size_t outgoing_byte_idx;
+  bool write_succeed_flag;
 
   grpc_closure* read_cb;
   grpc_closure* write_cb;
@@ -235,10 +236,6 @@ static void rdma_do_read(grpc_rdma* rdma) {
 
   call_read_cb(rdma, GRPC_ERROR_NONE);
   RDMA_UNREF(rdma, "read");
-  // if (rdma->rdmasr->if_write_again()) {
-  //   printf("fd %d write again\n", rdma->fd);
-  //   grpc_fd_set_writable(rdma->em_fd);
-  // }
   return;
 }
 
@@ -292,15 +289,25 @@ static void rdma_handle_read(void* arg /* grpc_rdma */, grpc_error_handle error)
     call_read_cb(rdma, GRPC_ERROR_REF(error));
     RDMA_UNREF(rdma, "read");
   } else {
+    // printf("rdma_handle_read\n");
     if (rdma->rdmasr->check_and_ack_incomings_locked() == 0) {
+      // printf("rdma_handle_read, A\n");
+      if (rdma->rdmasr->get_write_flag()) {
+        // printf("rdma_handle_read, B\n");
+        rdma->rdmasr->set_write_flag(false);
+        grpc_fd_set_writable(rdma->em_fd);
+        notify_on_read(rdma);
+        return;
+      }
       int ret = tcp_do_read(rdma);
       if (ret == 0) {
-        printf("case A, close rdma\n");
+        // printf("case A, close rdma\n");
         grpc_slice_buffer_reset_and_unref_internal(rdma->incoming_buffer);
         call_read_cb(rdma, rdma_annotate_error(
                      GRPC_ERROR_CREATE_FROM_STATIC_STRING("Socket closed"),rdma));
         RDMA_UNREF(rdma, "read");
       } else if (ret == -1 && errno == EAGAIN) {
+        // printf("rdma_handle_read, E\n");
         rdma_log(RDMA_DEBUG, "rdma_handle_read, no data, call notify_on_read");
         notify_on_read(rdma);
       } else {
@@ -309,9 +316,12 @@ static void rdma_handle_read(void* arg /* grpc_rdma */, grpc_error_handle error)
       }
     } else {
       rdma_log(RDMA_DEBUG, "rdma_handle_read, data found, call rdma_continue_read");
-      if (tcp_do_read(rdma) == 0) {
-        printf("case B\n");
+      if (rdma->rdmasr->get_write_flag()) {
+        // printf("rdma_handle_read, C\n");
+        rdma->rdmasr->set_write_flag(false);
+        grpc_fd_set_writable(rdma->em_fd);
       }
+      // printf("rdma_handle_read, D\n");
       rdma_continue_read(rdma);
     }
   }
@@ -391,20 +401,21 @@ static bool rdma_flush(grpc_rdma* rdma, grpc_error_handle* error) {
              sending_length, iov_size, total_sent_length, rdma->outgoing_buffer->length);
     // printf("thread %lld try to send %ld bytes data\n", getpid(), sending_length);
 
-    while (rdma->rdmasr->send(&msg, sending_length) == false) {}
-    // {
-    //   // not enough space in remote
+    if (rdma->rdmasr->send(&msg, sending_length) == false)
+    {
+      // not enough space in remote
 
-    //   if (rdma->rdmasr->get_unread_data_size() == 0) continue;
+      rdma->outgoing_byte_idx = unwind_byte_idx;
+      for (size_t idx = 0; idx < unwind_slice_idx; idx++) {
+        grpc_slice_buffer_remove_first(rdma->outgoing_buffer);
+      }
 
-    //   rdma->outgoing_byte_idx = unwind_byte_idx;
-    //   for (size_t idx = 0; idx < unwind_slice_idx; idx++) {
-    //     grpc_slice_buffer_remove_first(rdma->outgoing_buffer);
-    //   }
-    //   rdma->rdmasr->write_again();
-    //   printf("thread %lld: fd %d send %ld bytes data failed\n\n\n", getpid(), rdma->fd, sending_length);
-    //   return false;
-    // }
+      // printf("thread %lld send %ld bytes data failed\n", getpid(), sending_length);
+
+      rdma->rdmasr->set_write_flag(true);
+
+      return false;
+    }
     rdma->total_send_size += sending_length;
     // printf("thread %lld: fd %d send %ld bytes data succeed, total send size = %lld\n", getpid(), rdma->fd, sending_length, rdma->total_send_size);
 
@@ -430,6 +441,7 @@ static void rdma_handle_write(void* arg /* grpc_tcp */,
     return;
   }            
 
+  // printf("rdma_handle_write, sending length = %lld\n", rdma->outgoing_buffer->length);
   bool flush_result = rdma_flush(rdma, &error);
   if (!flush_result) {
     notify_on_write(rdma);
@@ -440,6 +452,25 @@ static void rdma_handle_write(void* arg /* grpc_tcp */,
     grpc_core::Closure::Run(DEBUG_LOCATION, cb, error);
     RDMA_UNREF(rdma, "write");
   }
+
+//   size_t sent_bytes = rdma->rdmasr->ack_outgoings();
+
+//   if (rdma->write_succeed_flag) {
+//     printf("fd %d write succeed %lld\n", rdma->fd, sent_bytes);
+//     RDMA_UNREF(rdma, "write");
+//     return;
+//   }
+//   bool flush_result = rdma_flush(rdma, &error);
+//   notify_on_write(rdma);
+//   if (flush_result) {
+//     rdma->write_succeed_flag = true;
+//     cb = rdma->write_cb;
+//     rdma->write_cb = nullptr;
+//     grpc_core::Closure::Run(DEBUG_LOCATION, cb, error);
+//   } else {
+//     grpc_fd_set_writable(rdma->em_fd);
+//   }
+
 }
 
 static void rdma_write(grpc_endpoint* ep, grpc_slice_buffer* buf,
@@ -467,6 +498,21 @@ static void rdma_write(grpc_endpoint* ep, grpc_slice_buffer* buf,
   } else {
     grpc_core::Closure::Run(DEBUG_LOCATION, cb, error);
   }
+
+//   RDMA_REF(rdma, "write");
+//   notify_on_write(rdma);
+//   if (flush_result) { // write succeed, poll_send_cq in rdma_handle_write
+//     rdma->write_succeed_flag = true;
+//     grpc_core::Closure::Run(DEBUG_LOCATION, cb, error); // may schedule new rdma_write
+//   } else {
+//     rdma->write_cb = cb;
+//     rdma->write_succeed_flag = false;
+//     // post fake send
+//     // keep outgoing_buffer in rdma
+//     // poll_send_cq and rewrite again in rdma_handle_write
+//     // no rdma_write until write succeed in rdma_handle_write
+//     grpc_fd_set_writable(rdma->em_fd);
+//   }
 }
 
 static void rdma_add_to_pollset(grpc_endpoint* ep, grpc_pollset* pollset) {

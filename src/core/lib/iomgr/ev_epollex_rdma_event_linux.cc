@@ -88,12 +88,13 @@ typedef struct pollable pollable;
 ///  - PO_FD - a pollable containing only one FD - used to optimize single-fd
 ///            pollsets (which are common with synchronous api usage)
 ///  - PO_MULTI - a pollable containing many fds
+#pragma pack(8)
 struct pollable {
   pollable_type type;  // immutable
   grpc_core::RefCount refs;
 
+  grpc_wakeup_fd wakeup; // make sure address of wakeup is a multiple of 8
   int epfd;
-  grpc_wakeup_fd wakeup;
 
   // The following are relevant only for type PO_FD
   grpc_fd* owner_fd;       // Set to the owner_fd if the type is PO_FD
@@ -146,6 +147,7 @@ static void pollable_unref(pollable* p, const grpc_core::DebugLocation& dbg_loc,
   if (p == nullptr) return;
   if (GPR_UNLIKELY(p != nullptr && p->refs.Unref(dbg_loc, reason))) {
     GRPC_FD_TRACE("pollable_unref: Closing epfd: %d", p->epfd);
+    // printf("pollable %d unref\n", p->epfd);
     close(p->epfd);
     grpc_wakeup_fd_destroy(&p->wakeup);
     gpr_mu_destroy(&p->owner_orphan_mu);
@@ -483,27 +485,33 @@ static void fd_orphan(grpc_fd* fd, grpc_closure* on_done, int* release_fd,
   if (release_fd != nullptr) {
     // Remove the FD from all epolls sets, before releasing it.
     // Otherwise, we will receive epoll events after we release the FD.
+    // printf("fd %d orphan A\n", fd->fd);
     epoll_event ev_fd;
     memset(&ev_fd, 0, sizeof(ev_fd));
     if (pollable_obj != nullptr) {  // For PO_FD.
+      // printf("fd %d orphan from epfd %d\n", fd->fd, pollable_obj->epfd);
       epoll_ctl(pollable_obj->epfd, EPOLL_CTL_DEL, fd->fd, &ev_fd);
       if (fd->rdmasr) { // never reach here before, bugs may happen if you reach here
-        epoll_ctl(pollable_obj->epfd, EPOLL_CTL_DEL, fd->rdmasr->get_channel_fd(), &ev_fd);
+        epoll_ctl(pollable_obj->epfd, EPOLL_CTL_DEL, fd->rdmasr->get_recv_channel_fd(), &ev_fd);
+        epoll_ctl(pollable_obj->epfd, EPOLL_CTL_DEL, fd->rdmasr->get_metadata_recv_channel_fd(), &ev_fd);
       }
     }
     for (size_t i = 0; i < fd->pollset_fds.size(); ++i) {  // For PO_MULTI.
       const int epfd = fd->pollset_fds[i];
+      // printf("fd %d orphan from epfd %d\n", fd->fd, epfd);
       epoll_ctl(epfd, EPOLL_CTL_DEL, fd->fd, &ev_fd);
       if (fd->rdmasr) { // never reach here before, bugs may happen if you reach here
-        epoll_ctl(epfd, EPOLL_CTL_DEL, fd->rdmasr->get_channel_fd(), &ev_fd);
+        epoll_ctl(epfd, EPOLL_CTL_DEL, fd->rdmasr->get_recv_channel_fd(), &ev_fd);
+        epoll_ctl(epfd, EPOLL_CTL_DEL, fd->rdmasr->get_metadata_recv_channel_fd(), &ev_fd);
       }
     }
     *release_fd = fd->fd;
   } else {
-    // printf("else\n");
+    // printf("fd %d orphan B\n", fd->fd);
     close(fd->fd);
     if (fd->rdmasr) {
-      close(fd->rdmasr->get_channel_fd());
+      // close(fd->rdmasr->get_recv_channel_fd());
+      // close(fd->rdmasr->get_metadata_recv_channel_fd());
     }
     is_fd_closed = true;
   }
@@ -609,6 +617,10 @@ static grpc_error_handle pollable_create(pollable_type type, pollable** p) {
   ev.events = static_cast<uint32_t>(EPOLLIN | EPOLLET);
   ev.data.ptr =
       reinterpret_cast<void*>(1 | reinterpret_cast<intptr_t>(&(*p)->wakeup));
+  if ((reinterpret_cast<intptr_t>(ev.data.ptr) & 5) == 5) {
+    gpr_log(GPR_ERROR, "pollable_create, wakeup address %p is incomptable with rdma", &(*p)->wakeup);
+    abort();
+  }
   if (epoll_ctl(epfd, EPOLL_CTL_ADD, (*p)->wakeup.read_fd, &ev) != 0) {
     err = GRPC_OS_ERROR(errno, "epoll_ctl");
     GRPC_FD_TRACE(
@@ -644,11 +656,12 @@ static grpc_error_handle pollable_add_rdma_channel_fd(pollable* p, grpc_fd* fd) 
   grpc_error_handle error = GRPC_ERROR_NONE;
   static const char* err_desc = "pollable_add_fd";
   const int epfd = p->epfd;
-  const int rdma_channel_fd = fd->rdmasr->get_channel_fd();
-  struct epoll_event ev_fd;
-  ev_fd.events = static_cast<uint32_t>(EPOLLIN | EPOLLET | EPOLLEXCLUSIVE);
-  ev_fd.data.ptr = reinterpret_cast<void*>(reinterpret_cast<intptr_t>(fd) | 3);
-  if (epoll_ctl(epfd, EPOLL_CTL_ADD, rdma_channel_fd, &ev_fd) != 0) {
+
+  int rdma_meta_recv_channel_fd = fd->rdmasr->get_metadata_recv_channel_fd();
+  struct epoll_event meta_recv_ev_fd;
+  meta_recv_ev_fd.events = static_cast<uint32_t>(EPOLLIN | EPOLLET | EPOLLEXCLUSIVE);
+  meta_recv_ev_fd.data.ptr = reinterpret_cast<void*>(reinterpret_cast<intptr_t>(fd) | 3);
+  if (epoll_ctl(epfd, EPOLL_CTL_ADD, rdma_meta_recv_channel_fd, &meta_recv_ev_fd) != 0) {
     switch (errno) {
       case EEXIST:
         break;
@@ -656,6 +669,22 @@ static grpc_error_handle pollable_add_rdma_channel_fd(pollable* p, grpc_fd* fd) 
         append_error(&error, GRPC_OS_ERROR(errno, "epoll_ctl"), err_desc);
     }
   }
+  // printf("pollable_add_rdma_channel_fd 1 %d to epfd %d\n", rdma_meta_recv_channel_fd, epfd);
+
+  int rdma_recv_channel_fd = fd->rdmasr->get_recv_channel_fd();
+  struct epoll_event recv_ev_fd;
+  recv_ev_fd.events = static_cast<uint32_t>(EPOLLIN | EPOLLET | EPOLLEXCLUSIVE);
+  recv_ev_fd.data.ptr = reinterpret_cast<void*>(reinterpret_cast<intptr_t>(fd) | 4);
+  if (epoll_ctl(epfd, EPOLL_CTL_ADD, rdma_recv_channel_fd, &recv_ev_fd) != 0) {
+    switch (errno) {
+      case EEXIST:
+        break;
+      default:
+        append_error(&error, GRPC_OS_ERROR(errno, "epoll_ctl"), err_desc);
+    }
+  }
+  // printf("pollable_add_rdma_channel_fd 2 %d to epfd %d\n", rdma_recv_channel_fd, epfd);
+
   return error;
 }
 
@@ -685,6 +714,7 @@ static grpc_error_handle pollable_add_fd(pollable* p, grpc_fd* fd) {
         append_error(&error, GRPC_OS_ERROR(errno, "epoll_ctl"), err_desc);
     }
   }
+  // printf("pollable_add_fd %d to epfd %d\n", fd->fd, epfd);
 
   if (error == GRPC_ERROR_NONE && fd->rdmasr) {
     return pollable_add_rdma_channel_fd(p, fd);
@@ -939,20 +969,27 @@ static grpc_error_handle pollable_process_events(grpc_pollset* pollset,
     int n = pollable_obj->event_cursor++;
     struct epoll_event* ev = &pollable_obj->events[n];
     void* data_ptr = ev->data.ptr;
-    if ((reinterpret_cast<intptr_t>(data_ptr) & 3) == 3) { // pollable_add_rdma_channel_fd
+    if ((reinterpret_cast<intptr_t>(data_ptr) & 4) == 4) {
+      grpc_fd* fd = reinterpret_cast<grpc_fd*>(
+          ~static_cast<intptr_t>(4) &
+          reinterpret_cast<intptr_t>(ev->data.ptr));
+      // printf("pollable %d process_events, %p, %p, %lld, %lld, %lld\n", pollable_obj->epfd, data_ptr, fd, ev->data.fd, ev->data.u32, ev->data.u64);
+      GPR_ASSERT(fd->rdmasr);
+      if ((ev->events & EPOLLIN) != 0) {
+        // printf("fd %d become readable, data\n", fd->fd);
+        fd->rdmasr->check_data();
+        fd_become_readable(fd);
+      }
+    } else if ((reinterpret_cast<intptr_t>(data_ptr) & 3) == 3) { // pollable_add_rdma_channel_fd
       grpc_fd* fd = reinterpret_cast<grpc_fd*>(
           ~static_cast<intptr_t>(3) &
           reinterpret_cast<intptr_t>(ev->data.ptr));
       GPR_ASSERT(fd->rdmasr);
-      // printf("fd %d event = %d\n", fd->fd, ev->events);
-      // if (fd->rdmasr->check_incoming()) {
-      //   fd_become_readable(fd);
-      // }
-      if ((ev->events & EPOLLIN) != 0) fd_become_readable(fd);
-
-      // if (fd->rdmasr->if_write_again()) {
-      //   fd_become_writable(fd);
-      // }
+      if ((ev->events & EPOLLIN) != 0) {
+        // printf("fd %d become readable, metadata\n", fd->fd);
+        fd->rdmasr->check_metadata();
+        fd_become_readable(fd);
+      }
     } else if (1 & reinterpret_cast<intptr_t>(data_ptr)) {
       rdma_log(RDMA_DEBUG, "pollable_process_event, epfd = %d, event[%d] is pollset_wakeup",
                pollable_obj->epfd, n);

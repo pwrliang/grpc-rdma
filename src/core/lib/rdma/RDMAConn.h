@@ -15,13 +15,13 @@
 #include <thread>
 #include "RDMAUtils.h"
 
-const size_t DEFAULT_MAX_SEND_WR = 1000;
-const size_t DEFAULT_MAX_RECV_WR = 1000;
-const size_t DEFAULT_MAX_SEND_SGE = 20;
-const size_t DEFAULT_MAX_RECV_SGE = 20;
-const size_t DEFAULT_CQE = 10000;
-const size_t DEFAULT_MAX_POST_RECV = 200;
-const size_t DEFAULT_MAX_POST_SEND = 200;
+const size_t DEFAULT_MAX_SEND_WR = 2000;
+const size_t DEFAULT_MAX_RECV_WR = 2000;
+const size_t DEFAULT_MAX_SEND_SGE = 20; // max is 30
+const size_t DEFAULT_MAX_RECV_SGE = 20; // max is 30
+const size_t DEFAULT_CQE = 1000;
+const size_t DEFAULT_MAX_POST_RECV = 1000;
+const size_t DEFAULT_MAX_POST_SEND = 1000;
 const size_t DEFAULT_EVENT_ACK_LIMIT = 5000;
 
 class RDMASenderReceiver;
@@ -39,7 +39,7 @@ class RDMAConn {
   typedef enum { UNINIT = 0, RESET, INIT, RTR, RTS, SQD, SQE, ERROR } state_t;
   RDMAConn() {}
   RDMAConn(int fd, RDMANode* node);
-  ~RDMAConn();
+  virtual ~RDMAConn();
 
   virtual void poll_send_completion();
   virtual void post_send_and_poll_completion(ibv_send_wr* sr,
@@ -75,20 +75,16 @@ class RDMAConnBP : public RDMAConn {
 };
 
 class RDMAConnEvent : public RDMAConn {
- public:
-  friend class RDMASenderReceiverEvent;
-  RDMAConnEvent(int fd, RDMANode* node, RDMASenderReceiverEvent* rdmasr);
-  virtual ~RDMAConnEvent();
+  public:
+    friend class RDMASenderReceiverEvent;
+    RDMAConnEvent(int fd, RDMANode* node, ibv_comp_channel* recv_channel = nullptr);
+    virtual ~RDMAConnEvent();
 
-  int get_channel_fd() { return channel_->fd; }
-  size_t get_avail_sr_num() {
-    return (DEFAULT_MAX_POST_SEND + posted_sr_tail_ - completed_sr_head_) %
-           DEFAULT_MAX_POST_SEND;
-  }
+    // bool get_event_locked();
 
-  bool get_event_locked();
+    size_t get_recv_events_locked(uint8_t* addr, size_t length, uint32_t lkey);
 
-  size_t get_events_locked(uint8_t* addr, size_t length, uint32_t lkey);
+    size_t get_send_events_locked();
 
   void post_recvs(uint8_t* addr, size_t length, uint32_t lkey, size_t n);
 
@@ -96,24 +92,30 @@ class RDMAConnEvent : public RDMAConn {
   size_t poll_recv_completions_and_post_recvs(uint8_t* addr, size_t length,
                                               uint32_t lkey);
 
-  // int post_send(MemRegion& remote_mr, size_t remote_tail,
-  //               MemRegion& local_mr, size_t local_offset,
-  //               size_t sz, ibv_wr_opcode opcode);
+    int post_send(MemRegion& remote_mr, size_t remote_tail, 
+                  MemRegion& local_mr, size_t local_offset,
+                  size_t sz, ibv_wr_opcode opcode);
+    size_t poll_send_completions();
+    
+  protected:
+    ibv_comp_channel* send_channel_ = nullptr;
+    ibv_comp_channel* recv_channel_ = nullptr;
+    ibv_wc recv_wcs_[DEFAULT_MAX_POST_RECV];
+    ibv_wc send_wcs_[DEFAULT_MAX_POST_SEND];
 
- protected:
-  ibv_comp_channel* channel_ = nullptr;
-  ibv_wc recv_wcs_[DEFAULT_MAX_POST_RECV];
+    ibv_recv_wr recv_wrs_[DEFAULT_MAX_POST_RECV];
+    ibv_sge recv_sges_[DEFAULT_MAX_POST_RECV];
+    size_t rr_tail_ = 0, rr_garbage_ = 0;
+    size_t unacked_recv_events_num_ = 0;
 
-  ibv_recv_wr recv_wrs_[DEFAULT_MAX_POST_RECV];
-  ibv_sge recv_sges_[DEFAULT_MAX_POST_SEND];
-  size_t rr_tail_ = 0, rr_garbage_ = 0;
+    // ibv_recv_wr recv_wrs_[DEFAULT_MAX_POST_RECV];
+    // ibv_sge recv_sges_[DEFAULT_MAX_POST_SEND];
+    // size_t rr_tail_ = 0, rr_garbage_ = 0;
 
-  ibv_send_wr send_wrs_[DEFAULT_MAX_POST_SEND];
-  ibv_sge send_sges_[DEFAULT_MAX_POST_SEND];
-  size_t unacked_events_num_ = 0;
-  size_t posted_sr_tail_ = 0, completed_sr_head_ = 0;
-  // this number indicates how many recv requests are posted since last
-  // update_remote_metadata
+    ibv_send_wr send_wrs_[DEFAULT_MAX_POST_SEND];
+    ibv_sge send_sges_[DEFAULT_MAX_POST_SEND];
+    size_t sr_tail_ = 0, sr_head_ = 0;
+    size_t unacked_send_events_num_ = 0;
 };
 
 #endif

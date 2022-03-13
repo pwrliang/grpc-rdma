@@ -57,9 +57,9 @@ DEFINE_bool(sync_enable, true, "");
 DEFINE_bool(async_enable, false, "");
 DEFINE_string(platform, "TCP", "which transport protocol used");
 DEFINE_string(verbosity, "ERROR", "");
-// DEFINE_string(data_sizes, "64,1024,64*1024", "");
+DEFINE_string(data_sizes, "1024", "");
 // DEFINE_string(batch_sizes, "5000,10000", "");
-DEFINE_string(data_sizes, "64,256,1024,1024*4,1024*16,1024*64", "");
+// DEFINE_string(data_sizes, "64*1024", "");
 DEFINE_string(batch_sizes, "10000", "");
 
 int main(int argc, char** argv) {
@@ -98,10 +98,10 @@ int main(int argc, char** argv) {
 
     for (int data_size: data_sizes) {
       for (int batch_size: batch_sizes) {
-        MPI_Barrier(MPI_COMM_WORLD);
-        client.SyncOperations(batch_size, data_size);
         // MPI_Barrier(MPI_COMM_WORLD);
-        // client.AsyncOperations(batch_size, data_size);
+        // client.SyncOperations(batch_size, data_size);
+        MPI_Barrier(MPI_COMM_WORLD);
+        client.AsyncOperations(batch_size, data_size);
       }
     }
 
@@ -110,7 +110,7 @@ int main(int argc, char** argv) {
     // MPI_Barrier(MPI_COMM_WORLD);
   }
 
-  // sleep(1000);
+  sleep(1000);
 
   MPI_Finalize();
   return 0;

@@ -495,7 +495,9 @@ void AsyncClientStreamService::Proceed(bool ok) {
 void AsyncClientStreamService::Create() {
   rpc_count.fetch_add(1);
   status_ = WRITE;
-  writer_ = stub_->AsyncClientStream(&ctx_, &reply_, cq_, tag_.get());
+  // writer_ = stub_->AsyncClientStream(&ctx_, &reply_, cq_, tag_.get());
+  writer_ = stub_->PrepareAsyncClientStream(&ctx_, &reply_, cq_);
+  writer_->StartCall(tag_.get());
 }
 
 void AsyncClientStreamService::Write() {
@@ -506,6 +508,7 @@ void AsyncClientStreamService::Write() {
   } else {
     status_ = WRITESDONE;
   }
+  // printf("AsyncClientStreamService::Write(), %p\n", writer_.get());
   writer_->Write(request, tag_.get());
 }
 
@@ -567,7 +570,9 @@ void AsyncServerStreamService::Create() {
   status_ = FIRSTREAD;
   Complex request;
   request_func_(&request);
-  reader_ = stub_->AsyncServerStream(&ctx_, request, cq_, tag_.get());
+  // reader_ = stub_->AsyncServerStream(&ctx_, request, cq_, tag_.get());
+  reader_ = stub_->PrepareAsyncServerStream(&ctx_, request, cq_);
+  reader_->StartCall(tag_.get());
 }
 
 void AsyncServerStreamService::FirstRead() {
@@ -642,7 +647,9 @@ void AsyncBiStreamService::Proceed(bool ok) {
 void AsyncBiStreamService::Create() {
   rpc_count.fetch_add(1);
   status_ = FIRSTWRITE;
-  stream_ = stub_->AsyncBiStream(&ctx_, cq_, tag_.get());
+  // stream_ = stub_->AsyncBiStream(&ctx_, cq_, tag_.get());
+  stream_ = stub_->PrepareAsyncBiStream(&ctx_, cq_);
+  stream_->StartCall(tag_.get());
 }
 
 void AsyncBiStreamService::FirstWrite() {
