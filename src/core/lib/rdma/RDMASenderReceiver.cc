@@ -26,10 +26,11 @@ RDMASenderReceiver::RDMASenderReceiver()
   write_again_.store(false);
   if (sendbuf_sz_ >= ringbuf_sz_ / 2) {
     /* We recycle RingBuffer when garbage_ >= R / 2, so the maximum data size
-     * so far can be R / 2 - 1 (we assume R is always event), so the minimum
-     * available size is R / 2 + 1. Thus, the maximum sendbuf_size is R / 2 + 1
+     * so far can be R / 2 - 1 (we assume R is always even), so the minimum
+     * available size is R / 2 + 1. Thus, the maximum sendbuf_size is R / 2 + 1,
+     * we reserve 1 byte here
      */
-    sendbuf_sz_ = ringbuf_sz_ / 2 + 1;
+    sendbuf_sz_ = ringbuf_sz_ / 2;
     rdma_log(RDMA_WARNING,
              "RDMASenderReceiver::RDMASenderReceiver, "
              "set sendbuf size to %d",

@@ -105,8 +105,9 @@ bool RDMASenderReceiverBP::send(msghdr* msg, size_t mlen) {
       (remote_ringbuf_sz + remote_ringbuf_tail_ - remote_ringbuf_head_) %
       remote_ringbuf_sz;
   // If unread datasize + the size of data we want to send is greater than ring
-  // buffer size, we can not send message.
-  if (used + len > remote_ringbuf_sz) {
+  // buffer size, we can not send message. we reserve 1 byte to distinguish the
+  // status between empty and full
+  if (used + len > remote_ringbuf_sz - 1) {
     printf("used: %zu len: %zu used+len: %zu vs %zu\n", used, len, used + len,
            remote_ringbuf_sz);
     return false;
