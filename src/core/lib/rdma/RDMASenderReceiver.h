@@ -94,6 +94,9 @@ class RDMASenderReceiverBP : public RDMASenderReceiver {
   RingBufferBP* ringbuf_bp_ = nullptr;
   RDMAConnBP* conn_data_bp_ = nullptr;
   bool connected_ = false;
+  long last_send_time_;
+  long last_recv_time_;
+  std::thread monitor_;
 };
 
 class RDMASenderReceiverEvent : public RDMASenderReceiver {

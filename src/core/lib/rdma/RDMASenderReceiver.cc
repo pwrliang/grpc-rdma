@@ -28,7 +28,7 @@ RDMASenderReceiver::RDMASenderReceiver()
     /*
      * BP: garbage max R/2 - 1, available R-8, send = R-8 - (R/2-1) = R/2 - 7
      */
-    sendbuf_sz_ = ringbuf_sz_ / 2 - 7;
+    sendbuf_sz_ = ringbuf_sz_ / 4;
     rdma_log(RDMA_WARNING,
              "RDMASenderReceiver::RDMASenderReceiver, "
              "set sendbuf size to %d",
