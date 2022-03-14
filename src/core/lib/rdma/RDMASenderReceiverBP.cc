@@ -55,6 +55,7 @@ RDMASenderReceiverBP::RDMASenderReceiverBP() {
   total_send_sz = 0;
   monitor_ = std::thread([this]() {
     while (true) {
+      break;
       auto current = std::chrono::system_clock::to_time_t(
           std::chrono::system_clock::now());
       int time_out = 5;
@@ -111,8 +112,8 @@ bool RDMASenderReceiverBP::check_incoming() {
 }
 
 size_t RDMASenderReceiverBP::check_and_ack_incomings_locked() {
-//  unread_mlens_ = ringbuf_bp_->check_mlens();
-   unread_mlens_ = ringbuf_bp_->check_mlen();
+  //  unread_mlens_ = ringbuf_bp_->check_mlens();
+  unread_mlens_ = ringbuf_bp_->check_mlen();
   return unread_mlens_;
 }
 
@@ -149,7 +150,6 @@ size_t RDMASenderReceiverBP::recv(msghdr* msg, size_t msghdr_size) {
 
   return mlens;
 }
-
 
 // mlen <= sendbuf_sz_ - sizeof(size_t) - 1;
 bool RDMASenderReceiverBP::send(msghdr* msg, size_t mlen) {
@@ -207,11 +207,10 @@ bool RDMASenderReceiverBP::send(msghdr* msg, size_t mlen) {
   // *start = 1;
   sendbuf_[len - 1] = 1;
 
-  if (mlen == 102) {
-    int last_pos = 0;
-    printf("SEND:");
-    print_ringbuf(last_pos, sendbuf_ + 8, mlen);
-  }
+  std::stringstream ss;
+  ss << "SEND, mlen: " << mlen << std::endl;
+  print_ringbuf(ss, sendbuf_ + 8, mlen);
+  printf("%s\n", ss.str().c_str());
 
   if (iov_idx != msg->msg_iovlen || nwritten != mlen) {
     rdma_log(RDMA_ERROR,
@@ -226,7 +225,6 @@ bool RDMASenderReceiverBP::send(msghdr* msg, size_t mlen) {
       IBV_WR_RDMA_WRITE, false);
   remote_ringbuf_tail_ = (remote_ringbuf_tail_ + len) % remote_ringbuf_sz;
   total_send_sz += len;
-
 
   printf(
       "%s %p, SEND: %zu total send: %zu, total recv: %zu, local head: %zu, "

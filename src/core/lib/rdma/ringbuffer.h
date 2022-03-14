@@ -11,18 +11,13 @@
 #include <sys/uio.h>
 #include <unistd.h>
 #include <cassert>
+#include <sstream>
+#include <iomanip>
 
 class RDMASenderReceiverBP;
 class RDMASenderReceiverEvent;
 
-static void print_ringbuf(int& size_pos, uint8_t* head, size_t size) {
-  for (size_t i = 0; i < size; i++) {
-    if (size_pos % 50 == 0) printf("\n");
-    printf("%2d ", head[i]);
-    size_pos++;
-  }
-  printf("\n");
-}
+void print_ringbuf(std::stringstream& ss, uint8_t* head, size_t size);
 
 // the data size of ringbuffer should <= capacity - 1, which means the
 // ringbuffer cannot be full. if data size == capacity, then it is possible that
