@@ -1,9 +1,35 @@
+#include <iomanip>
+#include <sstream>
 #include <thread>
 #include "RDMASenderReceiver.h"
 #include "fcntl.h"
 #include "log.h"
 
 // -----< RDMASenderReceiverBP >-----
+
+std::string time_in_HH_MM_SS_MMM() {
+  using namespace std::chrono;
+
+  // get current time
+  auto now = system_clock::now();
+
+  // get number of milliseconds for the current second
+  // (remainder after division into seconds)
+  auto ms = duration_cast<milliseconds>(now.time_since_epoch()) % 1000;
+
+  // convert to std::time_t in order to convert to std::tm (broken time)
+  auto timer = system_clock::to_time_t(now);
+
+  // convert to broken time
+  std::tm bt = *std::localtime(&timer);
+
+  std::ostringstream oss;
+
+  oss << std::put_time(&bt, "%H:%M:%S");  // HH:MM:SS
+  oss << '.' << std::setfill('0') << std::setw(3) << ms.count();
+
+  return oss.str();
+}
 
 RDMASenderReceiverBP::RDMASenderReceiverBP() {
   auto pd = node_.get_pd();
@@ -34,10 +60,10 @@ RDMASenderReceiverBP::RDMASenderReceiverBP() {
       int time_out = 5;
       if (true) {
         printf(
-            "%p, total send: %zu, total recv: %zu, local head: %zu, remote "
+            "%s %p, total send: %zu, total recv: %zu, local head: %zu, remote "
             "tail: %zu\n",
-            this, total_send_sz.load(), total_recv_sz.load(),
-            ringbuf_->get_head(), remote_ringbuf_tail_);
+            time_in_HH_MM_SS_MMM().c_str(), this, total_send_sz.load(),
+            total_recv_sz.load(), ringbuf_->get_head(), remote_ringbuf_tail_);
       }
       //      if (true) {
       //        printf("%p Recv timeout, total send: %zu, total recv: %zu\n",
@@ -85,8 +111,8 @@ bool RDMASenderReceiverBP::check_incoming() {
 }
 
 size_t RDMASenderReceiverBP::check_and_ack_incomings_locked() {
-  unread_mlens_ = ringbuf_bp_->check_mlens();
-  // unread_mlens_ = ringbuf_bp_->check_mlen();
+//  unread_mlens_ = ringbuf_bp_->check_mlens();
+   unread_mlens_ = ringbuf_bp_->check_mlen();
   return unread_mlens_;
 }
 
@@ -99,6 +125,7 @@ size_t RDMASenderReceiverBP::recv(msghdr* msg, size_t msghdr_size) {
   size_t lens = ringbuf_bp_->read_to_msghdr(msg, msghdr_size, mlens);
   if (lens == 0) {
     rdma_log(RDMA_WARNING, "RDMASenderReceiverBP::recv, lens == 0");
+    exit(1);
     return 0;
   }
 
@@ -112,6 +139,14 @@ size_t RDMASenderReceiverBP::recv(msghdr* msg, size_t msghdr_size) {
   //  }
   last_recv_time_ =
       std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+
+  printf(
+      "%s %p, RECV: %zu total send: %zu, total recv: %zu, local head: %zu, "
+      "remote "
+      "tail: %zu\n",
+      time_in_HH_MM_SS_MMM().c_str(), this, mlens, total_send_sz.load(),
+      total_recv_sz.load(), ringbuf_->get_head(), remote_ringbuf_tail_);
+
   return mlens;
 }
 
@@ -122,6 +157,7 @@ bool RDMASenderReceiverBP::send(msghdr* msg, size_t mlen) {
              "RDMASenderReceiverBP::send, mlen > sendbuf size, %zu vs %zu",
              mlen + sizeof(size_t) + 1, sendbuf_sz_);
     return false;
+    exit(1);
   }
 
   size_t remote_ringbuf_sz = remote_ringbuf_mr_.length();
@@ -134,6 +170,13 @@ bool RDMASenderReceiverBP::send(msghdr* msg, size_t mlen) {
   // If unread datasize + the size of data we want to send is greater than ring
   // buffer size, we can not send message. we reserve 1 byte to distinguish the
   // status between empty and full
+
+  printf(
+      "%s %p, TRY SEND: %zu total send: %zu, total recv: %zu, local head: %zu, "
+      "remote "
+      "tail: %zu\n",
+      time_in_HH_MM_SS_MMM().c_str(), this, mlen, total_send_sz.load(),
+      total_recv_sz.load(), ringbuf_->get_head(), remote_ringbuf_tail_);
 
   if (used + len > remote_ringbuf_sz - 10) {
     printf("used: %zu len: %zu used+len: %zu vs %zu\n", used, len, used + len,
@@ -176,5 +219,13 @@ bool RDMASenderReceiverBP::send(msghdr* msg, size_t mlen) {
       IBV_WR_RDMA_WRITE, false);
   remote_ringbuf_tail_ = (remote_ringbuf_tail_ + len) % remote_ringbuf_sz;
   total_send_sz += len;
+
+
+  printf(
+      "%s %p, SEND: %zu total send: %zu, total recv: %zu, local head: %zu, "
+      "remote "
+      "tail: %zu\n",
+      time_in_HH_MM_SS_MMM().c_str(), this, mlen, total_send_sz.load(),
+      total_recv_sz.load(), ringbuf_->get_head(), remote_ringbuf_tail_);
   return true;
 }

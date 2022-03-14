@@ -386,7 +386,7 @@ static bool rdma_flush(grpc_rdma* rdma, grpc_error_handle* error) {
 
     rdma_log(RDMA_INFO, "rdma_flush try to send %d bytes, %d, %d, %d", 
              sending_length, iov_size, total_sent_length, rdma->outgoing_buffer->length);
-    printf("thread %lld try to send %ld bytes data\n", getpid(), sending_length);
+//    printf("thread %lld try to send %ld bytes data\n", getpid(), sending_length);
 
     while (!rdma->rdmasr->send(&msg, sending_length)) {
       // not enough space in remote
@@ -395,10 +395,10 @@ static bool rdma_flush(grpc_rdma* rdma, grpc_error_handle* error) {
         grpc_slice_buffer_remove_first(rdma->outgoing_buffer);
       }
       rdma->rdmasr->write_again();
-      printf("thread %lld send %ld bytes data failed\n", getpid(), sending_length);
+//      printf("thread %lld send %ld bytes data failed\n", getpid(), sending_length);
       return false;
     }
-    printf("thread %lld send %ld bytes data succeed\n", getpid(), sending_length);
+//    printf("thread %lld send %ld bytes data succeed\n", getpid(), sending_length);
 
     if (outgoing_slice_idx == rdma->outgoing_buffer->count) {
       *error = GRPC_ERROR_NONE;
