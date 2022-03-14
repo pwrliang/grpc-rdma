@@ -210,7 +210,7 @@ bool RDMASenderReceiverBP::send(msghdr* msg, size_t mlen) {
   if (mlen == 102) {
     int last_pos = 0;
     printf("SEND:");
-    print_ringbuf(last_pos, sendbuf_ , mlen);
+    print_ringbuf(last_pos, sendbuf_ + 8, mlen);
   }
 
   if (iov_idx != msg->msg_iovlen || nwritten != mlen) {
