@@ -31,12 +31,12 @@ RDMASenderReceiverBP::RDMASenderReceiverBP() {
           std::chrono::system_clock::now());
       int time_out = 5;
       if (true) {
-        printf("Send timeout, total send: %zu, total recv: %zu\n",
-               total_send_sz, total_recv_sz);
+        printf("%p Send timeout, total send: %zu, total recv: %zu\n",
+               this, total_send_sz, total_recv_sz);
       }
       if (true) {
-        printf("Recv timeout, total send: %zu, total recv: %zu\n",
-               total_send_sz, total_recv_sz);
+        printf("%p Recv timeout, total send: %zu, total recv: %zu\n",
+               this, total_send_sz, total_recv_sz);
       }
       sleep(5);
     }
