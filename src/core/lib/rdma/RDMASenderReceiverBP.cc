@@ -21,6 +21,22 @@ RDMASenderReceiverBP::RDMASenderReceiverBP() {
   checked_.store(false);
 
   rdma_log(RDMA_DEBUG, "RDMASenderReceiverBP %p created", this);
+  monitor_ = std::thread([this]() {
+    while (true) {
+      auto current = std::chrono::system_clock::to_time_t(
+          std::chrono::system_clock::now());
+      int time_out = 5;
+      if (current - last_send_time_ > time_out) {
+        printf("Send timeout, total send: %zu, total recv: %zu\n",
+               total_send_sz, total_recv_sz);
+      }
+      if (current - last_recv_time_ > time_out) {
+        printf("Recv timeout, total send: %zu, total recv: %zu\n",
+               total_send_sz, total_recv_sz);
+      }
+      sleep(1);
+    }
+  });
 }
 
 RDMASenderReceiverBP::~RDMASenderReceiverBP() {
@@ -80,11 +96,12 @@ size_t RDMASenderReceiverBP::recv(msghdr* msg, size_t msghdr_size) {
   unread_mlens_ = 0;
   garbage_ += lens;
   total_recv_sz += lens;
-//  if (garbage_ >= ringbuf_sz_ / 2) {  // garbage_ >= ringbuf_sz_ / 2
-    update_remote_metadata();
-    garbage_ = 0;
-//  }
-
+  //  if (garbage_ >= ringbuf_sz_ / 2) {  // garbage_ >= ringbuf_sz_ / 2
+  update_remote_metadata();
+  garbage_ = 0;
+  //  }
+  last_recv_time_ =
+      std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
   return mlens;
 }
 
@@ -107,12 +124,14 @@ bool RDMASenderReceiverBP::send(msghdr* msg, size_t mlen) {
   // If unread datasize + the size of data we want to send is greater than ring
   // buffer size, we can not send message. we reserve 1 byte to distinguish the
   // status between empty and full
+
   if (used + len > remote_ringbuf_sz - 10) {
     printf("used: %zu len: %zu used+len: %zu vs %zu\n", used, len, used + len,
-           remote_ringbuf_sz - 8);
+           remote_ringbuf_sz - 10);
     return false;
   }
-
+  last_send_time_ =
+      std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
   *(size_t*)sendbuf_ = mlen;
   uint8_t* start = sendbuf_ + sizeof(size_t);
   size_t iov_idx, nwritten;
