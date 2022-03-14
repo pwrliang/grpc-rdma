@@ -104,7 +104,7 @@ bool RDMASenderReceiverBP::send(msghdr* msg, size_t mlen) {
   size_t used =
       (remote_ringbuf_sz + remote_ringbuf_tail_ - remote_ringbuf_head_) %
       remote_ringbuf_sz;
-  if (used + len >= remote_ringbuf_sz - sizeof(size_t) - 1) {
+  if (used + len > remote_ringbuf_sz) {
     printf("used: %zu len: %zu used+len: %zu vs %zu\n", used, len, used + len,
            remote_ringbuf_sz - sizeof(size_t) - 1);
     return false;

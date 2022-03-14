@@ -25,7 +25,7 @@ RDMASenderReceiver::RDMASenderReceiver()
   write_again_.store(false);
 
   if (sendbuf_sz_ >= ringbuf_sz_ / 2) {
-    sendbuf_sz_ = ringbuf_sz_ / 2 - 1;
+    sendbuf_sz_ = ringbuf_sz_ / 2 + 1;
     rdma_log(RDMA_WARNING, "RDMASenderReceiver::RDMASenderReceiver, "
              "set sendbuf size to %d", sendbuf_sz_);
   }
