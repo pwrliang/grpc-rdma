@@ -123,7 +123,7 @@ size_t RingBufferBP::read_to_msghdr(msghdr* msg, size_t msghdr_size,
     iov_rbase = (uint8_t*)(msg->msg_iov[iov_idx].iov_base) + iov_offset;
     memcpy(iov_rbase, buf_ + buf_offset, n);
     if (mlen == 102) {
-      print_ringbuf(last_pos, buf_ + buf_offset, n);
+      print_ringbuf(last_pos, iov_rbase, n);
     }
     rdma_log(RDMA_INFO,
              "RingBufferBP::read_to_msghdr, read %d bytes from head %d", n,
