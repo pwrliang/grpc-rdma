@@ -25,7 +25,7 @@ RDMASenderReceiverEvent::RDMASenderReceiverEvent() {
   ringbuf_ = ringbuf_event_;
   check_data_.store(false);
   check_metadata_.store(false);
-  max_send_size_ = sendbuf_sz_ - 1;
+  max_send_size_ = sendbuf_sz_;
 
   rdma_log(RDMA_INFO, "RDMASenderReceiverEvent %p created", this);
 }
@@ -155,7 +155,7 @@ bool RDMASenderReceiverEvent::send(msghdr* msg, size_t mlen) {
   size_t avail_rr_num =
       (remote_rr_tail_ - remote_rr_head_ + DEFAULT_MAX_POST_RECV) %
       DEFAULT_MAX_POST_RECV;
-  if (used + mlen >= remote_ringbuf_sz - 1 || avail_rr_num <= 2) {
+  if (used + mlen > remote_ringbuf_sz || avail_rr_num <= 2) {
     // printf("send failed, %lld, %lld\n", remote_ringbuf_head_, remote_rr_tail_);
     return false;
   }
