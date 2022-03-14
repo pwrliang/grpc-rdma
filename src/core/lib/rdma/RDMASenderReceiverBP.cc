@@ -21,20 +21,24 @@ RDMASenderReceiverBP::RDMASenderReceiverBP() {
   checked_.store(false);
 
   rdma_log(RDMA_DEBUG, "RDMASenderReceiverBP %p created", this);
+  last_send_time_ =
+      std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+  last_recv_time_ =
+      std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
   monitor_ = std::thread([this]() {
     while (true) {
       auto current = std::chrono::system_clock::to_time_t(
           std::chrono::system_clock::now());
       int time_out = 5;
-      if (current - last_send_time_ > time_out) {
+      if (true) {
         printf("Send timeout, total send: %zu, total recv: %zu\n",
                total_send_sz, total_recv_sz);
       }
-      if (current - last_recv_time_ > time_out) {
+      if (true) {
         printf("Recv timeout, total send: %zu, total recv: %zu\n",
                total_send_sz, total_recv_sz);
       }
-      sleep(1);
+      sleep(5);
     }
   });
 }
