@@ -11,9 +11,7 @@ RingBuffer::RingBuffer(size_t capacity) : capacity_(capacity) {
   memset(buf_, 0, capacity);
 }
 
-RingBuffer::~RingBuffer() {
-  delete[] buf_;
-}
+RingBuffer::~RingBuffer() { delete[] buf_; }
 
 size_t RingBuffer::update_head(size_t inc) {
   head_ = (head_ + inc) % capacity_;
@@ -112,6 +110,10 @@ size_t RingBufferBP::read_to_msghdr(msghdr* msg, size_t msghdr_size,
          n;
   bool passed_expected_flag = false;
   assert(mlen > 0);
+  int last_pos = 0;
+  if(mlen == 102) {
+    printf("RECV:");
+  }
   while (iov_idx < msg->msg_iovlen && mlen > 0) {
     iov_rlen = msg->msg_iov[iov_idx].iov_len -
                iov_offset;  // rest space of current slice
@@ -120,6 +122,9 @@ size_t RingBufferBP::read_to_msghdr(msghdr* msg, size_t msghdr_size,
     n = MIN3(iov_rlen, m_rlen, capacity_ - buf_offset);
     iov_rbase = (uint8_t*)(msg->msg_iov[iov_idx].iov_base) + iov_offset;
     memcpy(iov_rbase, buf_ + buf_offset, n);
+    if (mlen == 102) {
+      print_ringbuf(last_pos, buf_ + buf_offset, n);
+    }
     rdma_log(RDMA_INFO,
              "RingBufferBP::read_to_msghdr, read %d bytes from head %d", n,
              buf_offset);

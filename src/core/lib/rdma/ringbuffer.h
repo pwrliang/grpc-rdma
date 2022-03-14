@@ -15,6 +15,15 @@
 class RDMASenderReceiverBP;
 class RDMASenderReceiverEvent;
 
+static void print_ringbuf(int& size_pos, uint8_t* head, size_t size) {
+  for (size_t i = 0; i < size; i++) {
+    if (size_pos % 50 == 0) printf("\n");
+    printf("%2d ", head[i]);
+    size_pos++;
+  }
+  printf("\n");
+}
+
 // the data size of ringbuffer should <= capacity - 1, which means the
 // ringbuffer cannot be full. if data size == capacity, then it is possible that
 // remote_head == remote_tail, then remote cannot tell if there it is full or

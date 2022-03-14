@@ -150,6 +150,7 @@ size_t RDMASenderReceiverBP::recv(msghdr* msg, size_t msghdr_size) {
   return mlens;
 }
 
+
 // mlen <= sendbuf_sz_ - sizeof(size_t) - 1;
 bool RDMASenderReceiverBP::send(msghdr* msg, size_t mlen) {
   if (mlen + sizeof(size_t) + 1 > sendbuf_sz_) {
@@ -205,6 +206,12 @@ bool RDMASenderReceiverBP::send(msghdr* msg, size_t mlen) {
   }
   // *start = 1;
   sendbuf_[len - 1] = 1;
+
+  if (mlen == 102) {
+    int last_pos = 0;
+    printf("SEND:");
+    print_ringbuf(last_pos, sendbuf_ , mlen);
+  }
 
   if (iov_idx != msg->msg_iovlen || nwritten != mlen) {
     rdma_log(RDMA_ERROR,
