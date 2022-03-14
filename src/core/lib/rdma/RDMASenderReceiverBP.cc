@@ -80,10 +80,10 @@ size_t RDMASenderReceiverBP::recv(msghdr* msg, size_t msghdr_size) {
   unread_mlens_ = 0;
   garbage_ += lens;
   total_recv_sz += lens;
-  if (garbage_ >= ringbuf_sz_ / 2) {  // garbage_ >= ringbuf_sz_ / 2
+//  if (garbage_ >= ringbuf_sz_ / 2) {  // garbage_ >= ringbuf_sz_ / 2
     update_remote_metadata();
     garbage_ = 0;
-  }
+//  }
 
   return mlens;
 }
@@ -109,7 +109,7 @@ bool RDMASenderReceiverBP::send(msghdr* msg, size_t mlen) {
   // status between empty and full
   if (used + len > remote_ringbuf_sz - 8) {
     printf("used: %zu len: %zu used+len: %zu vs %zu\n", used, len, used + len,
-           remote_ringbuf_sz - 1);
+           remote_ringbuf_sz - 8);
     return false;
   }
 
