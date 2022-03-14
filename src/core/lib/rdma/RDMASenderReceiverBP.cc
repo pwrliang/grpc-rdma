@@ -33,13 +33,17 @@ RDMASenderReceiverBP::RDMASenderReceiverBP() {
           std::chrono::system_clock::now());
       int time_out = 5;
       if (true) {
-        printf("%p Send timeout, total send: %zu, total recv: %zu\n",
-               this, total_send_sz.load(), total_recv_sz.load());
+        printf(
+            "%p, total send: %zu, total recv: %zu, local head: %zu, remote "
+            "tail: %zu\n",
+            this, total_send_sz.load(), total_recv_sz.load(),
+            ringbuf_->get_head(), remote_ringbuf_tail_);
       }
-      if (true) {
-        printf("%p Recv timeout, total send: %zu, total recv: %zu\n",
-               this, total_send_sz.load(), total_recv_sz.load());
-      }
+      //      if (true) {
+      //        printf("%p Recv timeout, total send: %zu, total recv: %zu\n",
+      //               this, total_send_sz.load(), total_recv_sz.load());
+      //      }
+
       sleep(5);
     }
   });
