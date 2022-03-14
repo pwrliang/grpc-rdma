@@ -1,7 +1,7 @@
 #include "RDMASenderReceiver.h"
-#include "log.h"
-#include "fcntl.h"
 #include <thread>
+#include "fcntl.h"
+#include "log.h"
 #define IBV_DEV_NAME "mlx5_0"
 
 // -----< RDMASenderReceiver >-----
@@ -11,23 +11,29 @@ std::atomic_bool RDMASenderReceiver::node_opened_done_(false);
 RDMANode RDMASenderReceiver::node_;
 
 RDMASenderReceiver::RDMASenderReceiver()
-  : ringbuf_sz_(DEFAULT_RINGBUF_SZ),
-    sendbuf_sz_(DEFAULT_SENDBUF_SZ),
-    metadata_recvbuf_sz_(DEFAULT_HEADBUF_SZ),
-    metadata_sendbuf_sz_(DEFAULT_HEADBUF_SZ) {
+    : ringbuf_sz_(DEFAULT_RINGBUF_SZ),
+      sendbuf_sz_(DEFAULT_SENDBUF_SZ),
+      metadata_recvbuf_sz_(DEFAULT_HEADBUF_SZ),
+      metadata_sendbuf_sz_(DEFAULT_HEADBUF_SZ) {
   if (!node_opened_.exchange(true)) {
     node_.open(IBV_DEV_NAME);
     node_opened_done_.store(true);
   } else {
-    while (!node_opened_done_.load()) {}
+    while (!node_opened_done_.load()) {
+    }
   }
 
   write_again_.store(false);
-
   if (sendbuf_sz_ >= ringbuf_sz_ / 2) {
+    /* We recycle RingBuffer when garbage_ >= R / 2, so the maximum data size
+     * so far can be R / 2 - 1 (we assume R is always event), so the minimum
+     * available size is R / 2 + 1. Thus, the maximum sendbuf_size is R / 2 + 1
+     */
     sendbuf_sz_ = ringbuf_sz_ / 2 + 1;
-    rdma_log(RDMA_WARNING, "RDMASenderReceiver::RDMASenderReceiver, "
-             "set sendbuf size to %d", sendbuf_sz_);
+    rdma_log(RDMA_WARNING,
+             "RDMASenderReceiver::RDMASenderReceiver, "
+             "set sendbuf size to %d",
+             sendbuf_sz_);
   }
 
   auto pd = node_.get_pd();
@@ -40,18 +46,22 @@ RDMASenderReceiver::RDMASenderReceiver()
     exit(-1);
   }
 
-  posix_memalign(&metadata_recvbuf_, metadata_recvbuf_sz_, metadata_recvbuf_sz_);
+  posix_memalign(&metadata_recvbuf_, metadata_recvbuf_sz_,
+                 metadata_recvbuf_sz_);
   memset(metadata_recvbuf_, 0, metadata_recvbuf_sz_);
-  if (local_metadata_recvbuf_mr_.local_reg(pd, metadata_recvbuf_, metadata_recvbuf_sz_)) {
+  if (local_metadata_recvbuf_mr_.local_reg(pd, metadata_recvbuf_,
+                                           metadata_recvbuf_sz_)) {
     rdma_log(RDMA_ERROR,
              "RDMASenderReceiver::RDMASenderReceiver, failed to local_reg "
              "local_metadata_recvbuf_mr");
-             exit(-1);
+    exit(-1);
   }
 
-  posix_memalign(&metadata_sendbuf_, metadata_sendbuf_sz_, metadata_sendbuf_sz_);
+  posix_memalign(&metadata_sendbuf_, metadata_sendbuf_sz_,
+                 metadata_sendbuf_sz_);
   memset(metadata_sendbuf_, 0, metadata_sendbuf_sz_);
-  if (metadata_sendbuf_mr_.local_reg(pd, metadata_sendbuf_, metadata_sendbuf_sz_)) {
+  if (metadata_sendbuf_mr_.local_reg(pd, metadata_sendbuf_,
+                                     metadata_sendbuf_sz_)) {
     rdma_log(RDMA_ERROR,
              "RDMASenderReceiver::RDMASenderReceiver, failed to local_reg "
              "metadata_sendbuf_mr");
@@ -70,20 +80,24 @@ RDMASenderReceiver::~RDMASenderReceiver() {
 
 void RDMASenderReceiver::connect(int fd) {
   conn_metadata_ = new RDMAConn(fd, &node_);
-  conn_metadata_->sync_mr(local_metadata_recvbuf_mr_, remote_metadata_recvbuf_mr_);
+  conn_metadata_->sync_mr(local_metadata_recvbuf_mr_,
+                          remote_metadata_recvbuf_mr_);
 }
 
 void RDMASenderReceiver::update_remote_metadata() {
   if (!ringbuf_ || !conn_metadata_) {
-    rdma_log(RDMA_ERROR, "RDMASenderReceiver::update_remote_metadata, ringbuf or connector has not been initialized");
+    rdma_log(RDMA_ERROR,
+             "RDMASenderReceiver::update_remote_metadata, ringbuf or connector "
+             "has not been initialized");
     exit(-1);
   }
 
   reinterpret_cast<size_t*>(metadata_sendbuf_)[0] = ringbuf_->get_head();
-  conn_metadata_->post_send_and_poll_completion(remote_metadata_recvbuf_mr_, 0,
-                                       metadata_sendbuf_mr_, 0,
-                                       metadata_sendbuf_sz_, IBV_WR_RDMA_WRITE, true);
-  rdma_log(RDMA_INFO, "RDMASenderReceiver::update_remote_metadata, %d", reinterpret_cast<size_t*>(metadata_sendbuf_)[0]);
+  conn_metadata_->post_send_and_poll_completion(
+      remote_metadata_recvbuf_mr_, 0, metadata_sendbuf_mr_, 0,
+      metadata_sendbuf_sz_, IBV_WR_RDMA_WRITE, true);
+  rdma_log(RDMA_INFO, "RDMASenderReceiver::update_remote_metadata, %d",
+           reinterpret_cast<size_t*>(metadata_sendbuf_)[0]);
 }
 
 void RDMASenderReceiver::update_local_metadata() {
