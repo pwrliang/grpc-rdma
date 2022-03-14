@@ -109,7 +109,7 @@ bool RDMASenderReceiverBP::send(msghdr* msg, size_t mlen) {
   // status between empty and full
   if (used + len > remote_ringbuf_sz - 1) {
     printf("used: %zu len: %zu used+len: %zu vs %zu\n", used, len, used + len,
-           remote_ringbuf_sz);
+           remote_ringbuf_sz - 1);
     return false;
   }
 
