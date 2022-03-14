@@ -25,6 +25,8 @@ RDMASenderReceiverBP::RDMASenderReceiverBP() {
       std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
   last_recv_time_ =
       std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+  total_recv_sz = 0;
+  total_send_sz = 0;
   monitor_ = std::thread([this]() {
     while (true) {
       auto current = std::chrono::system_clock::to_time_t(
@@ -32,11 +34,11 @@ RDMASenderReceiverBP::RDMASenderReceiverBP() {
       int time_out = 5;
       if (true) {
         printf("%p Send timeout, total send: %zu, total recv: %zu\n",
-               this, total_send_sz, total_recv_sz);
+               this, total_send_sz.load(), total_recv_sz.load());
       }
       if (true) {
         printf("%p Recv timeout, total send: %zu, total recv: %zu\n",
-               this, total_send_sz, total_recv_sz);
+               this, total_send_sz.load(), total_recv_sz.load());
       }
       sleep(5);
     }

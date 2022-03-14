@@ -46,13 +46,13 @@ class RDMASenderReceiver {
     MemRegion local_ringbuf_mr_, remote_ringbuf_mr_;
     size_t garbage_ = 0;
     size_t unread_mlens_ = 0;
-    size_t total_recv_sz = 0;
+    std::atomic_ulong total_recv_sz;
 
     size_t sendbuf_sz_;
     uint8_t* sendbuf_ = nullptr;
     MemRegion sendbuf_mr_;
     size_t max_send_size_ = 0;
-    size_t total_send_sz = 0;
+    std::atomic_ulong total_send_sz;
     std::atomic<bool> write_again_;
 
     size_t metadata_recvbuf_sz_;
