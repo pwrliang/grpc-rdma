@@ -89,14 +89,9 @@ class RDMASenderReceiverBP : public RDMASenderReceiver {
   size_t check_and_ack_incomings_locked();
 
  protected:
-  std::atomic_bool
-      checked_;  // there is a thread already found new incoming data
   RingBufferBP* ringbuf_bp_ = nullptr;
   RDMAConnBP* conn_data_bp_ = nullptr;
   bool connected_ = false;
-  std::atomic_long last_send_time_;
-  std::atomic_long last_recv_time_;
-  std::thread monitor_;
 };
 
 class RDMASenderReceiverEvent : public RDMASenderReceiver {

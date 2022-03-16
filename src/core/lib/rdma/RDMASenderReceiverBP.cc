@@ -7,30 +7,6 @@
 
 // -----< RDMASenderReceiverBP >-----
 
-std::string time_in_HH_MM_SS_MMM() {
-  using namespace std::chrono;
-
-  // get current time
-  auto now = system_clock::now();
-
-  // get number of milliseconds for the current second
-  // (remainder after division into seconds)
-  auto ms = duration_cast<milliseconds>(now.time_since_epoch()) % 1000;
-
-  // convert to std::time_t in order to convert to std::tm (broken time)
-  auto timer = system_clock::to_time_t(now);
-
-  // convert to broken time
-  std::tm bt = *std::localtime(&timer);
-
-  std::ostringstream oss;
-
-  oss << std::put_time(&bt, "%H:%M:%S");  // HH:MM:SS
-  oss << '.' << std::setfill('0') << std::setw(3) << ms.count();
-
-  return oss.str();
-}
-
 RDMASenderReceiverBP::RDMASenderReceiverBP() {
   auto pd = node_.get_pd();
 
@@ -44,36 +20,10 @@ RDMASenderReceiverBP::RDMASenderReceiverBP() {
 
   ringbuf_ = ringbuf_bp_;
   max_send_size_ = sendbuf_sz_ - sizeof(size_t) - 1;
-  checked_.store(false);
 
   rdma_log(RDMA_DEBUG, "RDMASenderReceiverBP %p created", this);
-  last_send_time_ =
-      std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
-  last_recv_time_ =
-      std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
   total_recv_sz = 0;
   total_send_sz = 0;
-  monitor_ = std::thread([this]() {
-    while (true) {
-      break;
-      auto current = std::chrono::system_clock::to_time_t(
-          std::chrono::system_clock::now());
-      int time_out = 5;
-      if (true) {
-        printf(
-            "%s %p, total send: %zu, total recv: %zu, local head: %zu, remote "
-            "tail: %zu\n",
-            time_in_HH_MM_SS_MMM().c_str(), this, total_send_sz.load(),
-            total_recv_sz.load(), ringbuf_->get_head(), remote_ringbuf_tail_);
-      }
-      //      if (true) {
-      //        printf("%p Recv timeout, total send: %zu, total recv: %zu\n",
-      //               this, total_send_sz.load(), total_recv_sz.load());
-      //      }
-
-      sleep(5);
-    }
-  });
 }
 
 RDMASenderReceiverBP::~RDMASenderReceiverBP() {
@@ -92,23 +42,7 @@ void RDMASenderReceiverBP::connect(int fd) {
 }
 
 bool RDMASenderReceiverBP::check_incoming() {
-  // previous checked_ is true (new incoming data already found by another
-  // thread), keep checked_ true, return false, avoid call fd_become_readable
-  // twice for the same incoming data
-  if (checked_.exchange(true)) return false;
-  // previous checked_ is false (no incoming data found before),
-  // set checked_ true to prevent other thread entering
-
-  // found new incoming data,
-  // return true, so fd_become_readable will be called, then
-  // RDMASenderReceiverBP::recv will be called leave checked_ true. after recv
-  // finished, set checked_ to false. if (ringbuf_bp_->check_head()) return
-  // true;
-  if (ringbuf_bp_->check_mlen()) return true;
-
-  // no new incoming data found, return false,
-  // leave checked_ false, so other thread could check again
-  return !checked_.exchange(false);
+  return ringbuf_bp_->check_mlen();
 }
 
 size_t RDMASenderReceiverBP::check_and_ack_incomings_locked() {
@@ -127,26 +61,15 @@ size_t RDMASenderReceiverBP::recv(msghdr* msg, size_t msghdr_size) {
   if (lens == 0) {
     rdma_log(RDMA_WARNING, "RDMASenderReceiverBP::recv, lens == 0");
     exit(1);
-    return 0;
   }
 
-  checked_.store(false);
   unread_mlens_ = 0;
   garbage_ += lens;
   total_recv_sz += lens;
-  //  if (garbage_ >= ringbuf_sz_ / 2) {  // garbage_ >= ringbuf_sz_ / 2
-  update_remote_metadata();
-  garbage_ = 0;
-  //  }
-  last_recv_time_ =
-      std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
-
-  printf(
-      "%s %p, RECV: %zu total send: %zu, total recv: %zu, local head: %zu, "
-      "remote "
-      "tail: %zu\n",
-      time_in_HH_MM_SS_MMM().c_str(), this, mlens, total_send_sz.load(),
-      total_recv_sz.load(), ringbuf_->get_head(), remote_ringbuf_tail_);
+  if (garbage_ >= ringbuf_sz_ / 2) {
+    update_remote_metadata();
+    garbage_ = 0;
+  }
 
   return mlens;
 }
@@ -157,7 +80,6 @@ bool RDMASenderReceiverBP::send(msghdr* msg, size_t mlen) {
     rdma_log(RDMA_ERROR,
              "RDMASenderReceiverBP::send, mlen > sendbuf size, %zu vs %zu",
              mlen + sizeof(size_t) + 1, sendbuf_sz_);
-    return false;
     exit(1);
   }
 
@@ -172,20 +94,9 @@ bool RDMASenderReceiverBP::send(msghdr* msg, size_t mlen) {
   // buffer size, we can not send message. we reserve 1 byte to distinguish the
   // status between empty and full
 
-  printf(
-      "%s %p, TRY SEND: %zu total send: %zu, total recv: %zu, local head: %zu, "
-      "remote "
-      "tail: %zu\n",
-      time_in_HH_MM_SS_MMM().c_str(), this, mlen, total_send_sz.load(),
-      total_recv_sz.load(), ringbuf_->get_head(), remote_ringbuf_tail_);
-
-  if (used + len > remote_ringbuf_sz - 10) {
-    printf("used: %zu len: %zu used+len: %zu vs %zu\n", used, len, used + len,
-           remote_ringbuf_sz - 10);
+  if (used + len > remote_ringbuf_sz - 8) {
     return false;
   }
-  last_send_time_ =
-      std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
   *(size_t*)sendbuf_ = mlen;
   uint8_t* start = sendbuf_ + sizeof(size_t);
   size_t iov_idx, nwritten;
@@ -207,11 +118,6 @@ bool RDMASenderReceiverBP::send(msghdr* msg, size_t mlen) {
   // *start = 1;
   sendbuf_[len - 1] = 1;
 
-  std::stringstream ss;
-  ss << "SEND, mlen: " << mlen << std::endl;
-  print_ringbuf(ss, sendbuf_ + 8, mlen);
-  printf("%s\n", ss.str().c_str());
-
   if (iov_idx != msg->msg_iovlen || nwritten != mlen) {
     rdma_log(RDMA_ERROR,
              "RDMASenderReceiverBP::send, iov_idx = %d, msg_iovlen = %d, "
@@ -226,11 +132,5 @@ bool RDMASenderReceiverBP::send(msghdr* msg, size_t mlen) {
   remote_ringbuf_tail_ = (remote_ringbuf_tail_ + len) % remote_ringbuf_sz;
   total_send_sz += len;
 
-  printf(
-      "%s %p, SEND: %zu total send: %zu, total recv: %zu, local head: %zu, "
-      "remote "
-      "tail: %zu\n",
-      time_in_HH_MM_SS_MMM().c_str(), this, mlen, total_send_sz.load(),
-      total_recv_sz.load(), ringbuf_->get_head(), remote_ringbuf_tail_);
   return true;
 }

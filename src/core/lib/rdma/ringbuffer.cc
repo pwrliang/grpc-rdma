@@ -5,11 +5,6 @@
 #define MIN4(a, b, c, d) MIN(MIN(a, b), MIN(c, d))
 
 // -----< RingBuffer >-----
-void print_ringbuf(std::stringstream& ss, uint8_t* head, size_t size) {
-  for (size_t i = 0; i < size; i++) {
-    ss << std::hex << std::setfill('0') << std::setw(2) << (int)head[i] << " ";
-  }
-}
 
 RingBuffer::RingBuffer(size_t capacity) : capacity_(capacity) {
   buf_ = new uint8_t[capacity];
@@ -115,8 +110,6 @@ size_t RingBufferBP::read_to_msghdr(msghdr* msg, size_t msghdr_size,
          n;
   bool passed_expected_flag = false;
   assert(mlen > 0);
-  std::stringstream ss;
-  ss << "RECV, mlen: " << mlen << std::endl;
 
   while (iov_idx < msg->msg_iovlen && mlen > 0) {
     iov_rlen = msg->msg_iov[iov_idx].iov_len -
@@ -126,7 +119,6 @@ size_t RingBufferBP::read_to_msghdr(msghdr* msg, size_t msghdr_size,
     n = MIN3(iov_rlen, m_rlen, capacity_ - buf_offset);
     iov_rbase = (uint8_t*)(msg->msg_iov[iov_idx].iov_base) + iov_offset;
     memcpy(iov_rbase, buf_ + buf_offset, n);
-    print_ringbuf(ss, iov_rbase, n);
     rdma_log(RDMA_INFO,
              "RingBufferBP::read_to_msghdr, read %d bytes from head %d", n,
              buf_offset);
@@ -157,7 +149,6 @@ size_t RingBufferBP::read_to_msghdr(msghdr* msg, size_t msghdr_size,
     }
     buf_offset = buf_offset % capacity_;
   }
-  printf("%s\n", ss.str().c_str());
 
   if (!passed_expected_flag && mlens != expected_mlens) {
     rdma_log(RDMA_ERROR,
