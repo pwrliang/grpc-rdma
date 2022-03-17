@@ -43,7 +43,6 @@ void RDMASenderReceiverEvent::connect(int fd) {
   // RDMASenderReceiver::connect(fd);
   conn_data_event_ = new RDMAConnEvent(fd, &node_);
   conn_metadata_event_ = new RDMAConnEvent(fd, &node_);
-  conn_data_ = conn_data_event_;
   conn_metadata_ = conn_metadata_event_;
   conn_data_event_->sync_mr(local_ringbuf_mr_, remote_ringbuf_mr_);
   conn_metadata_event_->sync_mr(local_metadata_recvbuf_mr_, remote_metadata_recvbuf_mr_);

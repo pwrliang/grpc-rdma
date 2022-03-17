@@ -46,8 +46,8 @@ bool RDMASenderReceiverBP::check_incoming() {
 }
 
 size_t RDMASenderReceiverBP::check_and_ack_incomings_locked() {
-  //  unread_mlens_ = ringbuf_bp_->check_mlens();
-  unread_mlens_ = ringbuf_bp_->check_mlen();
+  unread_mlens_ = ringbuf_bp_->check_mlens();
+  //  unread_mlens_ = ringbuf_bp_->check_mlen();
   return unread_mlens_;
 }
 

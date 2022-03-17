@@ -38,8 +38,7 @@ class RDMASenderReceiver {
     static std::atomic_bool node_opened_done_;
 
     int fd_;
-    RDMAConn* conn_data_ = nullptr; // no ownership 
-    RDMAConn* conn_metadata_ = nullptr; 
+    RDMAConn* conn_metadata_ = nullptr;
 
     size_t ringbuf_sz_, remote_ringbuf_head_ = 0, remote_ringbuf_tail_ = 0;
     RingBuffer* ringbuf_ = nullptr; // no ownership 
@@ -83,8 +82,6 @@ class RDMASenderReceiverBP : public RDMASenderReceiver {
 
   // this should be thread safe,
   bool check_incoming();
-
-  bool check_incoming_() { return ringbuf_bp_->check_head(); }
 
   size_t check_and_ack_incomings_locked();
 
