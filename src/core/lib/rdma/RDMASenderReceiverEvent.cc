@@ -154,10 +154,13 @@ bool RDMASenderReceiverEvent::send(msghdr* msg, size_t mlen) {
   size_t avail_rr_num =
       (remote_rr_tail_ - remote_rr_head_ + DEFAULT_MAX_POST_RECV) %
       DEFAULT_MAX_POST_RECV;
-  if (used + mlen > remote_ringbuf_sz - 1 || avail_rr_num <= 2) {
-    // printf("send failed, %lld, %lld\n", remote_ringbuf_head_, remote_rr_tail_);
-    return false;
-  }
+  // if (used + mlen > remote_ringbuf_sz - 1 || avail_rr_num <= 2) {
+  //   // printf("send failed, %lld, %lld\n", remote_ringbuf_head_, remote_rr_tail_);
+  //   return false;
+  // }
+
+  if (avail_rr_num <= 2) return false;
+  if (used + mlen > remote_ringbuf_sz - 8) return false;
 
   uint8_t* start = sendbuf_;
   for (size_t iov_idx = 0, nwritten = 0;
