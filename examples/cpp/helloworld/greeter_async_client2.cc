@@ -131,7 +131,7 @@ int main(int argc, char** argv) {
   // Spawn reader thread that loops indefinitely
   std::thread thread_ = std::thread(&GreeterClient::AsyncCompleteRpc, &greeter);
 
-  for (int i = 0; i < 100; i++) {
+  for (int i = 0; i < 1; i++) {
     std::string user("world " + std::to_string(i));
     greeter.SayHello(user);  // The actual RPC call!
   }

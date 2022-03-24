@@ -573,8 +573,8 @@ grpc_endpoint* grpc_rdma_bp_create(grpc_fd* em_fd,
   rdma->rdmasr->connect(rdma->fd);
   grpc_fd_set_rdmasr_bp(em_fd, rdma->rdmasr);
   rdma_log(RDMA_INFO, "rdmasr %p is created, attached to fd %d", rdma->rdmasr, rdma->fd);
-  global_endpoint_count.fetch_add(1);
-  // printf("rdmasr %p is created, attached to fd: %d, global count = %d\n", rdma->rdmasr, rdma->fd, global_endpoint_count.fetch_add(1) + 1);
+//  global_endpoint_count.fetch_add(1);
+   printf("rdmasr %p is created, attached to fd: %d, global count = %d\n", rdma->rdmasr, rdma->fd, global_endpoint_count.fetch_add(1) + 1);
   return &rdma->base;
 }
 

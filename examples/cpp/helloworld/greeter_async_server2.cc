@@ -56,7 +56,7 @@ class ServerImpl final {
     builder.SetOption(grpc::MakeChannelArgumentOption(GRPC_ARG_ALLOW_REUSEPORT, 0));
     builder.AddListeningPort(server_address, grpc::InsecureServerCredentials());
     builder.RegisterService(&service_);
-    for (int i = 0; i < 28; i++) {
+    for (int i = 0; i < 128; i++) {
       cqs_.emplace_back(builder.AddCompletionQueue());
     }
     server_ = builder.BuildAndStart();

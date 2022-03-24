@@ -46,6 +46,7 @@ typedef struct grpc_tcp_listener {
      identified while iterating through 'next'. */
   struct grpc_tcp_listener* sibling;
   int is_sibling;
+  int client_count;
 } grpc_tcp_listener;
 
 /* the overall server */

@@ -52,6 +52,7 @@
 #include "src/core/lib/gpr/string.h"
 #include "src/core/lib/gprpp/memory.h"
 #include "src/core/lib/iomgr/exec_ctx.h"
+#include "src/core/lib/iomgr/iomgr_internal.h"
 #include "src/core/lib/iomgr/resolve_address.h"
 #include "src/core/lib/iomgr/sockaddr.h"
 #include "src/core/lib/iomgr/socket_utils_posix.h"
@@ -59,7 +60,6 @@
 #include "src/core/lib/iomgr/tcp_server.h"
 #include "src/core/lib/iomgr/tcp_server_utils_posix.h"
 #include "src/core/lib/iomgr/unix_sockets_posix.h"
-#include "src/core/lib/iomgr/iomgr_internal.h"
 
 static grpc_error_handle tcp_server_create(grpc_closure* shutdown_complete,
                                            const grpc_channel_args* args,
@@ -69,7 +69,8 @@ static grpc_error_handle tcp_server_create(grpc_closure* shutdown_complete,
 
   // in rdma mode, set it false
   s->so_reuseport = grpc_is_socket_reuse_port_supported();
-  s->so_reuseport = s->so_reuseport && (grpc_check_iomgr_platform() == IOMGR_TCP);
+  s->so_reuseport =
+      s->so_reuseport && (grpc_check_iomgr_platform() == IOMGR_TCP);
   s->expand_wildcard_addrs = false;
   for (size_t i = 0; i < (args == nullptr ? 0 : args->num_args); i++) {
     if (0 == strcmp(GRPC_ARG_ALLOW_REUSEPORT, args->args[i].key)) {
@@ -247,8 +248,9 @@ static void on_read(void* arg, grpc_error_handle err) {
       gpr_log(GPR_INFO, "SERVER_CONNECT: incoming connection: %s",
               addr_str.c_str());
     }
-
-    printf("accept connection from %s, fd = %d\n", addr_str.c_str(), fd);
+    sp->client_count++;
+    printf("accept connection from %s, fd = %d, client count = %d\n",
+           addr_str.c_str(), fd, sp->client_count);
 
     std::string name = absl::StrCat("tcp-server-connection:", addr_str);
     grpc_fd* fdobj = grpc_fd_create(fd, name.c_str(), true);
@@ -398,6 +400,7 @@ static grpc_error_handle clone_port(grpc_tcp_listener* listener,
     sp->port = port;
     sp->port_index = listener->port_index;
     sp->fd_index = listener->fd_index + count - i;
+    sp->client_count = 0;
     GPR_ASSERT(sp->emfd);
     while (listener->server->tail->next != nullptr) {
       listener->server->tail = listener->server->tail->next;
