@@ -32,26 +32,37 @@ RDMASenderReceiverBP::~RDMASenderReceiverBP() {
 }
 
 void RDMASenderReceiverBP::connect(int fd) {
-  RDMASenderReceiver::connect(fd);
-  conn_data_bp_ = new RDMAConnBP(fd, &node_);
-  conn_data_bp_->sync_mr(local_ringbuf_mr_, remote_ringbuf_mr_);
-
-  rdma_log(RDMA_DEBUG, "RDMASenderReceiverBP connected");
-  // printf("RDMASenderReceiverBP is connected\n");
-  connected_ = true;
+  conn_th_ = std::thread([this, fd]() {
+    RDMASenderReceiver::connect(fd);
+    conn_data_bp_ = new RDMAConnBP(fd, &node_);
+    conn_data_bp_->sync_mr(local_ringbuf_mr_, remote_ringbuf_mr_);
+    rdma_log(RDMA_DEBUG, "RDMASenderReceiverBP connected");
+    // printf("RDMASenderReceiverBP is connected\n");
+    connected_ = true;
+  });
+  conn_th_.detach();
 }
 
 bool RDMASenderReceiverBP::check_incoming() {
+  while (!connected()) {
+    std::this_thread::yield();
+  }
   return ringbuf_bp_->check_mlen();
 }
 
 size_t RDMASenderReceiverBP::check_and_ack_incomings_locked() {
+  while (!connected()) {
+    std::this_thread::yield();
+  }
   unread_mlens_ = ringbuf_bp_->check_mlens();
   //  unread_mlens_ = ringbuf_bp_->check_mlen();
   return unread_mlens_;
 }
 
 size_t RDMASenderReceiverBP::recv(msghdr* msg, size_t msghdr_size) {
+  while (!connected()) {
+    std::this_thread::yield();
+  }
   // the actual read size is unread_data_size
   size_t mlens = unread_mlens_;
 
@@ -76,6 +87,9 @@ size_t RDMASenderReceiverBP::recv(msghdr* msg, size_t msghdr_size) {
 
 // mlen <= sendbuf_sz_ - sizeof(size_t) - 1;
 bool RDMASenderReceiverBP::send(msghdr* msg, size_t mlen) {
+  while (!connected()) {
+    std::this_thread::yield();
+  }
   if (mlen + sizeof(size_t) + 1 > sendbuf_sz_) {
     rdma_log(RDMA_ERROR,
              "RDMASenderReceiverBP::send, mlen > sendbuf size, %zu vs %zu",
