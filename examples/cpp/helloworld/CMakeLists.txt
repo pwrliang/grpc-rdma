@@ -23,6 +23,17 @@ project(HelloWorld C CXX)
 
 include(../cmake/common.cmake)
 
+# find gflags-------------------------------------------------------------------
+include("../cmake/FindGFlags.cmake")
+if (NOT GFLAGS_FOUND)
+    message(FATAL_ERROR "gflags not found")
+else ()
+    include_directories(SYSTEM ${GFLAGS_INCLUDE_DIRS})
+endif ()
+
+find_package(MPI REQUIRED)
+include_directories(SYSTEM ${MPI_CXX_INCLUDE_PATH})
+
 # Proto file
 get_filename_component(hw_proto "../../protos/helloworld.proto" ABSOLUTE)
 get_filename_component(hw_proto_path "${hw_proto}" PATH)
@@ -68,7 +79,10 @@ foreach(_target
     hw_grpc_proto
     ${_REFLECTION}
     ${_GRPC_GRPCPP}
-    ${_PROTOBUF_LIBPROTOBUF})
+    ${_PROTOBUF_LIBPROTOBUF}
+    ${GFLAGS_LIBRARIES}
+    ${MPI_CXX_LIBRARIES}
+    )
   if(NOT APPLE)
     target_link_libraries(${_target} ibverbs)
   endif()

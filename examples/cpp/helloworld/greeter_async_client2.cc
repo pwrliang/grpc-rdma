@@ -23,6 +23,7 @@
 #include <grpc/support/log.h>
 #include <grpcpp/grpcpp.h>
 #include <thread>
+#include <mpi.h>
 
 #ifdef BAZEL_BUILD
 #include "examples/protos/helloworld.grpc.pb.h"
@@ -38,6 +39,9 @@ using grpc::Status;
 using helloworld::Greeter;
 using helloworld::HelloReply;
 using helloworld::HelloRequest;
+
+int world_rank, world_size;
+int global_count = 0;
 
 class GreeterClient {
  public:
@@ -86,13 +90,18 @@ class GreeterClient {
       GPR_ASSERT(ok);
 
       if (call->status.ok())
-        std::cout << "Greeter received: " << call->reply.message() << std::endl;
+        // std::cout << "Greeter received: " << call->reply.message() << std::endl;
+        std::cout << "Greeter received: " << world_rank << ", " << ++global_count << std::endl;
       else
         std::cout << "RPC failed" << std::endl;
 
       // Once we're complete, deallocate the call object.
       delete call;
+
+      if (++global_count == 2) break;
     }
+
+    cq_.Shutdown();
   }
 
  private:
@@ -121,15 +130,27 @@ class GreeterClient {
 };
 
 int main(int argc, char** argv) {
+  MPI_Init(&argc, &argv);
+  MPI_Comm_size(MPI_COMM_WORLD, &world_size);
+  MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
+
+
   // Instantiate the client. It requires a channel, out of which the actual RPCs
   // are created. This channel models a connection to an endpoint (in this case,
   // localhost at port 50051). We indicate that the channel isn't authenticated
   // (use of InsecureChannelCredentials()).
   GreeterClient greeter(grpc::CreateChannel(
-      "localhost:50051", grpc::InsecureChannelCredentials()));
+      "10.3.1.101:50051", grpc::InsecureChannelCredentials()));
 
   // Spawn reader thread that loops indefinitely
   std::thread thread_ = std::thread(&GreeterClient::AsyncCompleteRpc, &greeter);
+
+  sleep(world_rank * 10);
+  printf("world rank: %d\n", world_rank);
+  std::string user("world " + std::to_string(50051));
+  greeter.SayHello(user);  // The actual RPC call!
+
+  MPI_Barrier(MPI_COMM_WORLD);
 
   for (int i = 0; i < 1; i++) {
     std::string user("world " + std::to_string(i));
@@ -137,7 +158,7 @@ int main(int argc, char** argv) {
   }
 
 
-  std::cout << "Press control-c to quit" << std::endl << std::endl;
+  // std::cout << "Press control-c to quit" << std::endl << std::endl;
   thread_.join();  // blocks forever
 
   return 0;
