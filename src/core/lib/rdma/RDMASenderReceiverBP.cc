@@ -24,6 +24,7 @@ RDMASenderReceiverBP::RDMASenderReceiverBP() {
   rdma_log(RDMA_DEBUG, "RDMASenderReceiverBP %p created", this);
   total_recv_sz = 0;
   total_send_sz = 0;
+  connected_ = false;
 }
 
 RDMASenderReceiverBP::~RDMASenderReceiverBP() {
@@ -37,8 +38,8 @@ void RDMASenderReceiverBP::connect(int fd) {
     conn_data_bp_ = new RDMAConnBP(fd, &node_);
     conn_data_bp_->sync_mr(local_ringbuf_mr_, remote_ringbuf_mr_);
     rdma_log(RDMA_DEBUG, "RDMASenderReceiverBP connected");
-    // printf("RDMASenderReceiverBP is connected\n");
     connected_ = true;
+    printf("RDMASenderReceiverBP is connected, fd: %d\n", fd);
   });
   conn_th_.detach();
 }

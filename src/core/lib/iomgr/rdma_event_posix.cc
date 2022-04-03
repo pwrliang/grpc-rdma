@@ -445,7 +445,7 @@ static void rdma_handle_write(void* arg /* grpc_tcp */,
   bool flush_result = rdma_flush(rdma, &error);
   if (!flush_result) {
     notify_on_write(rdma);
-    GPR_DEBUG_ASSERT(error = GRPC_ERROR_NONE);
+    GPR_DEBUG_ASSERT(error == GRPC_ERROR_NONE);
   } else {
     cb = rdma->write_cb;
     rdma->write_cb = nullptr;

@@ -88,7 +88,7 @@ class RDMASenderReceiverBP : public RDMASenderReceiver {
  protected:
   RingBufferBP* ringbuf_bp_ = nullptr;
   RDMAConnBP* conn_data_bp_ = nullptr;
-  bool connected_ = false;
+  std::atomic_bool connected_;
   std::thread conn_th_;
 };
 
