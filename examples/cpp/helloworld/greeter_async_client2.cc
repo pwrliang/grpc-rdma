@@ -16,15 +16,16 @@
  *
  */
 
+#include <grpc/support/log.h>
+#include <grpcpp/grpcpp.h>
 #include <iostream>
 #include <memory>
 #include <string>
-
-#include <grpc/support/log.h>
-#include <grpcpp/grpcpp.h>
 #include <thread>
-#include <mpi.h>
-
+#include "comm_spec.h"
+#include "flags.h"
+#include "gflags/gflags.h"
+#include "stopwatch.h"
 #ifdef BAZEL_BUILD
 #include "examples/protos/helloworld.grpc.pb.h"
 #else
@@ -40,126 +41,126 @@ using helloworld::Greeter;
 using helloworld::HelloReply;
 using helloworld::HelloRequest;
 
-int world_rank, world_size;
-int global_count = 0;
-
 class GreeterClient {
  public:
   explicit GreeterClient(std::shared_ptr<Channel> channel)
       : stub_(Greeter::NewStub(channel)) {}
+  void Warmup() {
+    for (int i = 0; i < FLAGS_warmup; i++) {
+      std::string user;
+      user.resize(FLAGS_req);
+      HelloRequest request;
+      request.set_name(user);
+      HelloReply reply;
 
-  // Assembles the client's payload and sends it to the server.
+      ClientContext context;
+
+      // The actual RPC.
+      Status status = stub_->SayHello(&context, request, &reply);
+
+      GPR_ASSERT(status.ok());
+    }
+  }
+
   void SayHello(const std::string& user) {
-    // Data we are sending to the server.
     HelloRequest request;
     request.set_name(user);
 
-    // Call object to store rpc data
     AsyncClientCall* call = new AsyncClientCall;
 
-    // stub_->PrepareAsyncSayHello() creates an RPC object, returning
-    // an instance to store in "call" but does not actually start the RPC
-    // Because we are using the asynchronous API, we need to hold on to
-    // the "call" instance in order to get updates on the ongoing RPC.
     call->response_reader =
         stub_->PrepareAsyncSayHello(&call->context, request, &cq_);
-
-    // StartCall initiates the RPC call
     call->response_reader->StartCall();
-
-    // Request that, upon completion of the RPC, "reply" be updated with the
-    // server's response; "status" with the indication of whether the operation
-    // was successful. Tag the request with the memory address of the call
-    // object.
     call->response_reader->Finish(&call->reply, &call->status, (void*)call);
   }
 
-  // Loop while listening for completed responses.
-  // Prints out the response from the server.
   void AsyncCompleteRpc() {
     void* got_tag;
     bool ok = false;
+    rest_resp_.store(FLAGS_batch);
 
-    // Block until the next result is available in the completion queue "cq".
-    while (cq_.Next(&got_tag, &ok)) {
-      // The tag in this example is the memory location of the call object
+    while (rest_resp_-- > 0 && cq_.Next(&got_tag, &ok)) {
       AsyncClientCall* call = static_cast<AsyncClientCall*>(got_tag);
 
-      // Verify that the request was completed successfully. Note that "ok"
-      // corresponds solely to the request for updates introduced by Finish().
       GPR_ASSERT(ok);
-
-      if (call->status.ok())
-        // std::cout << "Greeter received: " << call->reply.message() << std::endl;
-        std::cout << "Greeter received: " << world_rank << ", " << ++global_count << std::endl;
-      else
-        std::cout << "RPC failed" << std::endl;
-
-      // Once we're complete, deallocate the call object.
+      GPR_ASSERT(call->status.ok());
       delete call;
-
-      if (++global_count == 2) break;
     }
-
-    cq_.Shutdown();
+//    printf("AsyncCompleteRpc exit\n");
   }
 
+  std::atomic_int rest_resp_;
+
  private:
-  // struct for keeping state and data information
   struct AsyncClientCall {
-    // Container for the data we expect from the server.
     HelloReply reply;
-
-    // Context for the client. It could be used to convey extra information to
-    // the server and/or tweak certain RPC behaviors.
     ClientContext context;
-
-    // Storage for the status of the RPC upon completion.
     Status status;
 
     std::unique_ptr<ClientAsyncResponseReader<HelloReply>> response_reader;
   };
 
-  // Out of the passed in Channel comes the stub, stored here, our view of the
-  // server's exposed services.
   std::unique_ptr<Greeter::Stub> stub_;
-
-  // The producer-consumer queue we use to communicate asynchronously with the
-  // gRPC runtime.
   CompletionQueue cq_;
 };
 
 int main(int argc, char** argv) {
-  MPI_Init(&argc, &argv);
-  MPI_Comm_size(MPI_COMM_WORLD, &world_size);
-  MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
+  InitMPIComm();
 
-
-  // Instantiate the client. It requires a channel, out of which the actual RPCs
-  // are created. This channel models a connection to an endpoint (in this case,
-  // localhost at port 50051). We indicate that the channel isn't authenticated
-  // (use of InsecureChannelCredentials()).
-  GreeterClient greeter(grpc::CreateChannel(
-      "10.3.1.101:50051", grpc::InsecureChannelCredentials()));
-
-  // Spawn reader thread that loops indefinitely
-  std::thread thread_ = std::thread(&GreeterClient::AsyncCompleteRpc, &greeter);
-
-  sleep(world_rank * 10);
-  printf("world rank: %d\n", world_rank);
-  std::string user("world " + std::to_string(50051));
-  greeter.SayHello(user);  // The actual RPC call!
-
-  MPI_Barrier(MPI_COMM_WORLD);
-
-  for (int i = 0; i < 1; i++) {
-    std::string user("world " + std::to_string(i));
-    greeter.SayHello(user);  // The actual RPC call!
+  gflags::SetUsageMessage("Usage: mpiexec [mpi_opts] ./main [main_opts]");
+  if (argc == 1) {
+    gflags::ShowUsageWithFlagsRestrict(argv[0], "main");
+    exit(1);
   }
+  gflags::ParseCommandLineFlags(&argc, &argv, true);
+  gflags::ShutDownCommandLineFlags();
+  {
+    CommSpec comm_spec;
+    comm_spec.Init(MPI_COMM_WORLD);
 
+    GreeterClient greeter(grpc::CreateChannel(
+        FLAGS_host + ":50051", grpc::InsecureChannelCredentials()));
 
-  // std::cout << "Press control-c to quit" << std::endl << std::endl;
-  thread_.join();  // blocks forever
+    std::vector<std::thread> threads;
+    threads.emplace_back(&GreeterClient::AsyncCompleteRpc, &greeter);
+    int batch_size = FLAGS_batch;
+    Stopwatch sw;
 
+    greeter.Warmup();
+
+    sw.start();
+    MPI_Barrier(comm_spec.client_comm());
+    for (int i = 0; i < FLAGS_threads; i++) {
+      threads.emplace_back([&]() {
+        CompletionQueue cq;
+        auto chunk_size = (batch_size + FLAGS_threads - 1) / FLAGS_threads;
+        std::string user;
+        user.resize(FLAGS_req);
+
+        for (int j = 0; j < chunk_size; j++) {
+          greeter.SayHello(user);
+        }
+//        int finished;
+//        while ((finished = greeter.rest_resp_.load()) > 0) {
+//          printf("PID: %d all sent, finished: %d\n", getpid(), finished);
+//          sleep(1);
+//        }
+      });
+    }
+
+    for (std::thread& th : threads) {
+      th.join();
+    }
+    MPI_Barrier(comm_spec.client_comm());
+    sw.stop();
+    double throughput = batch_size / sw.s();
+    double total_throughput;
+    MPI_Reduce(&throughput, &total_throughput, 1, MPI_DOUBLE, MPI_SUM, 0,
+               comm_spec.comm());
+    if (comm_spec.worker_id() == 0) {
+      std::cout << "Throughput: " << total_throughput << " req/s" << std::endl;
+    }
+  }
+  FinalizeMPIComm();
   return 0;
 }

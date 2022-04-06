@@ -29,7 +29,9 @@
 #else
 #include "helloworld.grpc.pb.h"
 #endif
-
+#include <sstream>
+#include "flags.h"
+#include "gflags/gflags.h"
 using grpc::Server;
 using grpc::ServerAsyncResponseWriter;
 using grpc::ServerBuilder;
@@ -53,14 +55,16 @@ class ServerImpl final {
     std::string server_address("0.0.0.0:50051");
 
     ServerBuilder builder;
-    builder.SetOption(grpc::MakeChannelArgumentOption(GRPC_ARG_ALLOW_REUSEPORT, 0));
+    builder.SetOption(
+        grpc::MakeChannelArgumentOption(GRPC_ARG_ALLOW_REUSEPORT, 0));
     builder.AddListeningPort(server_address, grpc::InsecureServerCredentials());
     builder.RegisterService(&service_);
-    for (int i = 0; i < 128; i++) {
+    for (int i = 0; i < FLAGS_threads; i++) {
       cqs_.emplace_back(builder.AddCompletionQueue());
     }
     server_ = builder.BuildAndStart();
-    std::cout << "Server listening on " << server_address << std::endl;
+    std::cout << "Server listening on " << server_address
+              << ", thread: " << FLAGS_threads << std::endl;
 
     HandleRpcs();
   }
@@ -80,9 +84,7 @@ class ServerImpl final {
                                   this);
       } else if (status_ == PROCESS) {
         new CallData(service_, cq_);
-
-//        std::string prefix("Hello ");
-        reply_.mutable_message()->resize(1024);
+        reply_.mutable_message()->resize(FLAGS_resp);
         status_ = FINISH;
         responder_.Finish(reply_, Status::OK, this);
       } else {
@@ -112,6 +114,7 @@ class ServerImpl final {
             new CallData(&service_, cq.get());
             void* tag;
             bool ok;
+
             while (true) {
               GPR_ASSERT(cq->Next(&tag, &ok));
               GPR_ASSERT(ok);
@@ -132,6 +135,13 @@ class ServerImpl final {
 };
 
 int main(int argc, char** argv) {
+  gflags::SetUsageMessage("Usage: mpiexec [mpi_opts] ./main [main_opts]");
+  if (argc == 1) {
+    gflags::ShowUsageWithFlagsRestrict(argv[0], "main");
+    exit(1);
+  }
+  gflags::ParseCommandLineFlags(&argc, &argv, true);
+  gflags::ShutDownCommandLineFlags();
   ServerImpl server;
   server.Run();
 
