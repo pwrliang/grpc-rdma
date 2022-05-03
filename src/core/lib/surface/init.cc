@@ -34,6 +34,7 @@
 #include "src/core/lib/channel/connected_channel.h"
 #include "src/core/lib/channel/handshaker_registry.h"
 #include "src/core/lib/debug/stats.h"
+#include "include/grpcpp/stats_time.h"
 #include "src/core/lib/debug/trace.h"
 #include "src/core/lib/gprpp/fork.h"
 #include "src/core/lib/gprpp/sync.h"
@@ -138,6 +139,7 @@ void grpc_init(void) {
     grpc_core::Fork::GlobalInit();
     grpc_fork_handlers_auto_register();
     grpc_stats_init();
+//    grpc_stats_time_init();
     grpc_init_static_metadata_ctx();
     grpc_slice_intern_init();
     grpc_mdctx_global_init();
@@ -190,6 +192,7 @@ void grpc_shutdown_internal_locked(void) {
     grpc_slice_intern_shutdown();
     grpc_core::channelz::ChannelzRegistry::Shutdown();
     grpc_stats_shutdown();
+    grpc_stats_time_shutdown();
     grpc_core::Fork::GlobalShutdown();
   }
   grpc_core::ExecCtx::GlobalShutdown();

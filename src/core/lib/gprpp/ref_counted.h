@@ -192,7 +192,7 @@ class RefCount {
     return prior == 1;
   }
 
- private:
+// private:
   Value get() const { return value_.Load(MemoryOrder::RELAXED); }
 
 #ifndef NDEBUG

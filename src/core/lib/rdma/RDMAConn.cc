@@ -1,151 +1,46 @@
 #include "RDMAConn.h"
-#include "log.h"
-
-#include <arpa/inet.h>
-#include <errno.h>
-#include <stdarg.h>
-#include <stdio.h>
+#include <fcntl.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/epoll.h>
-#include <sys/socket.h>
-#include <sys/types.h>
 #include <chrono>
 #include <condition_variable>
-#include <mutex>
-#include <thread>
-#include "fcntl.h"
-
-void INIT_SGE(ibv_sge* sge, void* lc_addr, size_t sz, uint32_t lkey) {
-  memset(sge, 0, sizeof(ibv_sge));
-  sge->addr = (uint64_t)lc_addr;
-  sge->length = sz;
-  sge->lkey = lkey;
-}
-
-void INIT_SR(ibv_send_wr* sr, ibv_sge* sge, ibv_wr_opcode opcode, void* rt_addr,
-             uint32_t rkey, int num_sge, uint32_t imm_data, size_t id,
-             ibv_send_wr* next) {
-  // static int id = 0;
-  memset(sr, 0, sizeof(ibv_send_wr));
-  sr->next = next;
-  sr->wr_id = id;
-  sr->sg_list = sge;
-  sr->num_sge = num_sge;
-  sr->opcode = opcode;
-  sr->imm_data = imm_data;
-  sr->send_flags = IBV_SEND_SIGNALED;
-  sr->wr.rdma.remote_addr = (uint64_t)rt_addr;
-  sr->wr.rdma.rkey = rkey;
-}
-
-void INIT_RR(ibv_recv_wr* rr, ibv_sge* sge, int num_sge) {
-  static int id = 0;
-  memset(rr, 0, sizeof(ibv_recv_wr));
-  rr->next = NULL;
-  rr->wr_id = id++;
-  rr->sg_list = sge;
-  rr->num_sge = num_sge;
-}
-
-static int modify_qp_to_init(ibv_qp* qp) {
-  ibv_qp_attr attr;
-  int flags;
-  int rc;
-
-  memset(&attr, 0, sizeof(attr));
-  attr.qp_state = IBV_QPS_INIT;
-  attr.port_num = RDMANode::ib_port;
-  attr.pkey_index = 0;
-  attr.qp_access_flags =
-      IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_REMOTE_READ;
-  flags = IBV_QP_STATE | IBV_QP_PKEY_INDEX | IBV_QP_PORT | IBV_QP_ACCESS_FLAGS;
-  rc = ibv_modify_qp(qp, &attr, flags);
-  if (rc)
-    rdma_log(RDMA_ERROR,
-             "modify_qp_to_init, failed to modify QP state to INIT");
-  return rc;
-}
-
-int modify_qp_to_rtr(struct ibv_qp* qp, uint32_t remote_qpn, uint16_t dlid,
-                     union ibv_gid dgid, uint8_t link_layer) {
-  struct ibv_qp_attr attr;
-  int flags;
-  int rc;
-  memset(&attr, 0, sizeof(attr));
-  attr.qp_state = IBV_QPS_RTR;
-  attr.path_mtu = IBV_MTU_1024;  // previous is IBV_MTU_1024
-  attr.dest_qp_num = remote_qpn;
-  attr.rq_psn = 0;
-  attr.max_dest_rd_atomic = 1;
-  attr.min_rnr_timer = 12;
-
-  if (link_layer == IBV_LINK_LAYER_INFINIBAND) {
-    attr.ah_attr.is_global = 0;
-  } else if (link_layer == IBV_LINK_LAYER_ETHERNET) {
-    attr.ah_attr.is_global = 1;
-    attr.ah_attr.grh.dgid = dgid;
-    attr.ah_attr.grh.flow_label = 0;
-    attr.ah_attr.grh.hop_limit = 1;
-    attr.ah_attr.grh.sgid_index = 0;
-    attr.ah_attr.grh.traffic_class = 0;
-  } else {
-    // UNSPECIFIED TYPE
-    attr.ah_attr.is_global = 0;
-  }
-
-  attr.ah_attr.dlid = dlid;
-  attr.ah_attr.sl = 0;
-  attr.ah_attr.src_path_bits = 0;
-  attr.ah_attr.port_num = RDMANode::ib_port;
-  flags = IBV_QP_STATE | IBV_QP_AV | IBV_QP_PATH_MTU | IBV_QP_DEST_QPN |
-          IBV_QP_RQ_PSN | IBV_QP_MAX_DEST_RD_ATOMIC | IBV_QP_MIN_RNR_TIMER;
-  rc = ibv_modify_qp(qp, &attr, flags);
-  if (rc) {
-    rdma_log(RDMA_ERROR,
-             "modify_qp_to_rtr, failed to modify QP state to RTR (%d)", rc);
-    rdma_log(RDMA_ERROR, "modify_qp_to_rtr, EINVAL: %d", EINVAL);
-  }
-  return rc;
-}
-
-int modify_qp_to_rts(struct ibv_qp* qp) {
-  struct ibv_qp_attr attr;
-  int flags;
-  int rc;
-  memset(&attr, 0, sizeof(attr));
-  attr.qp_state = IBV_QPS_RTS;
-  attr.timeout = 0x18;  // previous is 0x12
-  attr.retry_cnt = 6;
-  attr.rnr_retry = 6;  // previous is 0
-  attr.sq_psn = 0;
-  attr.max_rd_atomic = 1;
-  flags = IBV_QP_STATE | IBV_QP_TIMEOUT | IBV_QP_RETRY_CNT | IBV_QP_RNR_RETRY |
-          IBV_QP_SQ_PSN | IBV_QP_MAX_QP_RD_ATOMIC;
-  rc = ibv_modify_qp(qp, &attr, flags);
-  if (rc)
-    rdma_log(RDMA_ERROR,
-             "modify_qp_to_rts, failed to modify QP state to RTS\n");
-  return rc;
-}
-
+#include "grpc/impl/codegen/log.h"
 // -----< RDMAConn >-----
 
-RDMAConn::RDMAConn(int fd, RDMANode* node) : fd_(fd), node_(node) {
+RDMAConn::RDMAConn(RDMANode* node, bool event_mode) : node_(node) {
   ibv_context* ctx = node_->get_ctx().get();
   ibv_pd* pd = node_->get_pd().get();
 
   scq_ = std::shared_ptr<ibv_cq>(ibv_create_cq(ctx, DEFAULT_CQE, NULL, NULL, 0),
                                  [](ibv_cq* p) { ibv_destroy_cq(p); });
   if (!scq_) {
-    rdma_log(RDMA_ERROR, "RDMAConn::RDMAConn, failed to create send CQ");
+    gpr_log(GPR_ERROR, "Failed to create CQ for a connection");
     exit(-1);
   }
-  rcq_ = std::shared_ptr<ibv_cq>(ibv_create_cq(ctx, DEFAULT_CQE, NULL, NULL, 0),
-                                 [](ibv_cq* p) { ibv_destroy_cq(p); });
+  if (event_mode) {
+    recv_channel_ = std::shared_ptr<ibv_comp_channel>(
+        ibv_create_comp_channel(ctx), [](ibv_comp_channel* recv_channel) {
+          ibv_destroy_comp_channel(recv_channel);
+        });
+    int recv_flags = fcntl(recv_channel_->fd, F_GETFL);
+    if (fcntl(recv_channel_->fd, F_SETFL, recv_flags | O_NONBLOCK) < 0) {
+      gpr_log(GPR_ERROR,
+              "RDMAConnEvent::RDMAConnEvent, failed to change channel fd to "
+              "non-blocking");
+      exit(-1);
+    }
+  }
+
+  rcq_ = std::shared_ptr<ibv_cq>(
+      ibv_create_cq(ctx, DEFAULT_CQE, nullptr, recv_channel_.get(), 0),
+      [](ibv_cq* p) { ibv_destroy_cq(p); });
   if (!rcq_) {
-    rdma_log(RDMA_ERROR, "RDMAConn::RDMAConn, failed to create recv CQ");
+    gpr_log(GPR_ERROR, "Failed to create CQ for a connection");
     exit(-1);
+  }
+
+  if (event_mode) {
+    ibv_req_notify_cq(rcq_.get(), 0);
   }
 
   memset(&qp_attr_, 0, sizeof(qp_attr_));
@@ -160,104 +55,34 @@ RDMAConn::RDMAConn(int fd, RDMANode* node) : fd_(fd), node_(node) {
   qp_ = std::shared_ptr<ibv_qp>(ibv_create_qp(pd, &qp_attr_),
                                 [](ibv_qp* p) { ibv_destroy_qp(p); });
   if (qp_ == nullptr) {
-    rdma_log(
-        RDMA_ERROR,
-        "RDMAConnEvent::RDMAConnEvent, failed to create QP for a connection");
+    gpr_log(GPR_ERROR, "Failed to create QP for a connection");
     exit(-1);
   }
-
-  sync();
 }
 
-RDMAConn::~RDMAConn() {}
-
-int RDMAConn::modify_state(RDMAConn::state_t st) {
-  int ret = 0;
-
-  switch (st) {
-    case RESET:
-      break;
-    case INIT:
-      ret = modify_qp_to_init(qp_.get());
-      break;
-    case RTR:
-      ret = modify_qp_to_rtr(qp_.get(), qp_num_rt_, lid_rt_, gid_rt_,
-                             node_->get_port_attr().link_layer);
-      break;
-    case RTS:
-      ret = modify_qp_to_rts(qp_.get());
-      break;
-    default:
-      rdma_log(RDMA_ERROR, "RDMAConn::modify_state, Unsupported state %d", st);
+RDMAConn::~RDMAConn() {
+  if (unacked_recv_events_num_) {
+    ibv_ack_cq_events(rcq_.get(), unacked_recv_events_num_);
   }
-
-  return ret;
 }
 
-int RDMAConn::sync_data(char* local, char* remote, const size_t sz) {
-  size_t remain = sz;
-  ssize_t done;
-  if (fd_ < 3) {
-    rdma_log(RDMA_ERROR,
-             "RDMAConn::sync_data, failed to sync data with remote, no opened "
-             "socket(sd: %d)",
-             fd_);
-    return -1;
-  }
-
-  while (remain) {
-    done = ::write(fd_, local + (sz - remain), remain);
-    if (done < 0) {
-      if (errno == EINTR || errno == EAGAIN) {
-      } else {
-        rdma_log(RDMA_ERROR, "RDMAConn::sync_data, write errno %d: %s", errno,
-                 strerror(errno));
-        return -1;
-      }
-    } else {
-      remain -= done;
-    }
-  }
-
-  remain = sz;
-  while (remain) {
-    done = ::read(fd_, remote + (sz - remain), remain);
-    if (done < 0) {
-      if (errno == EINTR || errno == EAGAIN) {
-      } else {
-        rdma_log(RDMA_ERROR, "RDMAConn::sync_data, read errno %d: %s", errno,
-                 strerror(errno));
-        return -1;
-      }
-    } else {
-      remain -= done;
-    }
-  }
-
-  return 0;
-}
-
-int RDMAConn::sync_mr(MemRegion& local, MemRegion& remote) {
+int RDMAConn::SyncMR(int fd, MemRegion& local, MemRegion& remote) {
   struct {
     void* addr;
     uint32_t rkey;
     size_t length;
   } lo = {local.addr(), local.rkey(), local.length()}, rt;
 
-  if (sync_data((char*)&lo, (char*)&rt, sizeof(lo))) {
-    rdma_log(RDMA_ERROR,
-             "RDMAConn::sync_mr, failed to exchange MR information");
-    return 1;
+  if (sync_data(fd, (char*)&lo, (char*)&rt, sizeof(lo))) {
+    gpr_log(GPR_ERROR, "RDMAConn::SyncMR, failed to exchange MR information");
+    exit(1);
   }
 
   return remote.remote_reg(rt.addr, rt.rkey, rt.length);
 }
 
-int RDMAConn::sync() {
-  ibv_context* ctx = node_->get_ctx().get();
-  ibv_pd* pd = node_->get_pd().get();
+int RDMAConn::SyncQP(int fd) {
   ibv_port_attr port_attr = node_->get_port_attr();
-  ibv_device_attr dev_attr = node_->get_device_attr();
   union ibv_gid gid = node_->get_gid();
 
   struct {
@@ -268,9 +93,9 @@ int RDMAConn::sync() {
   memcpy(&local.gid, &gid, sizeof(gid));
 
   // exchange data for nodes
-  if (sync_data((char*)&local, (char*)&remote, sizeof(local))) {
-    rdma_log(RDMA_ERROR,
-             "RDMAConn::sync, failed to exchange QP data and the initial MR");
+  if (sync_data(fd, (char*)&local, (char*)&remote, sizeof(local))) {
+    gpr_log(GPR_ERROR,
+            "RDMAConn::sync, failed to exchange QP data and the initial MR");
     exit(-1);
   }
 
@@ -279,101 +104,180 @@ int RDMAConn::sync() {
   memcpy(&gid_rt_, remote.gid, sizeof(gid_rt_));
 
   if (modify_state(INIT)) {
-    rdma_log(RDMA_ERROR, "RDMAConn::sync, failed to change to INIT state");
+    gpr_log(GPR_ERROR, "RDMAConn::sync, failed to change to INIT state");
     exit(-1);
   }
 
   if (modify_state(RTR)) {
-    rdma_log(RDMA_ERROR, "DMAConn::sync, failed to change to RTR state");
+    gpr_log(GPR_ERROR, "DMAConn::sync, failed to change to RTR state");
     exit(-1);
   }
 
   if (modify_state(RTS)) {
-    rdma_log(RDMA_ERROR, "DMAConn::sync, failed to change to RTS state");
+    gpr_log(GPR_ERROR, "DMAConn::sync, failed to change to RTS state");
     exit(-1);
   }
 
   char tmp;
-  if (sync_data((char*)"s", &tmp, 1)) {
-    rdma_log(RDMA_ERROR,
-             "DMAConn::sync, failed to sync after switching QP to RTS");
+  if (sync_data(fd, (char*)"s", &tmp, 1)) {
+    gpr_log(GPR_ERROR,
+            "DMAConn::sync, failed to sync after switching QP to RTS");
     exit(-1);
   }
 
   return 0;
 }
 
-void RDMAConn::poll_send_completion() {
-  int num_entries;
-  ibv_wc wc;
-  do {
-    num_entries = ibv_poll_cq(scq_.get(), 1, &wc);
-  } while (num_entries == 0);
+int RDMAConn::post_send(MemRegion& remote_mr, size_t remote_tail,
+                        MemRegion& local_mr, size_t local_offset, size_t sz,
+                        ibv_wr_opcode opcode) {
+  GPR_DEBUG_ASSERT(!remote_mr.is_local() && !local_mr.is_remote());
 
-  if (num_entries < 0) {
-    rdma_log(RDMA_ERROR, "RDMAConn::poll_send_completion, failed to poll scq");
-    exit(-1);
-  }
-  if (wc.status != IBV_WC_SUCCESS) {
-    rdma_log(RDMA_ERROR,
-             "RDMAConn::poll_send_completion, failed to poll scq, status %d, "
-             "fd = %d",
-             wc.status, fd_);
-    exit(-1);
-  }
-}
-
-void RDMAConn::post_send_and_poll_completion(ibv_send_wr* sr,
-                                             bool update_remote) {
-  // std::unique_lock<std::mutex> lck(mtx_);
-
-  struct ibv_send_wr* bad_wr = nullptr;
-
-  if (ibv_post_send(qp_.get(), sr, &bad_wr) != 0) {
-    rdma_log(
-        RDMA_ERROR,
-        "RDMAConnEvent::post_send_and_poll_completion, failed to post send");
-    exit(-1);
-  }
-
-  return poll_send_completion();
-}
-
-int RDMAConn::post_send_and_poll_completion(
-    MemRegion& remote_mr, size_t remote_tail, MemRegion& local_mr,
-    size_t local_offset, size_t sz, ibv_wr_opcode opcode, bool update_remote) {
-  if (remote_mr.is_local() || local_mr.is_remote()) {
-    rdma_log(RDMA_ERROR,
-             "RDMAConn::post_send_and_poll_completion, MemRegion incorrect");
-    exit(-1);
-  }
-
-  struct ibv_send_wr sr1, sr2;
-  struct ibv_sge sge1, sge2;
   size_t remote_cap = remote_mr.length();
   size_t r_len = MIN(remote_cap - remote_tail, sz);
+  struct ibv_send_wr* bad_wr = nullptr;
 
-  INIT_SGE(&sge1, (uint8_t*)local_mr.addr() + local_offset, r_len,
-           local_mr.lkey());
-  INIT_SR(&sr1, &sge1, opcode, (uint8_t*)remote_mr.addr() + remote_tail,
-          remote_mr.rkey(), 1, r_len);
-  rdma_log(RDMA_INFO,
-           "RDMAConn::post_send_and_poll_completion, send %d data to remote %d",
-           r_len, remote_tail);
-  post_send_and_poll_completion(&sr1, update_remote);
-
-  if (r_len < sz) {
-    INIT_SGE(&sge2, (uint8_t*)local_mr.addr() + local_offset + r_len,
-             sz - r_len, local_mr.lkey());
-    INIT_SR(&sr2, &sge2, opcode, remote_mr.addr(), remote_mr.rkey(), 1,
-            sz - r_len);
-    rdma_log(
-        RDMA_INFO,
-        "RDMAConn::post_send_and_poll_completion, send %d data to remote %d",
-        sz - r_len, 0);
-    post_send_and_poll_completion(&sr2, update_remote);
-    return 2;
+  if (r_len == sz) {  // need one sr
+    ibv_sge sge;
+    ibv_send_wr sr;
+    init_sge(&sge, static_cast<uint8_t*>(local_mr.addr()) + local_offset, sz,
+             local_mr.lkey());
+    init_sr(&sr, &sge, opcode,
+            static_cast<uint8_t*>(remote_mr.addr()) + remote_tail,
+            remote_mr.rkey(), 1, sz, 0, nullptr);
+    if (ibv_post_send(qp_.get(), &sr, &bad_wr) != 0) {
+      gpr_log(GPR_ERROR, "Failed to post send");
+      exit(-1);
+    }
+    return 1;
   }
 
-  return 1;
+  // need two srs
+  ibv_sge sge1, sge2;
+  ibv_send_wr sr1, sr2;
+
+  init_sge(&sge1, static_cast<uint8_t*>(local_mr.addr()) + local_offset, r_len,
+           local_mr.lkey());
+  init_sr(&sr1, &sge1, opcode,
+          static_cast<uint8_t*>(remote_mr.addr()) + remote_tail,
+          remote_mr.rkey(), 1, r_len, 0, &sr2);
+  init_sge(&sge2, static_cast<uint8_t*>(local_mr.addr()) + local_offset + r_len,
+           sz - r_len, local_mr.lkey());
+  init_sr(&sr2, &sge2, opcode, remote_mr.addr(), remote_mr.rkey(), 1,
+          sz - r_len, 0, nullptr);
+  if (ibv_post_send(qp_.get(), &sr1, &bad_wr) != 0) {
+    gpr_log(GPR_ERROR, "Failed to post send");
+    exit(-1);
+  }
+
+  return 2;
+}
+
+void RDMAConn::poll_send_completion(int expected_num_entries) {
+  if (expected_num_entries == 0) {
+    return;
+  } else if (expected_num_entries > DEFAULT_MAX_POST_SEND) {
+    gpr_log(
+        GPR_ERROR,
+        "RDMAConn::poll_send_completion, expected_num_entries is too large");
+    exit(-1);
+  }
+
+  int rest_num_entries = expected_num_entries;
+  ibv_wc wc[DEFAULT_MAX_POST_SEND];
+
+  do {
+    int n = ibv_poll_cq(scq_.get(), rest_num_entries,
+                        wc + expected_num_entries - rest_num_entries);
+    if (n < 0) {
+      gpr_log(GPR_ERROR, "RDMAConn::poll_send_completion, failed to poll scq");
+      exit(-1);
+    }
+    rest_num_entries -= n;
+  } while (rest_num_entries > 0);
+
+  for (int i = 0; i < expected_num_entries; i++) {
+    if (wc[i].status != IBV_WC_SUCCESS) {
+      gpr_log(GPR_ERROR,
+              "RDMAConn::poll_send_completion, failed to poll scq, status %d",
+              wc[i].status);
+      exit(-1);
+    }
+  }
+}
+
+void RDMAConn::post_recvs(size_t n) {
+  if (n == 0) return;
+  struct ibv_recv_wr* bad_wr = nullptr;
+
+  while (n--) {
+    ibv_sge sge;
+    ibv_recv_wr wr;
+    init_sge(&sge, nullptr, 0, 0);
+    init_rr(&wr, &sge, 1);
+    int ret = ibv_post_recv(qp_.get(), &wr, &bad_wr);
+    if (ret) {
+      gpr_log(GPR_ERROR, "Failed to post RR, errno = %d, wr_id = %lu", ret,
+              bad_wr->wr_id);
+      exit(-1);
+    }
+    rr_tail_ = (rr_tail_ + 1) % DEFAULT_MAX_POST_RECV;
+  }
+}
+
+size_t RDMAConn::poll_recv_completion() {
+  int recv_bytes = 0;
+  ibv_wc wc[DEFAULT_MAX_POST_RECV];
+  int completed = ibv_poll_cq(rcq_.get(), DEFAULT_MAX_POST_RECV, wc);
+
+  if (completed < 0) {
+    gpr_log(GPR_ERROR,
+            "RDMAConnEvent::poll_recv_completion, ibv_poll_cq return %d",
+            completed);
+    exit(-1);
+  }
+  if (completed == 0) {
+    gpr_log(GPR_INFO,
+            "RDMAConnEvent::poll_recv_completion, ibv_poll_cq return 0");
+    return 0;
+  }
+  for (int i = 0; i < completed; i++) {
+    if (wc[i].status != IBV_WC_SUCCESS) {
+      gpr_log(GPR_ERROR,
+              "RDMAConnEvent::poll_recv_completion, wc[%d] status = %d", i,
+              wc[i].status);
+    }
+    recv_bytes += wc[i].byte_len;
+  }
+
+  rr_garbage_ += completed;
+
+  gpr_log(GPR_INFO,
+          "RDMAConnEvent::poll_recv_completions_and_post_recvs, poll out %d "
+          "completion (%d bytes) from rcq",
+          completed, recv_bytes);
+
+  return recv_bytes;
+}
+
+size_t RDMAConn::get_recv_events_locked() {
+  ibv_cq* cq = nullptr;
+  void* ev_ctx = nullptr;
+  if (ibv_get_cq_event(recv_channel_.get(), &cq, &ev_ctx) == -1) return 0;
+  if (cq != rcq_.get()) {
+    gpr_log(GPR_ERROR,
+            "RDMAConnEvent::get_recv_events_locked, unknown CQ got event");
+    exit(-1);
+  }
+  if (ibv_req_notify_cq(cq, 0)) {
+    gpr_log(GPR_ERROR,
+            "RDMAConnEvent::get_recv_events_locked, require notifcation on "
+            "rcq failed");
+    exit(-1);
+  }
+  if (unacked_recv_events_num_++ >= DEFAULT_EVENT_ACK_LIMIT) {
+    ibv_ack_cq_events(rcq_.get(), unacked_recv_events_num_);
+    unacked_recv_events_num_ = 0;
+  }
+  return poll_recv_completion();
 }

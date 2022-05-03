@@ -39,7 +39,6 @@ void grpc_determine_iomgr_platform() {
   if (iomgr_platform_vtable == nullptr) {
     char* type;
     type = getenv("GRPC_PLATFORM_TYPE");
-    SET_RDMA_VERBOSITY();
     if (type == NULL) {
       pt = IOMGR_TCP;
       printf("Select TCP mode by default\n");
@@ -54,6 +53,7 @@ void grpc_determine_iomgr_platform() {
       printf("Select TCP mode\n");
     } else {
       printf("Error: Unknown grpc platform: %s\n", type);
+      exit(1);
     }
     grpc_set_default_iomgr_platform();
   }

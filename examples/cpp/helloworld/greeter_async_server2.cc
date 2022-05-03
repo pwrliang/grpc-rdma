@@ -16,22 +16,23 @@
  *
  */
 
+#include <grpc/support/log.h>
+#include <grpcpp/completion_queue.h>
+#include <grpcpp/grpcpp.h>
+#include <signal.h>
 #include <iostream>
 #include <memory>
 #include <string>
 #include <thread>
-
-#include <grpc/support/log.h>
-#include <grpcpp/grpcpp.h>
 
 #ifdef BAZEL_BUILD
 #include "examples/protos/helloworld.grpc.pb.h"
 #else
 #include "helloworld.grpc.pb.h"
 #endif
-#include <sstream>
 #include "flags.h"
 #include "gflags/gflags.h"
+#include "grpcpp/stats_time.h"
 using grpc::Server;
 using grpc::ServerAsyncResponseWriter;
 using grpc::ServerBuilder;
@@ -41,10 +42,30 @@ using grpc::Status;
 using helloworld::Greeter;
 using helloworld::HelloReply;
 using helloworld::HelloRequest;
-
+int grpc_get_cq_poll_num(grpc_completion_queue* cq);
 class ServerImpl final {
  public:
+  ServerImpl() {
+    running_ = true;
+    monitor_th_ = std::thread([this] {
+      uint64_t last_poll_num = 0;
+      while (running_) {
+        uint64_t total_poll_num = 0;
+        for (auto& cq : cqs_) {
+          total_poll_num += grpc_get_cq_poll_num(cq->cq());
+        }
+        if (last_poll_num != total_poll_num) {
+          printf("Total Poll Num: %lu\n", total_poll_num);
+        }
+        last_poll_num = total_poll_num;
+        sleep(2);
+      }
+    });
+  }
+
   ~ServerImpl() {
+    running_ = false;
+    monitor_th_.join();
     server_->Shutdown();
     for (auto& cq : cqs_) {
       cq->Shutdown();
@@ -84,7 +105,11 @@ class ServerImpl final {
                                   this);
       } else if (status_ == PROCESS) {
         new CallData(service_, cq_);
+
         reply_.mutable_message()->resize(FLAGS_resp);
+        if (request_.has_start_benchmark() && request_.start_benchmark()) {
+          grpc_stats_time_init();
+        }
         status_ = FINISH;
         responder_.Finish(reply_, Status::OK, this);
       } else {
@@ -106,14 +131,29 @@ class ServerImpl final {
 
   void HandleRpcs() {
     std::vector<std::thread> ths;
+    std::atomic_int32_t rest_rpc(FLAGS_batch);
 
     for (int i = 0; i < cqs_.size(); i++) {
       ths.emplace_back(
-          [this](int idx) {
+          [this, &ths, &rest_rpc](int idx) {
             auto& cq = cqs_[idx];
             new CallData(&service_, cq.get());
             void* tag;
             bool ok;
+
+            if (FLAGS_affinity) {
+              auto n_cores = std::thread::hardware_concurrency() / 2;
+              cpu_set_t cpuset;
+              CPU_ZERO(&cpuset);
+              CPU_SET(idx % n_cores, &cpuset);
+
+              int rc = pthread_setaffinity_np(ths[idx].native_handle(),
+                                              sizeof(cpu_set_t), &cpuset);
+              if (rc != 0) {
+                std::cerr << "Error calling pthread_setaffinity_np: " << rc
+                          << "\n";
+              }
+            }
 
             while (true) {
               GPR_ASSERT(cq->Next(&tag, &ok));
@@ -132,9 +172,25 @@ class ServerImpl final {
   std::vector<std::unique_ptr<ServerCompletionQueue>> cqs_;
   Greeter::AsyncService service_;
   std::unique_ptr<Server> server_;
+  std::atomic_bool running_;
+  std::thread monitor_th_;
+  std::thread grab_mem_th_;
 };
 
+void grpc_stats_time_print();
+
+void sig_handler(int signum) {
+  grpc_stats_time_print();
+
+  if (signum == SIGINT) {
+    exit(0);
+  }
+}
+
 int main(int argc, char** argv) {
+  signal(SIGUSR1, sig_handler);
+  signal(SIGINT, sig_handler);
+
   gflags::SetUsageMessage("Usage: mpiexec [mpi_opts] ./main [main_opts]");
   if (argc == 1) {
     gflags::ShowUsageWithFlagsRestrict(argv[0], "main");
@@ -142,6 +198,7 @@ int main(int argc, char** argv) {
   }
   gflags::ParseCommandLineFlags(&argc, &argv, true);
   gflags::ShutDownCommandLineFlags();
+
   ServerImpl server;
   server.Run();
 

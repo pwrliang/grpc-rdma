@@ -37,12 +37,12 @@ class RDMAClient {
 
       int flag = 1;
       if (setsockopt(sockfd_, IPPROTO_TCP, TCP_NODELAY, (char *)&flag, sizeof(flag))) {
-        rdma_log(RDMA_ERROR, "RDMAClient::connect, error on setsockopt (TCP_NODELAY)");
+        gpr_log(GPR_ERROR, "RDMAClient::connect, error on setsockopt (TCP_NODELAY)");
         exit(-1);
       }
       printf("client connect to %s:%d\n", server_address, port);
       if (::connect(sockfd_, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) {
-        rdma_log(RDMA_ERROR, "RDMAClient::connect, error on connect");
+        gpr_log(GPR_ERROR, "RDMAClient::connect, error on connect");
         exit(-1);
       }
       return sockfd_;

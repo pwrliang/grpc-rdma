@@ -1,86 +1,69 @@
-#include <iomanip>
+#include <mutex>
 #include <sstream>
 #include <thread>
 #include "RDMASenderReceiver.h"
 #include "fcntl.h"
-#include "log.h"
+#include "grpc/impl/codegen/log.h"
 
-// -----< RDMASenderReceiverBP >-----
+#include "include/grpcpp/stats_time.h"
+RDMASenderReceiverBP::RDMASenderReceiverBP()
+    : RDMASenderReceiver(new RDMAConn(&RDMANode::GetInstance()),
+                         new RingBufferBP(DEFAULT_RINGBUF_SZ)),
+      last_n_post_send_(0),
+      write_again_(false) {
+  auto pd = RDMANode::GetInstance().get_pd();
 
-RDMASenderReceiverBP::RDMASenderReceiverBP() {
-  auto pd = node_.get_pd();
-
-  ringbuf_bp_ = new RingBufferBP(ringbuf_sz_);
-  if (local_ringbuf_mr_.local_reg(pd, ringbuf_bp_->get_buf(), ringbuf_sz_)) {
-    rdma_log(RDMA_ERROR,
-             "RDMASenderReceiverBP::RDMASenderReceiverBP, failed to local_reg "
-             "local_ringbuf_mr");
+  if (local_ringbuf_mr_.local_reg(pd, ringbuf_->get_buf(),
+                                  ringbuf_->get_capacity())) {
+    gpr_log(GPR_ERROR, "failed to local_reg local_ringbuf_mr");
     exit(-1);
   }
-
-  ringbuf_ = ringbuf_bp_;
-  max_send_size_ = sendbuf_sz_ - sizeof(size_t) - 1;
-
-  rdma_log(RDMA_DEBUG, "RDMASenderReceiverBP %p created", this);
-  total_recv_sz = 0;
-  total_send_sz = 0;
-  connected_ = false;
 }
 
 RDMASenderReceiverBP::~RDMASenderReceiverBP() {
-  delete conn_data_bp_;
-  delete ringbuf_bp_;
+  delete conn_;
+  delete ringbuf_;
 }
 
 void RDMASenderReceiverBP::connect(int fd) {
   conn_th_ = std::thread([this, fd]() {
-    RDMASenderReceiver::connect(fd);
-    conn_data_bp_ = new RDMAConnBP(fd, &node_);
-    conn_data_bp_->sync_mr(local_ringbuf_mr_, remote_ringbuf_mr_);
-    rdma_log(RDMA_DEBUG, "RDMASenderReceiverBP connected");
+    conn_->SyncQP(fd);
+    conn_->SyncMR(fd, local_metadata_recvbuf_mr_, remote_metadata_recvbuf_mr_);
+    conn_->SyncMR(fd, local_ringbuf_mr_, remote_ringbuf_mr_);
+    gpr_log(GPR_DEBUG, "RDMASenderReceiverBP connected");
     connected_ = true;
-    printf("RDMASenderReceiverBP is connected, fd: %d\n", fd);
   });
   conn_th_.detach();
 }
 
-bool RDMASenderReceiverBP::check_incoming() {
-  while (!connected()) {
-    std::this_thread::yield();
-  }
-  return ringbuf_bp_->check_mlen();
+bool RDMASenderReceiverBP::check_incoming() const {
+  WaitConnect();
+  return dynamic_cast<RingBufferBP*>(ringbuf_)->check_mlen();
 }
 
 size_t RDMASenderReceiverBP::check_and_ack_incomings_locked() {
-  while (!connected()) {
-    std::this_thread::yield();
-  }
-  unread_mlens_ = ringbuf_bp_->check_mlens();
-  //  unread_mlens_ = ringbuf_bp_->check_mlen();
-  return unread_mlens_;
+  WaitConnect();
+  return unread_mlens_ = dynamic_cast<RingBufferBP*>(ringbuf_)->check_mlens();
 }
 
-size_t RDMASenderReceiverBP::recv(msghdr* msg, size_t msghdr_size) {
-  while (!connected()) {
-    std::this_thread::yield();
+size_t RDMASenderReceiverBP::recv(msghdr* msg) {
+  WaitConnect();
+
+  if (last_recv_time_ != absl::Time()) {
+    grpc_stats_time_add(GRPC_STATS_TIME_RECV_LAG, absl::Now() - last_recv_time_,
+                        -1);
   }
+  last_recv_time_ = absl::Now();
   // the actual read size is unread_data_size
   size_t mlens = unread_mlens_;
-
+  GPR_ASSERT(mlens > 0);
   // since we may read more data than unread_mlens_, mlens will be updated to
   // the real mlens we have read
-  size_t lens = ringbuf_bp_->read_to_msghdr(msg, msghdr_size, mlens);
-  if (lens == 0) {
-    rdma_log(RDMA_WARNING, "RDMASenderReceiverBP::recv, lens == 0");
-    exit(1);
-  }
-
-  unread_mlens_ = 0;
-  garbage_ += lens;
-  total_recv_sz += lens;
-  if (garbage_ >= ringbuf_sz_ / 2) {
+  bool should_recycle = ringbuf_->read_to_msghdr(msg, mlens);
+  GPR_ASSERT(mlens > 0);
+  unread_mlens_ -= mlens;
+  if (should_recycle) {
     update_remote_metadata();
-    garbage_ = 0;
   }
 
   return mlens;
@@ -88,64 +71,58 @@ size_t RDMASenderReceiverBP::recv(msghdr* msg, size_t msghdr_size) {
 
 // mlen <= sendbuf_sz_ - sizeof(size_t) - 1;
 bool RDMASenderReceiverBP::send(msghdr* msg, size_t mlen) {
-  while (!connected()) {
-    std::this_thread::yield();
-  }
-  if (mlen + sizeof(size_t) + 1 > sendbuf_sz_) {
-    rdma_log(RDMA_ERROR,
-             "RDMASenderReceiverBP::send, mlen > sendbuf size, %zu vs %zu",
-             mlen + sizeof(size_t) + 1, sendbuf_sz_);
-    exit(1);
-  }
+  WaitConnect();
+  GPR_ASSERT(mlen > 0 && mlen < ringbuf_->get_max_send_size());
 
   size_t remote_ringbuf_sz = remote_ringbuf_mr_.length();
   size_t len = mlen + sizeof(size_t) + 1;
 
-  update_local_metadata();
-  size_t used =
-      (remote_ringbuf_sz + remote_ringbuf_tail_ - remote_ringbuf_head_) %
-      remote_ringbuf_sz;
-  // If unread datasize + the size of data we want to send is greater than ring
-  // buffer size, we can not send message. we reserve 1 byte to distinguish the
-  // status between empty and full
+  if (last_send_time_ != absl::Time()) {
+    grpc_stats_time_add(GRPC_STATS_TIME_SEND_LAG, absl::Now() - last_send_time_,
+                        -1);
+  }
+  last_send_time_ = absl::Now();
 
-  if (used + len > remote_ringbuf_sz - 8) {
+  update_local_metadata();
+
+  if (!is_writable(mlen)) {
     return false;
   }
-  *(size_t*)sendbuf_ = mlen;
-  uint8_t* start = sendbuf_ + sizeof(size_t);
-  size_t iov_idx, nwritten;
-  for (iov_idx = 0, nwritten = 0; iov_idx < msg->msg_iovlen && nwritten < mlen;
-       iov_idx++) {
-    void* iov_base = msg->msg_iov[iov_idx].iov_base;
-    size_t iov_len = msg->msg_iov[iov_idx].iov_len;
-    nwritten += iov_len;
-    if (nwritten <= sendbuf_sz_) {
+
+  {
+    GRPCProfiler profiler(GRPC_STATS_TIME_SEND_MEMCPY);
+    *reinterpret_cast<size_t*>(sendbuf_) = mlen;
+    uint8_t* start = sendbuf_ + sizeof(size_t);
+    size_t iov_idx, nwritten;
+    for (iov_idx = 0, nwritten = 0;
+         iov_idx < msg->msg_iovlen && nwritten < mlen; iov_idx++) {
+      void* iov_base = msg->msg_iov[iov_idx].iov_base;
+      size_t iov_len = msg->msg_iov[iov_idx].iov_len;
+      nwritten += iov_len;
+      GPR_ASSERT(nwritten < ringbuf_->get_max_send_size());
       memcpy(start, iov_base, iov_len);
-    } else {
-      rdma_log(RDMA_ERROR,
-               "RDMASenderReceiverBP::send, nwritten = %d, sendbuf size = %d",
-               nwritten, sendbuf_sz_);
-      return false;
+      start += iov_len;
     }
-    start += iov_len;
-  }
-  // *start = 1;
-  sendbuf_[len - 1] = 1;
+    *start = 1;  // 1 byte for finishing tag
 
-  if (iov_idx != msg->msg_iovlen || nwritten != mlen) {
-    rdma_log(RDMA_ERROR,
-             "RDMASenderReceiverBP::send, iov_idx = %d, msg_iovlen = %d, "
-             "nwritten = %d, mlen = %d",
-             iov_idx, msg->msg_iovlen, nwritten, mlen);
-    exit(-1);
+    if (iov_idx != msg->msg_iovlen || nwritten != mlen) {
+      gpr_log(GPR_ERROR,
+              "RDMASenderReceiverBP::send, iov_idx = %zu, msg_iovlen = %zu, "
+              "nwritten = %zu, mlen = %zu",
+              iov_idx, msg->msg_iovlen, nwritten, mlen);
+      exit(-1);
+    }
   }
 
-  conn_data_bp_->post_send_and_poll_completion(
-      remote_ringbuf_mr_, remote_ringbuf_tail_, sendbuf_mr_, 0, len,
-      IBV_WR_RDMA_WRITE, false);
+  {
+    GRPCProfiler profiler(GRPC_STATS_TIME_SEND_IBV);
+    last_n_post_send_ =
+        conn_->post_send(remote_ringbuf_mr_, remote_ringbuf_tail_, sendbuf_mr_,
+                         0, len, IBV_WR_RDMA_WRITE);
+    conn_->poll_send_completion(last_n_post_send_);
+  }
+
   remote_ringbuf_tail_ = (remote_ringbuf_tail_ + len) % remote_ringbuf_sz;
-  total_send_sz += len;
 
   return true;
 }

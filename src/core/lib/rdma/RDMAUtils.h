@@ -12,7 +12,7 @@
 #include <iostream>
 #include <mutex>
 #include <thread>
-
+#define IBV_DEV_NAME "mlx5_0"
 class MemRegion {
  public:
   const static int rw_flag =
@@ -58,18 +58,24 @@ class MemRegion {
 class RDMANode {
  public:
   const static int ib_port = 1;
-  RDMANode() = default;
-  virtual ~RDMANode() { close(); }
+  RDMANode() { open(IBV_DEV_NAME); }
+  ~RDMANode() { close(); }
 
-  int open(const char* name);
-  void close();
+  static RDMANode& GetInstance() {
+    static RDMANode inst;
+    return inst;
+  }
 
   std::shared_ptr<ibv_context> get_ctx() const { return ib_ctx; }
+
   std::shared_ptr<ibv_pd> get_pd() const { return ib_pd; }
+
   ibv_port_attr get_port_attr() const { return port_attr; }
+
   union ibv_gid get_gid() const {
     return gid;
   }
+
   ibv_device_attr get_device_attr() const { return dev_attr; }
 
  private:
@@ -78,32 +84,26 @@ class RDMANode {
   ibv_port_attr port_attr;
   union ibv_gid gid;
   ibv_device_attr dev_attr;
+
+  void open(const char* name);
+  void close();
 };
 
-class TimerPackage {
- public:
-  TimerPackage(size_t timeout_ms = 1000);
-  virtual ~TimerPackage();
-  void Start();
-  void Start(const char* format, ...);
-  size_t TimeoutMS() { return accumulative_timeout_ms_.load(); }
-  void Stop();
+void init_sge(ibv_sge* sge, void* lc_addr, size_t sz, uint32_t lkey);
 
- private:
-  static void ThreadRunThis(TimerPackage* pkg);
+void init_sr(ibv_send_wr* sr, ibv_sge* sge, ibv_wr_opcode opcode, void* rt_addr,
+             uint32_t rkey, int num_sge, uint32_t imm_data, size_t id,
+             ibv_send_wr* next);
 
-  static std::atomic_size_t global_count;
-  const size_t local_id_;
-  std::atomic_size_t timeout_ms_;
-  std::condition_variable timer_;
-  std::mutex timer_mu_;
-  std::atomic_bool alive_;
-  std::condition_variable start_;
-  std::mutex start_mu_;
-  std::atomic_size_t accumulative_timeout_ms_;
-  std::thread* thread_;
-  char* message_ = nullptr;
-  std::thread::id start_thread_id_;
-};
+void init_rr(ibv_recv_wr* rr, ibv_sge* sge, int num_sge);
+
+int modify_qp_to_init(ibv_qp* qp);
+
+int modify_qp_to_rtr(struct ibv_qp* qp, uint32_t remote_qpn, uint16_t dlid,
+                     union ibv_gid dgid, uint8_t link_layer);
+
+int modify_qp_to_rts(struct ibv_qp* qp);
+
+int sync_data(int fd, char* local, char* remote, const size_t sz);
 
 #endif

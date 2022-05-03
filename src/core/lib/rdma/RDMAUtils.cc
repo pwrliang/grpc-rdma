@@ -1,18 +1,8 @@
 #include "RDMAUtils.h"
-#include "log.h"
 
-#include <arpa/inet.h>
-#include <errno.h>
-#include <stdarg.h>
-#include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 #include <sys/epoll.h>
-#include <sys/socket.h>
-#include <sys/types.h>
-#include "fcntl.h"
-
-int _rdma_internal_world_size_ = 0, _rdma_internal_world_rank_ = 0;
+#include "grpc/impl/codegen/log.h"
 
 // -----< MemRegion >-----
 int MemRegion::remote_reg(void* mem, uint32_t rkey, size_t len) {
@@ -35,13 +25,13 @@ int MemRegion::local_reg(std::shared_ptr<ibv_pd> pd, void* mem, size_t size,
   local_mr = std::shared_ptr<ibv_mr>(
       ibv_reg_mr(pd.get(), mem, size, flag), [](ibv_mr* p) {
         if (ibv_dereg_mr(p)) {
-          rdma_log(RDMA_ERROR,
-                   "MemRegion::local_reg, failed to deregister memory region!");
+          gpr_log(GPR_ERROR,
+                  "MemRegion::local_reg, failed to deregister memory region!");
         }
       });
   if (!local_mr) {
-    rdma_log(RDMA_ERROR,
-             "MemRegion::local_reg, failed to register memory region!");
+    gpr_log(GPR_ERROR,
+            "MemRegion::local_reg, failed to register memory region!");
     dereg();
     return -1;
   }
@@ -58,15 +48,14 @@ void MemRegion::dereg() {
 }
 
 // -----< RDMANode >-----
-
-int RDMANode::open(const char* name) {
-  ibv_device** dev_list = NULL;
-  ibv_device* ib_dev = NULL;
+void RDMANode::open(const char* name) {
+  ibv_device** dev_list;
+  ibv_device* ib_dev = nullptr;
   int num_devices = 0;
 
   if (!(dev_list = ibv_get_device_list(&num_devices)) || !num_devices) {
-    rdma_log(RDMA_ERROR, "RDMANode::open, failed to get IB device list");
-    return -1;
+    gpr_log(GPR_ERROR, "RDMANode::open, failed to get IB device list");
+    exit(-1);
   }
 
   for (int i = 0; i < num_devices; i++) {
@@ -77,145 +66,202 @@ int RDMANode::open(const char* name) {
   }
 
   if (!ib_dev) {
-    rdma_log(RDMA_ERROR, "RDMANode::open, failed to find device \"%s\"", name);
-    return -2;
+    gpr_log(GPR_ERROR, "RDMANode::open, failed to find device \"%s\"", name);
+    exit(-1);
   }
 
   ib_ctx = std::shared_ptr<ibv_context>(
       ibv_open_device(ib_dev), [](ibv_context* p) { ibv_close_device(p); });
   if (ib_ctx == nullptr) {
-    rdma_log(RDMA_ERROR, "RDMANode::open, failed to open device %s",
-             ibv_get_device_name(ib_dev));
-    return -1;
+    gpr_log(GPR_ERROR, "RDMANode::open, failed to open device %s",
+            ibv_get_device_name(ib_dev));
+    exit(-1);
   }
   ibv_free_device_list(dev_list);
 
   if (ibv_query_port(ib_ctx.get(), ib_port, &port_attr)) {
-    rdma_log(RDMA_ERROR, "RDMANode::open, failed to query port %u attribute",
-             ib_port);
-    return -1;
+    gpr_log(GPR_ERROR, "RDMANode::open, failed to query port %u attribute",
+            ib_port);
+    exit(-1);
   }
 
   if (ibv_query_gid(ib_ctx.get(), ib_port, 0, &gid)) {
-    rdma_log(RDMA_ERROR, "RDMANode::open, failed to query gid");
-    return -1;
+    gpr_log(GPR_ERROR, "RDMANode::open, failed to query gid");
+    exit(-1);
   }
 
   if (ibv_query_device(ib_ctx.get(), &dev_attr)) {
-    rdma_log(RDMA_ERROR, "RDMANode::open, failed to query device");
-    return -1;
+    gpr_log(GPR_ERROR, "RDMANode::open, failed to query device");
+    exit(-1);
   }
 
-
-  // printf("device %s attribute: max_cqe = %ld, max_qp_wr = %d, max_sge = %d\n", name, dev_attr.max_cqe, dev_attr.max_qp_wr, dev_attr.max_sge);
+  gpr_log(GPR_INFO,
+          "device %s attribute: max_cqe = %d, max_qp_wr = %d, max_sge = %d\n",
+          name, dev_attr.max_cqe, dev_attr.max_qp_wr, dev_attr.max_sge);
 
   ib_pd = std::shared_ptr<ibv_pd>(ibv_alloc_pd(ib_ctx.get()),
                                   [](ibv_pd* p) { ibv_dealloc_pd(p); });
   if (ib_pd == nullptr) {
-    rdma_log(RDMA_ERROR, "RDMANode::open, ibv_alloc_pd failed");
-    return -1;
+    gpr_log(GPR_ERROR, "RDMANode::open, ibv_alloc_pd failed");
+    exit(-1);
   }
 
-  SET_RDMA_VERBOSITY();
-
-  return 0;
+  // Notify other threads that device is opened
 }
 
 void RDMANode::close() { memset(&port_attr, 0, sizeof(port_attr)); }
 
-// -----< TimerPackage >-----
-std::atomic_size_t TimerPackage::global_count(0);
-
-TimerPackage::TimerPackage(size_t timeout_ms)
-    : timeout_ms_(timeout_ms), local_id_(global_count.fetch_add(1)) {
-  alive_.store(false);
-  accumulative_timeout_ms_.store(0);
-  thread_ = new std::thread(ThreadRunThis, this);
-  // thread_ will wait in phase 1 after constructor
+void init_sge(ibv_sge* sge, void* lc_addr, size_t sz, uint32_t lkey) {
+  memset(sge, 0, sizeof(ibv_sge));
+  sge->addr = (uint64_t)lc_addr;
+  sge->length = sz;
+  sge->lkey = lkey;
 }
 
-void TimerPackage::ThreadRunThis(TimerPackage* pkg) {
-  std::unique_lock<std::mutex> start_lck(pkg->start_mu_);
-  std::unique_lock<std::mutex> timer_lck(pkg->timer_mu_);
-  pkg->accumulative_timeout_ms_.store(0);
-  pkg->alive_.store(true);
-  while (pkg->alive_.load()) {
-    // phase 1:
-    // wait for start_
-    pkg->start_.wait(start_lck);
-    // start_.notify_XXX and start_mu_.unlock are called
+void init_sr(ibv_send_wr* sr, ibv_sge* sge, ibv_wr_opcode opcode, void* rt_addr,
+             uint32_t rkey, int num_sge, uint32_t imm_data, size_t id,
+             ibv_send_wr* next) {
+  memset(sr, 0, sizeof(ibv_send_wr));
+  sr->next = next;
+  sr->wr_id = id;
+  sr->sg_list = sge;
+  sr->num_sge = num_sge;
+  sr->opcode = opcode;
+  sr->imm_data = imm_data;
+  sr->send_flags = IBV_SEND_SIGNALED;
+  sr->wr.rdma.remote_addr = (uint64_t)rt_addr;
+  sr->wr.rdma.rkey = rkey;
+}
 
-    // phase 2:
-    // started, either be notified or timeout or not alive
-    for (size_t i = 0;
-         pkg->alive_.load() &&
-         pkg->timer_.wait_for(
-             timer_lck, std::chrono::milliseconds(pkg->timeout_ms_.load())) ==
-             std::cv_status::timeout;
-         i++) {
-      // timeout
-      pkg->accumulative_timeout_ms_.fetch_add(pkg->timeout_ms_.load());
-      // printf("Timer (%d): timeout (%lld ms x %d): %s\n", pkg->local_id_,
-      // pkg->timeout_ms_.load(), i + 1, pkg->message_);
+void init_rr(ibv_recv_wr* rr, ibv_sge* sge, int num_sge) {
+  static int id = 0;
+  memset(rr, 0, sizeof(ibv_recv_wr));
+  rr->next = NULL;
+  rr->wr_id = id++;
+  rr->sg_list = sge;
+  rr->num_sge = num_sge;
+}
+
+int modify_qp_to_init(ibv_qp* qp) {
+  ibv_qp_attr attr;
+  int flags;
+  int rc;
+
+  memset(&attr, 0, sizeof(attr));
+  attr.qp_state = IBV_QPS_INIT;
+  attr.port_num = RDMANode::ib_port;
+  attr.pkey_index = 0;
+  attr.qp_access_flags =
+      IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_REMOTE_READ;
+  flags = IBV_QP_STATE | IBV_QP_PKEY_INDEX | IBV_QP_PORT | IBV_QP_ACCESS_FLAGS;
+  rc = ibv_modify_qp(qp, &attr, flags);
+  if (rc) {
+    gpr_log(GPR_ERROR, "modify_qp_to_init, failed to modify QP state to INIT");
+  }
+  return rc;
+}
+
+int modify_qp_to_rtr(struct ibv_qp* qp, uint32_t remote_qpn, uint16_t dlid,
+                     union ibv_gid dgid, uint8_t link_layer) {
+  struct ibv_qp_attr attr;
+  int flags;
+  int rc;
+  memset(&attr, 0, sizeof(attr));
+  attr.qp_state = IBV_QPS_RTR;
+  attr.path_mtu = IBV_MTU_1024;  // previous is IBV_MTU_1024
+  attr.dest_qp_num = remote_qpn;
+  attr.rq_psn = 0;
+  attr.max_dest_rd_atomic = 1;
+  attr.min_rnr_timer = 12;
+
+  if (link_layer == IBV_LINK_LAYER_INFINIBAND) {
+    attr.ah_attr.is_global = 0;
+  } else if (link_layer == IBV_LINK_LAYER_ETHERNET) {
+    attr.ah_attr.is_global = 1;
+    attr.ah_attr.grh.dgid = dgid;
+    attr.ah_attr.grh.flow_label = 0;
+    attr.ah_attr.grh.hop_limit = 1;
+    attr.ah_attr.grh.sgid_index = 0;
+    attr.ah_attr.grh.traffic_class = 0;
+  } else {
+    // UNSPECIFIED TYPE
+    attr.ah_attr.is_global = 0;
+  }
+
+  attr.ah_attr.dlid = dlid;
+  attr.ah_attr.sl = 0;
+  attr.ah_attr.src_path_bits = 0;
+  attr.ah_attr.port_num = RDMANode::ib_port;
+  flags = IBV_QP_STATE | IBV_QP_AV | IBV_QP_PATH_MTU | IBV_QP_DEST_QPN |
+          IBV_QP_RQ_PSN | IBV_QP_MAX_DEST_RD_ATOMIC | IBV_QP_MIN_RNR_TIMER;
+  rc = ibv_modify_qp(qp, &attr, flags);
+  if (rc) {
+    gpr_log(GPR_ERROR,
+            "modify_qp_to_rtr, failed to modify QP state to RTR (%d)", rc);
+    gpr_log(GPR_ERROR, "modify_qp_to_rtr, EINVAL: %d", EINVAL);
+  }
+  return rc;
+}
+
+int modify_qp_to_rts(struct ibv_qp* qp) {
+  struct ibv_qp_attr attr;
+  int flags;
+  int rc;
+  memset(&attr, 0, sizeof(attr));
+  attr.qp_state = IBV_QPS_RTS;
+  attr.timeout = 0x18;  // previous is 0x12
+  attr.retry_cnt = 6;
+  attr.rnr_retry = 6;  // previous is 0
+  attr.sq_psn = 0;
+  attr.max_rd_atomic = 1;
+  flags = IBV_QP_STATE | IBV_QP_TIMEOUT | IBV_QP_RETRY_CNT | IBV_QP_RNR_RETRY |
+          IBV_QP_SQ_PSN | IBV_QP_MAX_QP_RD_ATOMIC;
+  rc = ibv_modify_qp(qp, &attr, flags);
+  if (rc) {
+    gpr_log(GPR_ERROR, "modify_qp_to_rts, failed to modify QP state to RTS\n");
+  }
+  return rc;
+}
+
+int sync_data(int fd, char* local, char* remote, const size_t sz) {
+  size_t remain = sz;
+  ssize_t done;
+  if (fd < 3) {
+    gpr_log(GPR_ERROR,
+            "RDMAConn::sync_data, failed to sync data with remote, no opened "
+            "socket(sd: %d)",
+            fd);
+    return -1;
+  }
+
+  while (remain) {
+    done = ::write(fd, local + (sz - remain), remain);
+    if (done < 0) {
+      if (errno == EINTR || errno == EAGAIN) {
+      } else {
+        gpr_log(GPR_ERROR, "RDMAConn::sync_data, write errno %d: %s", errno,
+                strerror(errno));
+        return -1;
+      }
+    } else {
+      remain -= done;
     }
-    // not alive or be notified(never timeout or be notified after timeouts);
-
-    // not alive: break from the while loop
-
-    // notified: stopped
-    // if never timeout: go to phase 1, stop caller return;
-    // if timeouted: go to phase 1, stop caller blocked
   }
-}
 
-// expect timer now is in phase 1
-TimerPackage::~TimerPackage() {
-  while (!alive_.load()) {
-    std::this_thread::yield();
+  remain = sz;
+  while (remain) {
+    done = ::read(fd, remote + (sz - remain), remain);
+    if (done < 0) {
+      if (errno == EINTR || errno == EAGAIN) {
+      } else {
+        gpr_log(GPR_ERROR, "RDMAConn::sync_data, read errno %d: %s", errno,
+                strerror(errno));
+        return -1;
+      }
+    } else {
+      remain -= done;
+    }
   }
-  alive_.store(false);
-  start_mu_.lock();
-  start_.notify_all();
-  start_mu_.unlock();
-  timer_mu_.lock();
-  timer_.notify_all();
-  timer_mu_.unlock();
-  thread_->join();
-  // printf("Timer (%d) closed\n", local_id);
-}
 
-void TimerPackage::Start() { Start(""); }
-
-void TimerPackage::Start(const char* format, ...) {
-  message_ = nullptr;
-  va_list args;
-  va_start(args, format);
-  if (vasprintf(&message_, format, args) == -1) {
-    va_end(args);
-    printf("return in start\n");
-    return;
-  }
-  va_end(args);
-  while (!alive_.load()) {
-    std::this_thread::yield();
-  }  // make sure stat_lck is created (start_mu_ is locked)
-  start_thread_id_ = std::this_thread::get_id();
-  start_mu_.lock();  // start_.wait is called
-  start_.notify_one();
-  start_mu_.unlock();
-  // switch from phase 1 to phase 2
-}
-
-void TimerPackage::Stop() {
-  if (std::this_thread::get_id() != start_thread_id_)
-    printf("start and stop in different thread\n");
-  while (!alive_.load()) {
-    std::this_thread::yield();
-  }
-  timer_mu_.lock();
-  timer_.notify_one();
-  timer_mu_.unlock();
-  // notify timer in phase 2
-
-  accumulative_timeout_ms_.store(0);
+  return 0;
 }

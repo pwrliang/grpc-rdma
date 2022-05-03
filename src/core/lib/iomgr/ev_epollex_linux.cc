@@ -47,6 +47,7 @@
 #include <grpc/support/alloc.h>
 
 #include "src/core/lib/debug/stats.h"
+#include "include/grpcpp/stats_time.h"
 #include "src/core/lib/gpr/spinlock.h"
 #include "src/core/lib/gpr/tls.h"
 #include "src/core/lib/gpr/useful.h"
@@ -93,7 +94,6 @@ struct pollable {
   grpc_core::RefCount refs;
 
   int epfd;
-  int test_epfd_pid;
   grpc_wakeup_fd wakeup;
 
   // The following are relevant only for type PO_FD
@@ -935,6 +935,7 @@ static void pollset_destroy(grpc_pollset* pollset) {
 }
 
 static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
+  GRPCProfiler profiler(GRPC_STATS_TIME_POLLABLE_EPOLL);
   GPR_TIMER_SCOPE("pollable_epoll", 0);
   int timeout = poll_deadline_to_millis_timeout(deadline);
 
@@ -963,7 +964,6 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
 
   p->event_cursor = 0;
   p->event_count = r;
-
   return GRPC_ERROR_NONE;
 }
 

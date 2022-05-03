@@ -18,9 +18,9 @@
 
 #include <grpc/support/port_platform.h>
 
-#include "src/core/lib/iomgr/port.h"
-
 #include <grpc/support/log.h>
+#include "include/grpcpp/stats_time.h"
+#include "src/core/lib/iomgr/port.h"
 
 /* This polling engine is only relevant on linux kernels supporting epoll() */
 #ifdef GRPC_LINUX_EPOLL_CREATE1
@@ -116,11 +116,12 @@ struct pollable {
   int event_count;
   struct epoll_event events[MAX_EPOLL_EVENTS];
 
-  // pollable is created by malloc inside pollable_create
-  std::set<grpc_fd*> rdma_fds;
+  long sleep_in_micro;
 
+  // pollable is created by malloc inside pollable_create
+  std::vector<grpc_fd*>* rdma_fds;
+  size_t last_poll_idx;
   gpr_mu rdma_mu;
-  // std::unique_ptr<TimerPackage> rdma_timer;
 };
 
 static const char* pollable_type_string(pollable_type t) {
@@ -170,12 +171,12 @@ struct grpc_fd {
     write_closure.InitEvent();
     error_closure.InitEvent();
     rdmasr = nullptr;
-    alive = false;
-    rdma_pollables.clear();
+    polling_by = new std::vector<pollable*>();
     gpr_mu_init(&rdma_mu);
     // printf("fd %d is created\n", fd);
 
     std::string fd_name = absl::StrCat(name, " fd=", fd);
+    client = strncmp(name, "tcp-client", 10) == 0;
     grpc_iomgr_register_object(&iomgr_object, fd_name.c_str());
 #ifndef NDEBUG
     if (GRPC_TRACE_FLAG_ENABLED(grpc_trace_fd_refcount)) {
@@ -209,8 +210,7 @@ struct grpc_fd {
     write_closure.DestroyEvent();
     error_closure.DestroyEvent();
     rdmasr = nullptr;
-    alive = false;
-    rdma_pollables.clear();
+    delete polling_by;
     gpr_mu_destroy(&rdma_mu);
     // printf("fd %d is destroyed\n", fd);
 
@@ -268,10 +268,10 @@ struct grpc_fd {
   // add it self to pollable during pollable_add_fd
   // del it self from pollables during fd_orphan
   RDMASenderReceiverBP* rdmasr = nullptr;
-  std::atomic_bool alive;
+  bool client;
   // fd is created by new, inside fd_create
 
-  std::set<pollable*> rdma_pollables;
+  std::vector<pollable*>* polling_by;
 
   gpr_mu rdma_mu;
 };
@@ -287,18 +287,17 @@ static void pollable_unref(pollable* p, const grpc_core::DebugLocation& dbg_loc,
     gpr_mu_destroy(&p->mu);
 
     gpr_mu_lock(&p->rdma_mu);
-    auto fds = p->rdma_fds;
+    auto fds = *p->rdma_fds;  // need a copy
     gpr_mu_unlock(&p->rdma_mu);
 
     for (auto fd : fds) {
       gpr_mu_lock(&fd->rdma_mu);
-      fd->rdma_pollables.erase(p);
+      fd->polling_by->erase(
+          std::remove(fd->polling_by->begin(), fd->polling_by->end(), p),
+          fd->polling_by->end());
       gpr_mu_unlock(&fd->rdma_mu);
     }
 
-    gpr_mu_lock(&p->rdma_mu);
-    p->rdma_fds.clear();
-    gpr_mu_unlock(&p->rdma_mu);
     gpr_mu_destroy(&p->rdma_mu);
     gpr_free(p);
   }
@@ -540,17 +539,16 @@ static void fd_orphan(grpc_fd* fd, grpc_closure* on_done, int* release_fd,
 
   if (fd->rdmasr != nullptr) {
     gpr_mu_lock(&fd->rdma_mu);
-    auto pollables = fd->rdma_pollables;
+    auto pollables = *fd->polling_by;
     gpr_mu_unlock(&fd->rdma_mu);
 
     for (auto p : pollables) {
       gpr_mu_lock(&p->rdma_mu);
-      p->rdma_fds.erase(fd);
+      p->rdma_fds->erase(
+          std::remove(p->rdma_fds->begin(), p->rdma_fds->end(), fd),
+          p->rdma_fds->end());
       gpr_mu_unlock(&p->rdma_mu);
     }
-    gpr_mu_lock(&fd->rdma_mu);
-    fd->rdma_pollables.clear();
-    gpr_mu_unlock(&fd->rdma_mu);
   }
 
   // TODO(sreek): handle fd removal (where is_fd_closed=false)
@@ -681,15 +679,25 @@ static grpc_error_handle pollable_create(pollable_type type, pollable** p) {
   (*p)->root_worker = nullptr;
   (*p)->event_cursor = 0;
   (*p)->event_count = 0;
-  new (&(*p)->rdma_fds) std::set<grpc_fd*>();
+  (*p)->rdma_fds = new std::vector<grpc_fd*>();
+  (*p)->last_poll_idx = 0;
+  char* s_sleep = getenv("GRPC_SLEEP");
+  long sleep_in_micro = 0;
+  if (s_sleep != nullptr) {
+    char* end;
+    sleep_in_micro = strtol(s_sleep, &end, 10);
+    if (*end != '\0' || sleep_in_micro < 0) {
+      sleep_in_micro = 0;
+      printf("Error ENV GRPC_SLEEP\n");
+    }
+  }
+  (*p)->sleep_in_micro = sleep_in_micro;
   // new (&(*p)->rdma_timer) std::unique_ptr<TimerPackage>(new TimerPackage());
   gpr_mu_init(&(*p)->rdma_mu);
   // printf("pollable is created, epfd = %d\n", epfd);
   return GRPC_ERROR_NONE;
 }
 
-//不同的pollable加入了相同的fd，或者说同一个fd加入到了不同的pollable
-// 不同的cq处理了相同的client？
 static grpc_error_handle pollable_add_fd(pollable* p, grpc_fd* fd) {
   grpc_error_handle error = GRPC_ERROR_NONE;
   static const char* err_desc = "pollable_add_fd";
@@ -718,14 +726,22 @@ static grpc_error_handle pollable_add_fd(pollable* p, grpc_fd* fd) {
   }
 
   if (fd->rdmasr != nullptr) {
-    gpr_mu_lock(&p->rdma_mu);
-    p->rdma_fds.erase(fd);
-    p->rdma_fds.insert(fd);
-    gpr_mu_unlock(&p->rdma_mu);
-
     gpr_mu_lock(&fd->rdma_mu);
-    fd->rdma_pollables.insert(p);
+    size_t pollable_size = fd->polling_by->size();
     gpr_mu_unlock(&fd->rdma_mu);
+
+    if (fd->client || pollable_size == 0) {
+      gpr_mu_lock(&p->rdma_mu);
+      auto& fds = *p->rdma_fds;
+      if (std::find(fds.begin(), fds.end(), fd) == fds.end()) {
+        fds.push_back(fd);
+      }
+      gpr_mu_unlock(&p->rdma_mu);
+
+      gpr_mu_lock(&fd->rdma_mu);
+      fd->polling_by->push_back(p);
+      gpr_mu_unlock(&fd->rdma_mu);
+    }
   }
 
   return error;
@@ -1035,6 +1051,8 @@ static grpc_error_handle pollable_process_events(grpc_pollset* pollset,
   return error;
 }
 
+extern bool server_node;
+
 /* pollset_shutdown is guaranteed to be called before pollset_destroy. */
 static void pollset_destroy(grpc_pollset* pollset) {
   POLLABLE_UNREF(pollset->active_pollable, "pollset");
@@ -1043,6 +1061,7 @@ static void pollset_destroy(grpc_pollset* pollset) {
 }
 // p不同, grpc_fd相同
 static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
+  GRPCProfiler profiler(GRPC_STATS_TIME_POLLABLE_EPOLL);
   GPR_TIMER_SCOPE("pollable_epoll", 0);
   int timeout = poll_deadline_to_millis_timeout(deadline);
 
@@ -1050,43 +1069,70 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
     gpr_log(GPR_INFO, "POLLABLE:%p[%s] poll for %dms", p,
             pollable_desc(p).c_str(), timeout);
   }
+  if (timeout != 0) {
+    GRPC_SCHEDULING_START_BLOCKING_REGION;
+  }
 
   int r;
   gpr_mu_lock(&p->rdma_mu);
-  bool has_rdma_fds = !p->rdma_fds.empty();
+  bool has_rdma_fds = !p->rdma_fds->empty();
   gpr_mu_unlock(&p->rdma_mu);
 
   if (has_rdma_fds) {
-    rdma_log(RDMA_DEBUG, "pollable %p epoll starts", p);
-    bool continue_poll = true;
+    auto begin_poll_time = absl::Now();
 
     do {
       r = epoll_wait(p->epfd, p->events, MAX_EPOLL_EVENTS, 0);
-      gpr_mu_lock(&p->rdma_mu);
-      for (auto fd : p->rdma_fds) {
-        GPR_ASSERT(fd->rdmasr != nullptr);
 
-        if (fd->rdmasr->check_incoming()) {
-          continue_poll = false;
-          rdma_log(RDMA_DEBUG, "fd %d become readable", fd->fd);
-          fd_become_readable(fd);
+      if (r >= 0) {
+        gpr_mu_lock(&p->rdma_mu);
+        auto& fds = *p->rdma_fds;
+        auto last_poll_idx = p->last_poll_idx;
+        auto curr_poll_idx = last_poll_idx;
+        for (size_t i = 0; i < fds.size() && r < MAX_EPOLL_EVENTS; i++) {
+          curr_poll_idx = (i + last_poll_idx) % fds.size();
+          auto* fd = fds[curr_poll_idx];
+
+          GPR_ASSERT(fd->rdmasr != nullptr);
+          uint32_t events = 0;
+          // FIXME: We may implement this with Edeg-Trigger, but last time
+          // that causes tensorflow-lenet to suck
+          if (fd->rdmasr->get_unread_data_size() == 0 &&
+              fd->rdmasr->check_incoming() > 0) {
+            events |= EPOLLIN;
+          }
+
+          if (fd->rdmasr->if_write_again()) {
+            events |= EPOLLOUT;
+          }
+
+          if (events > 0) {
+            p->events[r].events = events;
+            p->events[r].data.ptr = reinterpret_cast<void*>(
+                reinterpret_cast<intptr_t>(fd) | (fd->track_err ? 2 : 0));
+            r++;
+          }
         }
-
-        if (fd->rdmasr->if_write_again()) {
-          continue_poll = false;
-          fd_become_writable(fd);
+        p->last_poll_idx = curr_poll_idx;
+        gpr_mu_unlock(&p->rdma_mu);
+        if (r == 0) {
+          /* N.B. this is crucial for performance: we spin 1 microsecond to
+           * stop firing too many closures
+           * 1 micro is a trade of between wakeup lag and overhead of scheduling
+           * closures since epoll_wait normally will spend 5 micro seconds to
+           * wakeup
+           * */
+          int64_t sleep_time = p->sleep_in_micro;
+          if (sleep_time > 0) {
+            gpr_sleep_until(
+                gpr_time_add(gpr_now(GPR_CLOCK_REALTIME),
+                             gpr_time_from_micros(sleep_time, GPR_TIMESPAN)));
+          }
         }
       }
-      if (p->rdma_fds.empty()) {
-        continue_poll = false;
-      }
-      gpr_mu_unlock(&p->rdma_mu);
-    } while (((r < 0 && errno == EINTR) || r == 0) && continue_poll);
-    // p->rdma_timer->Stop();
-    // printf("thread %lld: pollable %d epoll finished\n",
-    // std::this_thread::get_id(), p->epfd);
-    rdma_log(RDMA_DEBUG, "pollable %p ends, r = %d, continue_poll = %d", p, r,
-             continue_poll);
+    } while ((r < 0 && errno == EINTR) ||
+             (r == 0 &&
+              (absl::Now() - begin_poll_time) < absl::Milliseconds(timeout)));
   } else {
     if (timeout != 0) {
       GRPC_SCHEDULING_START_BLOCKING_REGION;
@@ -1256,12 +1302,6 @@ static long sys_gettid(void) { return syscall(__NR_gettid); }
 static grpc_error_handle pollset_work(grpc_pollset* pollset,
                                       grpc_pollset_worker** worker_hdl,
                                       grpc_millis deadline) {
-  // printf("deadline = %lld\n", deadline);
-  // deadline = 1;
-
-  // deadline = grpc_timespec_to_millis_round_up(gpr_time_from_millis(1,
-  // GPR_TIMESPAN));
-
   GPR_TIMER_SCOPE("pollset_work", 0);
 #ifdef GRPC_EPOLLEX_CREATE_WORKERS_ON_HEAP
   grpc_pollset_worker* worker =
@@ -1286,31 +1326,22 @@ static grpc_error_handle pollset_work(grpc_pollset* pollset,
   if (pollset->kicked_without_poller) {
     pollset->kicked_without_poller = false;
   } else {
-    // one worker per thread
-    // all thread stuck in while loop inside begin_worker except one
     if (begin_worker(pollset, WORKER_PTR, worker_hdl, deadline)) {
-      // true, if and only if worker == pollset->active_pollable->root_worker
       gpr_tls_set(&g_current_thread_pollset, (intptr_t)pollset);
       gpr_tls_set(&g_current_thread_worker, (intptr_t)WORKER_PTR);
-      // 调用epoll_wait等待事件
       if (WORKER_PTR->pollable_obj->event_cursor ==
           WORKER_PTR->pollable_obj->event_count) {
         append_error(&error, pollable_epoll(WORKER_PTR->pollable_obj, deadline),
                      err_desc);
       }
-
-      //      printf("tid: %ld pollset: %p\n",sys_gettid(), pollset);
-      //调用closure.SetReady，让其他worker的read/write closure可以执行
       append_error(
           &error,
           pollable_process_events(pollset, WORKER_PTR->pollable_obj, false),
           err_desc);
-      // 执行read或write closure
       grpc_core::ExecCtx::Get()->Flush();
       gpr_tls_set(&g_current_thread_pollset, 0);
       gpr_tls_set(&g_current_thread_worker, 0);
     }
-    // 移除root_worker，让下个worker变成root_worker
     end_worker(pollset, WORKER_PTR, worker_hdl);
   }
 #ifdef GRPC_EPOLLEX_CREATE_WORKERS_ON_HEAP

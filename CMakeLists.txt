@@ -1814,6 +1814,7 @@ add_library(grpc
   src/core/lib/compression/stream_compression_identity.cc
   src/core/lib/debug/stats.cc
   src/core/lib/debug/stats_data.cc
+  src/core/lib/debug/stats_time.cc
   src/core/lib/debug/trace.cc
   src/core/lib/event_engine/slice_allocator.cc
   src/core/lib/event_engine/sockaddr.cc
@@ -1894,13 +1895,9 @@ add_library(grpc
   src/core/lib/iomgr/tcp_posix.cc
   src/core/lib/iomgr/rdma_event_posix.cc
   src/core/lib/iomgr/rdma_bp_posix.cc
-  src/core/lib/rdma/log.cc
   src/core/lib/rdma/ringbuffer.cc
   src/core/lib/rdma/RDMAUtils.cc
   src/core/lib/rdma/RDMAConn.cc
-  src/core/lib/rdma/RDMAConnBP.cc
-  src/core/lib/rdma/RDMAConnEvent.cc
-  src/core/lib/rdma/RDMASenderReceiver.cc
   src/core/lib/rdma/RDMASenderReceiverBP.cc
   src/core/lib/rdma/RDMASenderReceiverEvent.cc
   src/core/lib/iomgr/tcp_server.cc
@@ -2448,6 +2445,7 @@ add_library(grpc_unsecure
   src/core/lib/compression/stream_compression_identity.cc
   src/core/lib/debug/stats.cc
   src/core/lib/debug/stats_data.cc
+  src/core/lib/debug/stats_time.cc
   src/core/lib/debug/trace.cc
   src/core/lib/event_engine/slice_allocator.cc
   src/core/lib/event_engine/sockaddr.cc
@@ -2527,13 +2525,9 @@ add_library(grpc_unsecure
   src/core/lib/iomgr/tcp_posix.cc
   src/core/lib/iomgr/rdma_event_posix.cc
   src/core/lib/iomgr/rdma_bp_posix.cc
-  src/core/lib/rdma/log.cc
   src/core/lib/rdma/ringbuffer.cc
   src/core/lib/rdma/RDMAUtils.cc
   src/core/lib/rdma/RDMAConn.cc
-  src/core/lib/rdma/RDMAConnBP.cc
-  src/core/lib/rdma/RDMAConnEvent.cc
-  src/core/lib/rdma/RDMASenderReceiver.cc
   src/core/lib/rdma/RDMASenderReceiverBP.cc
   src/core/lib/rdma/RDMASenderReceiverEvent.cc
   src/core/lib/iomgr/tcp_server.cc
@@ -3009,6 +3003,7 @@ foreach(_hdr
   include/grpcpp/server_builder.h
   include/grpcpp/server_context.h
   include/grpcpp/server_posix.h
+  include/grpcpp/stats_time.h
   include/grpcpp/support/async_stream.h
   include/grpcpp/support/async_unary_call.h
   include/grpcpp/support/byte_buffer.h

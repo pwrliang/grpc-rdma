@@ -10,12 +10,10 @@
 #include <sys/types.h>
 #include <sys/uio.h>
 #include <unistd.h>
+#include <atomic>
 #include <cassert>
-#include <sstream>
 #include <iomanip>
-
-class RDMASenderReceiverBP;
-class RDMASenderReceiverEvent;
+#include <sstream>
 
 // the data size of ringbuffer should <= capacity - 1, which means the
 // ringbuffer cannot be full. if data size == capacity, then it is possible that
@@ -23,67 +21,95 @@ class RDMASenderReceiverEvent;
 // empty.
 class RingBuffer {
  public:
-  explicit RingBuffer(size_t capacity);
-  virtual ~RingBuffer();
+  explicit RingBuffer(size_t capacity)
+      : capacity_(capacity),
+        buf_(new uint8_t[capacity]),
+        head_(0),
+        garbage_(0) {
+    memset(buf_, 0, capacity);
+  }
+  virtual ~RingBuffer() { delete[] buf_; }
+
+  const uint8_t* get_buf() const { return buf_; }
 
   uint8_t* get_buf() { return buf_; }
-  size_t get_capacity() { return capacity_; }
-  size_t get_head() { return head_; }
 
-  friend class RDMASenderReceiverBP;
-  friend class RDMASenderReceiverEvent;
+  size_t get_head() const { return head_; }
+
+  virtual size_t get_sendbuf_size() const = 0;
+
+  virtual size_t get_max_send_size() const = 0;
+
+  size_t get_capacity() const { return capacity_; }
+
+  /**
+   * Read data from ringbuffer
+   * @param msg
+   * @param expected_lens maximum length of data to read. This size can not
+   * exceed the data size of actually data in ring buffer. After reading, this
+   * variable will be changed to actual read size.
+   * @return Return true if the size of garbage exceeds half of ring buffer.
+   */
+  virtual bool read_to_msghdr(msghdr* msg, size_t& expected_lens) = 0;
 
  protected:
-  size_t update_head(size_t inc);
+  size_t update_head(size_t inc) {
+    head_ = (head_ + inc) % capacity_;
+    return head_;
+  }
 
-  uint8_t* buf_ = nullptr;
   size_t capacity_;
-  size_t head_ = 0;
+  uint8_t* buf_;
+  size_t head_;
+  size_t garbage_;
 };
 
 class RingBufferBP : public RingBuffer {
  public:
-  explicit RingBufferBP(size_t capacity) : RingBuffer(capacity) {
-    bzero(zeros, 1024ul * 1024 * 16);
+  explicit RingBufferBP(size_t capacity) : RingBuffer(capacity) {}
+
+  size_t check_mlens() const { return check_mlens(head_); }
+  size_t check_mlen() const { return check_mlen(head_); }
+
+  bool read_to_msghdr(msghdr* msg, size_t& expected_lens) override;
+
+  size_t get_sendbuf_size() const override {
+    /*
+     * BP: garbage max R/2 - 1, minimum free size = R - 8 - (R/2 - 1)
+     */
+    return capacity_ / 2 - 7;
   }
 
-  bool check_head();
-  size_t check_mlens() { return check_mlens(head_); }
-  size_t check_mlen() { return check_mlen(head_); }
-
-  size_t read_to_msghdr(msghdr* msg, size_t msghdr_size,
-                        size_t& expected_lens) {
-    return read_to_msghdr(msg, msghdr_size, head_, expected_lens);
+  size_t get_max_send_size() const override {
+    return get_sendbuf_size() - sizeof(size_t) - 1;
   }
 
  protected:
-  uint8_t check_tail(size_t head, size_t mlen);
-  size_t check_mlen(size_t head);
-  size_t check_mlens(size_t head);
+  uint8_t check_tail(size_t head, size_t mlen) const;
+  size_t check_mlen(size_t head) const;
+  size_t check_mlens(size_t head) const;
 
   // reset buf first then update head. Otherswise new head may read the old data
   // from unupdated space.
   size_t reset_buf_and_update_head(size_t lens);
-
-  // it guarantees to read out data of size expected_lens, or more
-  size_t read_to_msghdr(msghdr* msg, size_t msghdr_size, size_t head,
-                        size_t& expected_lens);
-
-  uint8_t zeros[1024 * 1024 * 16];
 };
 
 class RingBufferEvent : public RingBuffer {
  public:
   explicit RingBufferEvent(size_t capcatiy) : RingBuffer(capcatiy) {}
 
-  size_t read_to_msghdr(msghdr* msg, size_t size) {
-    return read_to_msghdr(msg, head_, size);
+  bool read_to_msghdr(msghdr* msg, size_t& size) override;
+
+  size_t get_sendbuf_size() const override {
+    /*
+     * Event: garbage max R/2 - 1, available R-1, send = R-1 - (R/2-1) = R/2
+     */
+    return capacity_ / 2;
   }
 
-  friend class RDMASenderReceiverEvent;
+  size_t get_max_send_size() const override { return get_sendbuf_size(); }
 
- protected:
-  size_t read_to_msghdr(msghdr* msg, size_t head, size_t expected_read_size);
+ private:
 };
 
 #endif

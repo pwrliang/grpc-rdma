@@ -249,6 +249,7 @@ static void on_read(void* arg, grpc_error_handle err) {
               addr_str.c_str());
     }
     sp->client_count++;
+
     printf("accept connection from %s, fd = %d, client count = %d\n",
            addr_str.c_str(), fd, sp->client_count);
 
@@ -276,7 +277,8 @@ static void on_read(void* arg, grpc_error_handle err) {
     //     read_notifier_pollset, acceptor);
     sp->server->on_accept_cb(
         sp->server->on_accept_cb_arg,
-        grpc_endpoint_create(fdobj, sp->server->channel_args, addr_str.c_str()),
+        grpc_endpoint_create(fdobj, sp->server->channel_args, addr_str.c_str(),
+                             true),
         read_notifier_pollset, acceptor);
     grpc_pollset_add_fd(read_notifier_pollset, fdobj);
   }

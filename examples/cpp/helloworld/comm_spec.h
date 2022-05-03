@@ -4,9 +4,9 @@
 #define RDMASCRATCH_COMM_SPEC_H
 #include <cstring>
 #include <map>
+#include <numeric>
 #include <string>
 #include <vector>
-
 #include "mpi.h"
 #ifdef OPEN_MPI
 #define NULL_COMM NULL
@@ -248,4 +248,30 @@ class CommSpec {
   std::vector<int> worker_host_id_;
   std::vector<std::vector<int>> host_worker_list_;
 };
+
+void Gather(MPI_Comm comm, const std::string& in,
+            std::vector<std::string>& out) {
+  int send_len = in.size();
+  int comm_size;
+  MPI_Comm_size(comm, &comm_size);
+  std::vector<int> recvcounts(comm_size);
+  MPI_Gather(&send_len, 1, MPI_INT, recvcounts.data(), 1, MPI_INT, 0, comm);
+  std::vector<int> displs;
+  int total_size = 0;
+  for (auto len : recvcounts) {
+    displs.push_back(total_size);
+    total_size += len;
+  }
+  char* data = static_cast<char*>(malloc(total_size));
+
+  MPI_Gatherv(in.data(), send_len, MPI_CHAR, data, recvcounts.data(),
+              displs.data(), MPI_CHAR, 0, comm);
+  out.resize(comm_size);
+  for (int i = 0; i < comm_size; i++) {
+    //    out[i].resize(recvcounts[i]);
+    out[i].assign(data + displs[i], recvcounts[i]);
+  }
+  free(data);
+}
+
 #endif  // RDMASCRATCH_COMM_SPEC_H

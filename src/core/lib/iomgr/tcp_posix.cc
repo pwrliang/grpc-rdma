@@ -44,7 +44,7 @@
 #include <grpc/support/string_util.h>
 #include <grpc/support/sync.h>
 #include <grpc/support/time.h>
-
+#include "include/grpcpp/stats_time.h"
 #include "src/core/lib/address_utils/sockaddr_utils.h"
 #include "src/core/lib/channel/channel_args.h"
 #include "src/core/lib/debug/stats.h"
@@ -420,6 +420,8 @@ struct grpc_tcp {
                                       on errors anymore */
   TcpZerocopySendCtx tcp_zerocopy_send_ctx;
   TcpZerocopySendRecord* current_zerocopy_send = nullptr;
+  absl::Time last_read_time;
+  absl::Time last_write_time;
 };
 
 struct backup_poller {
@@ -707,6 +709,12 @@ static void call_read_cb(grpc_tcp* tcp, grpc_error_handle error) {
 
 #define MAX_READ_IOVEC 4
 static void tcp_do_read(grpc_tcp* tcp) {
+  GRPCProfiler profiler(GRPC_STATS_TIME_TRANSPORT_DO_READ, 0);
+  if (tcp->last_read_time != absl::Time()) {
+    grpc_stats_time_add(GRPC_STATS_TIME_RECV_LAG,
+                        absl::Now() - tcp->last_read_time, -1);
+  }
+  tcp->last_read_time = absl::Now();
   GPR_TIMER_SCOPE("tcp_do_read", 0);
   struct msghdr msg;
   struct iovec iov[MAX_READ_IOVEC];
@@ -869,6 +877,7 @@ static void tcp_read_allocation_done(void* tcpp, grpc_error_handle error) {
 }
 
 static void tcp_continue_read(grpc_tcp* tcp) {
+  GRPCProfiler profiler(GRPC_STATS_TIME_TRANSPORT_CONTINUE_READ);
   size_t target_read_size = get_target_read_size(tcp);
   /* Wait for allocation only when there is no buffer left. */
   if (tcp->incoming_buffer->length == 0 &&
@@ -890,6 +899,7 @@ static void tcp_continue_read(grpc_tcp* tcp) {
 }
 
 static void tcp_handle_read(void* arg /* grpc_tcp */, grpc_error_handle error) {
+  GRPCProfiler profiler(GRPC_STATS_TIME_TRANSPORT_HANDLE_READ);
   grpc_tcp* tcp = static_cast<grpc_tcp*>(arg);
   if (GRPC_TRACE_FLAG_ENABLED(grpc_tcp_trace)) {
     gpr_log(GPR_INFO, "TCP:%p got_read: %s", tcp,
@@ -908,6 +918,7 @@ static void tcp_handle_read(void* arg /* grpc_tcp */, grpc_error_handle error) {
 
 static void tcp_read(grpc_endpoint* ep, grpc_slice_buffer* incoming_buffer,
                      grpc_closure* cb, bool urgent) {
+  GRPCProfiler profiler(GRPC_STATS_TIME_TRANSPORT_READ);
   grpc_tcp* tcp = reinterpret_cast<grpc_tcp*>(ep);
   GPR_ASSERT(tcp->read_cb == nullptr);
   tcp->read_cb = cb;
@@ -945,6 +956,7 @@ ssize_t tcp_send(int fd, const struct msghdr* msg, int additional_flags = 0) {
     /* TODO(klempner): Cork if this is a partial write */
     GRPC_STATS_INC_SYSCALL_WRITE();
     sent_length = sendmsg(fd, msg, SENDMSG_FLAGS | additional_flags);
+    grpc_stats_time_add_custom(GRPC_STATS_TIME_SEND_SIZE, sent_length);
   } while (sent_length < 0 && errno == EINTR);
   return sent_length;
 }
@@ -1329,6 +1341,12 @@ void TcpZerocopySendRecord::UpdateOffsetForBytesSent(size_t sending_length,
 // returns true if done, false if pending; if returning true, *error is set
 static bool do_tcp_flush_zerocopy(grpc_tcp* tcp, TcpZerocopySendRecord* record,
                                   grpc_error_handle* error) {
+  GRPCProfiler profiler(GRPC_STATS_TIME_TRANSPORT_FLUSH, 0);
+  if (tcp->last_write_time != absl::Time()) {
+    grpc_stats_time_add(GRPC_STATS_TIME_SEND_LAG,
+                        absl::Now() - tcp->last_write_time, -1);
+  }
+  tcp->last_write_time = absl::Now();
   struct msghdr msg;
   struct iovec iov[MAX_WRITE_IOVEC];
   msg_iovlen_type iov_size;
@@ -1415,6 +1433,12 @@ static bool tcp_flush_zerocopy(grpc_tcp* tcp, TcpZerocopySendRecord* record,
 }
 
 static bool tcp_flush(grpc_tcp* tcp, grpc_error_handle* error) {
+  GRPCProfiler profiler(GRPC_STATS_TIME_TRANSPORT_FLUSH, 0);
+  if (tcp->last_write_time != absl::Time()) {
+    grpc_stats_time_add(GRPC_STATS_TIME_SEND_LAG,
+                        absl::Now() - tcp->last_write_time, -1);
+  }
+  tcp->last_write_time = absl::Now();
   struct msghdr msg;
   struct iovec iov[MAX_WRITE_IOVEC];
   msg_iovlen_type iov_size;
@@ -1523,6 +1547,7 @@ static bool tcp_flush(grpc_tcp* tcp, grpc_error_handle* error) {
 
 static void tcp_handle_write(void* arg /* grpc_tcp */,
                              grpc_error_handle error) {
+  GRPCProfiler profiler(GRPC_STATS_TIME_TRANSPORT_HANDLE_WRITE);
   grpc_tcp* tcp = static_cast<grpc_tcp*>(arg);
   grpc_closure* cb;
 
@@ -1565,6 +1590,7 @@ static void tcp_handle_write(void* arg /* grpc_tcp */,
 
 static void tcp_write(grpc_endpoint* ep, grpc_slice_buffer* buf,
                       grpc_closure* cb, void* arg) {
+  GRPCProfiler profiler(GRPC_STATS_TIME_TRANSPORT_WRITE);
   GPR_TIMER_SCOPE("tcp_write", 0);
   grpc_tcp* tcp = reinterpret_cast<grpc_tcp*>(ep);
   grpc_error_handle error = GRPC_ERROR_NONE;

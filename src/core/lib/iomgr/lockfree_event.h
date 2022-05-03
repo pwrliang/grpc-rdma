@@ -61,6 +61,12 @@ class LockfreeEvent {
   // Signals that the event has been received.
   void SetReady();
 
+  gpr_atm LoadState() {
+    gpr_atm curr = gpr_atm_no_barrier_load(&state_);
+
+    return curr;
+  }
+
  private:
   enum State { kClosureNotReady = 0, kClosureReady = 2, kShutdownBit = 1 };
 
