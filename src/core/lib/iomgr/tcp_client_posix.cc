@@ -123,7 +123,7 @@ static void tc_on_alarm(void* acp, grpc_error_handle error) {
 
 grpc_endpoint* grpc_tcp_client_create_from_fd(
     grpc_fd* fd, const grpc_channel_args* channel_args, const char* addr_str) {
-  return grpc_endpoint_create(fd, channel_args, addr_str, false);
+  return grpc_endpoint_create(fd, channel_args, addr_str);
 }
 
 static void on_writable(void* acp, grpc_error_handle error) {

@@ -55,7 +55,7 @@ struct grpc_endpoint_vtable {
 };
 
 grpc_endpoint* grpc_endpoint_create(grpc_fd* fd, const grpc_channel_args* args,
-                                    const char* peer_string, bool server);
+                                    const char* peer_string);
 
 /* When data is available on the connection, calls the callback with slices.
    Callback success indicates that the endpoint can accept more reads, failure

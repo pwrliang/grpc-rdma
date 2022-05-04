@@ -26,6 +26,7 @@
 #include "src/core/lib/gprpp/thd.h"
 #include "src/core/lib/iomgr/combiner.h"
 #include "src/core/lib/profiling/timers.h"
+
 static void exec_ctx_run(grpc_closure* closure, grpc_error_handle error) {
 #ifndef NDEBUG
   closure->scheduled = false;
@@ -41,7 +42,6 @@ static void exec_ctx_run(grpc_closure* closure, grpc_error_handle error) {
   if (grpc_trace_closure.enabled()) {
     gpr_log(GPR_DEBUG, "closure %p finished", closure);
   }
-//  printf("closure %p finished\n", closure);
 #endif
   GRPC_ERROR_UNREF(error);
 }
@@ -224,5 +224,5 @@ void ExecCtx::RunList(const DebugLocation& location, grpc_closure_list* list) {
   }
   list->head = list->tail = nullptr;
 }
-//#define NDEBUG
+
 }  // namespace grpc_core

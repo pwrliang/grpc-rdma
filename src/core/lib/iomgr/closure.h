@@ -51,7 +51,7 @@ typedef struct grpc_closure_list {
  *              Error contract: it is not the cb's job to unref this error;
  *              the closure scheduler will do that after the cb returns */
 typedef void (*grpc_iomgr_cb_func)(void* arg, grpc_error_handle error);
-//#undef NDEBUG
+
 /** A closure over a grpc_iomgr_cb_func. */
 struct grpc_closure {
   /** Once queued, next indicates the next queued closure; before then, scratch
@@ -252,5 +252,5 @@ class Closure {
   }
 };
 }  // namespace grpc_core
-//#define NDEBUG
+
 #endif /* GRPC_CORE_LIB_IOMGR_CLOSURE_H */

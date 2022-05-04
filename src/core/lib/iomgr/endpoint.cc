@@ -27,15 +27,8 @@
 
 grpc_core::TraceFlag grpc_tcp_trace(false, "tcp");
 
-static std::atomic_size_t global_endpoint_num(0);
-
-bool server_node;
-
 grpc_endpoint* grpc_endpoint_create(grpc_fd* fd, const grpc_channel_args* args,
-                                    const char* peer_string, bool server) {
-  server_node = server;
-  size_t id = global_endpoint_num.fetch_add(1);
-  // printf("%d-th endpoint is creating\n", id);
+                                    const char* peer_string) {
   switch (grpc_check_iomgr_platform()) {
     case IOMGR_RDMA_EVENT:
       return grpc_rdma_event_create(fd, args, peer_string);
@@ -77,11 +70,7 @@ void grpc_endpoint_shutdown(grpc_endpoint* ep, grpc_error_handle why) {
   ep->vtable->shutdown(ep, why);
 }
 
-void grpc_endpoint_destroy(grpc_endpoint* ep) {
-  size_t id = global_endpoint_num.fetch_sub(1);
-//  printf("%zu-th endpoint is destroying\n", id - 1);
-  ep->vtable->destroy(ep);
-}
+void grpc_endpoint_destroy(grpc_endpoint* ep) { ep->vtable->destroy(ep); }
 
 absl::string_view grpc_endpoint_get_peer(grpc_endpoint* ep) {
   return ep->vtable->get_peer(ep);
