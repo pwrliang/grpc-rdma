@@ -3,6 +3,7 @@
 #include "absl/time/clock.h"
 #include "src/core/lib/debug/VariadicTable.h"
 grpc_stats_time_data* grpc_stats_time_storage = nullptr;
+bool grpc_stats_time_enabled = false;
 
 void grpc_stats_time_init() {
   auto* unit = getenv("GRPC_PROFILING");
@@ -39,20 +40,12 @@ void grpc_stats_time_shutdown() {
   }
 }
 
-void grpc_stats_time_add_locked(grpc_stats_time op,
-                                const absl::Duration& time) {
-  if (grpc_stats_time_storage != nullptr) {
-  }
-}
+void grpc_stats_time_enable() { grpc_stats_time_enabled = true; }
 
-void grpc_stats_time_add_nano(grpc_stats_time op, long long time) {
-  if (grpc_stats_time_storage != nullptr) {
-    grpc_stats_time_storage->stats_per_op[op]->add(time);
-  }
-}
+void grpc_stats_time_disable() { grpc_stats_time_enabled = false; }
 
 void grpc_stats_time_add_custom(grpc_stats_time op, long long time) {
-  if (grpc_stats_time_storage != nullptr) {
+  if (grpc_stats_time_storage != nullptr && grpc_stats_time_enabled) {
     grpc_stats_time_storage->stats_per_op[op]->add(time);
     grpc_stats_time_storage->stats_per_op[op]->scale = false;
   }
@@ -60,7 +53,7 @@ void grpc_stats_time_add_custom(grpc_stats_time op, long long time) {
 
 void grpc_stats_time_add(grpc_stats_time op, const absl::Duration& time,
                          int group) {
-  if (grpc_stats_time_storage != nullptr) {
+  if (grpc_stats_time_storage != nullptr && grpc_stats_time_enabled) {
     grpc_stats_time_storage->stats_per_op[op]->add(ToInt64Nanoseconds(time));
     grpc_stats_time_storage->stats_per_op[op]->group = group;
   }

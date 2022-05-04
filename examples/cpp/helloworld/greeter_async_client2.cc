@@ -140,7 +140,7 @@ int main(int argc, char** argv) {
 
     greeter.Warmup(comm_spec);
 
-    grpc_stats_time_init();
+    grpc_stats_time_enable();
 
     sw.start();
     MPI_Barrier(comm_spec.comm());

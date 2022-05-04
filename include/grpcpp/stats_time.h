@@ -69,29 +69,16 @@ extern grpc_stats_time_data* grpc_stats_time_storage;
 
 void grpc_stats_time_init(void);
 void grpc_stats_time_shutdown(void);
+void grpc_stats_time_enable();
+void grpc_stats_time_disable();
 void grpc_stats_time_print(void);
 void grpc_stats_time_print(std::ostream& os);
 std::string grpc_stats_time_op_to_str(int op);
-
-void grpc_stats_time_add_nano(grpc_stats_time op, long long time);
 
 void grpc_stats_time_add_custom(grpc_stats_time op, long long data);
 
 void grpc_stats_time_add(grpc_stats_time op, const absl::Duration& time,
                          int group = -1);
-
-template <typename FUNC, typename... Args>
-void grpc_stats_time_run(grpc_stats_time op, FUNC func, Args&&... args) {
-  if (grpc_stats_time_storage != nullptr) {
-    auto begin = absl::Now();
-    func(std::forward<Args>(args)...);
-    auto end = absl::Now();
-    grpc_stats_time_storage->stats_per_op[op]->add(
-        ToInt64Nanoseconds((end - begin)));
-  } else {
-    func(std::forward<Args>(args)...);
-  }
-}
 
 class GRPCProfiler {
  public:

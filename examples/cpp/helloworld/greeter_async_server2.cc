@@ -108,7 +108,7 @@ class ServerImpl final {
 
         reply_.mutable_message()->resize(FLAGS_resp);
         if (request_.has_start_benchmark() && request_.start_benchmark()) {
-          grpc_stats_time_init();
+          grpc_stats_time_enable();
         }
         status_ = FINISH;
         responder_.Finish(reply_, Status::OK, this);
