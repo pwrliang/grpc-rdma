@@ -9,10 +9,6 @@ if [[ ! -f "$hostfile_template" ]]; then
   exit 1
 fi
 
-# for grp_mode in TCP RDMA_BP RDMA_EVENT; do
-
-REQs=(64 128 256 512 1024 2048 4096 8192 16384 32768 65536 131072)
-RESPs=(64 128 256 512 1024 2048 4096 8192 16384 32768 65536 131072)
 POLL_NUMS=(1)
 GRPC_MODES=(TCP RDMA_BP RDMA_EVENT)
 
@@ -27,46 +23,95 @@ function set_hostfile() {
   export HOSTS_PATH="$hostfile"
 }
 
+function get_batch_size() {
+    data_size=$1
+    if [[ $data_size -le 32*1024 ]]; then
+      batch_size=100000
+    elif [[ $data_size -le 64*1024 ]]; then
+      batch_size=80000
+    elif [[ $data_size -le 128*1024 ]]; then
+      batch_size=60000
+    elif [[ $data_size -le 256*1024 ]]; then
+      batch_size=40000
+    elif [[ $data_size -le 512*1024 ]]; then
+      batch_size=20000
+    elif [[ $data_size -le 1024*1024 ]]; then
+      batch_size=10000
+    elif [[ $data_size -le 2*1024*1024 ]]; then
+      batch_size=5000
+    else
+      batch_size=2500
+    fi
+    echo $batch_size
+}
+
 function profile() {
-  n_clients=1
-  server_thread=1
-  #  for n_clients in 1 2 4 8 16 28 32; do
-  set_hostfile $n_clients
-  for i in "${!REQs[@]}"; do
-    REQ=${REQs[i]}
-    RESP=${RESPs[i]}
-    for poll_num in "${POLL_NUMS[@]}"; do
-      for grp_mode in "${GRPC_MODES[@]}"; do
-        export GRPC_PLATFORM_TYPE=$grp_mode
-        export LOG_SUFFIX="${grp_mode}_${REQ}_${RESP}_${poll_num}"
-        ./run.sh --server_thread=$server_thread \
-          --client_thread=1 \
-          --profiling=milli \
-          --req="$REQ" \
-          --resp="$RESP" \
-          --poll-num="$poll_num" \
-          --batch=100000
+  server_thread=28
+  REQs=(64)
+  RESPs=(64)
+  for n_client in $(seq 1 1 28); do
+    set_hostfile "$n_client"
+    for i in "${!REQs[@]}"; do
+      REQ=${REQs[i]}
+      RESP=${RESPs[i]}
+      for poll_num in "${POLL_NUMS[@]}"; do
+        for grp_mode in "${GRPC_MODES[@]}"; do
+          export GRPC_PLATFORM_TYPE=$grp_mode
+          export LOG_SUFFIX="${grp_mode}_${REQ}_${RESP}_${poll_num}"
+          ./run.sh --server_thread=$server_thread \
+            --client_thread=1 \
+            --profiling=milli \
+            --req="$REQ" \
+            --resp="$RESP" \
+            --poll-num="$poll_num" \
+            --batch=100000
+        done
       done
     done
   done
-  #  done
 }
 
-function benchmark() {
-  REQs=(64 1024 4096 65536)
-  RESPs=(64 1024 4096 65536)
-
+function client_scalability() {
+  REQs=(64 1024 4096 65536 131072)
+  RESPs=(64 1024 4096 65536 131072)
+#  REQs=(64)
+#  RESPs=(64)
+#          req_batch_size=$(get_batch_size "$REQ")
+#          resp_batch_size=$(get_batch_size "$RESP")
+#          batch_size=$((req_batch_size > resp_batch_size ? req_batch_size : resp_batch_size))
   for i in "${!REQs[@]}"; do
     REQ=${REQs[i]}
     RESP=${RESPs[i]}
     for poll_num in "${POLL_NUMS[@]}"; do
       for grp_mode in "${GRPC_MODES[@]}"; do
         export GRPC_PLATFORM_TYPE=$grp_mode
-        for n_clients in 1 2 4 8 16 28 32 64 128; do
+        for n_clients in 1 2 4 8 16 24 26 28 32 64 128; do
+#        for n_clients in $(seq 20 1 28); do
           set_hostfile $n_clients
           export LOG_SUFFIX="${grp_mode}_${REQ}_${RESP}_${poll_num}"
-          ./run.sh --server_thread=28 --client_thread=1 --req="$REQ" --resp="$RESP" --poll-num="$poll_num" --batch=100000
+          ./run.sh --server_thread=24 --client_thread=1 --req="$REQ" --resp="$RESP" --poll-num="$poll_num" --batch=200000
         done
+      done
+    done
+  done
+}
+
+function thread_scalability() {
+  REQs=(64 1024 4096 65536 131072)
+  RESPs=(64 1024 4096 65536 131072)
+  REQs=(64)
+  RESPs=(64)
+  n_clients=28
+  set_hostfile $n_clients
+
+  for i in "${!REQs[@]}"; do
+    REQ=${REQs[i]}
+    RESP=${RESPs[i]}
+    for grp_mode in "${GRPC_MODES[@]}"; do
+      export GRPC_PLATFORM_TYPE=$grp_mode
+      for n_threads in $(seq 16 1 28); do
+        export LOG_SUFFIX="${grp_mode}_${REQ}_${RESP}_th_${n_threads}"
+        ./run.sh --server_thread=$n_threads --client_thread=1 --req="$REQ" --resp="$RESP" --poll-num=1 --batch=100000
       done
     done
   done
@@ -78,8 +123,12 @@ for i in "$@"; do
     profile
     shift
     ;;
-  --bench)
-    benchmark
+  --client-scalability)
+    client_scalability
+    shift
+    ;;
+  --thread-scalability)
+    thread_scalability
     shift
     ;;
   --* | -*)

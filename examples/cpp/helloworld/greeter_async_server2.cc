@@ -43,6 +43,21 @@ using helloworld::Greeter;
 using helloworld::HelloReply;
 using helloworld::HelloRequest;
 int grpc_get_cq_poll_num(grpc_completion_queue* cq);
+
+int bind_thread_to_core(int core_id) {
+  int num_cores = sysconf(_SC_NPROCESSORS_ONLN);
+  if (core_id < 0 || core_id >= num_cores) {
+    return EINVAL;
+  }
+
+  cpu_set_t cpuset;
+  CPU_ZERO(&cpuset);
+  CPU_SET(core_id, &cpuset);
+
+  pthread_t current_thread = pthread_self();
+  return pthread_setaffinity_np(current_thread, sizeof(cpu_set_t), &cpuset);
+}
+
 class ServerImpl final {
  public:
   ServerImpl() {
@@ -142,13 +157,9 @@ class ServerImpl final {
             bool ok;
 
             if (FLAGS_affinity) {
-              auto n_cores = std::thread::hardware_concurrency() / 2;
-              cpu_set_t cpuset;
-              CPU_ZERO(&cpuset);
-              CPU_SET(idx % n_cores, &cpuset);
-
-              int rc = pthread_setaffinity_np(ths[idx].native_handle(),
-                                              sizeof(cpu_set_t), &cpuset);
+              int num_cores = sysconf(_SC_NPROCESSORS_ONLN);
+              int rc = bind_thread_to_core(idx % num_cores);
+              printf("Bind thread %d to core %d\n", idx, idx % num_cores);
               if (rc != 0) {
                 std::cerr << "Error calling pthread_setaffinity_np: " << rc
                           << "\n";
@@ -197,10 +208,18 @@ int main(int argc, char** argv) {
     exit(1);
   }
   gflags::ParseCommandLineFlags(&argc, &argv, true);
-  gflags::ShutDownCommandLineFlags();
-
+  if (!FLAGS_mode.empty()) {
+    setenv("GRPC_PLATFORM_TYPE", FLAGS_mode.c_str(), 1);
+  }
+  if (FLAGS_sleep > 0) {
+    setenv("GRPC_SLEEP", std::to_string(FLAGS_sleep).c_str(), 1);
+  }
+  if (FLAGS_executor > 0) {
+    setenv("GRPC_EXECUTOR", std::to_string(FLAGS_executor).c_str(), 1);
+  }
   ServerImpl server;
   server.Run();
+  gflags::ShutDownCommandLineFlags();
 
   return 0;
 }

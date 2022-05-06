@@ -113,15 +113,19 @@ bool RDMASenderReceiverBP::send(msghdr* msg, size_t mlen) {
       exit(-1);
     }
   }
-
   {
-    GRPCProfiler profiler(GRPC_STATS_TIME_SEND_IBV);
-    last_n_post_send_ =
-        conn_->post_send(remote_ringbuf_mr_, remote_ringbuf_tail_, sendbuf_mr_,
-                         0, len, IBV_WR_RDMA_WRITE);
-    conn_->poll_send_completion(last_n_post_send_);
+//    GRPCProfiler profiler(GRPC_STATS_TIME_SEND_IBV);
+    {
+      GRPCProfiler profiler(GRPC_STATS_TIME_SEND_POST);
+      last_n_post_send_ =
+          conn_->post_send(remote_ringbuf_mr_, remote_ringbuf_tail_,
+                           sendbuf_mr_, 0, len, IBV_WR_RDMA_WRITE);
+    }
+    {
+      GRPCProfiler profiler(GRPC_STATS_TIME_SEND_POLL);
+      conn_->poll_send_completion(last_n_post_send_);
+    }
   }
-
   remote_ringbuf_tail_ = (remote_ringbuf_tail_ + len) % remote_ringbuf_sz;
 
   return true;

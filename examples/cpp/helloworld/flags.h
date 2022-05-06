@@ -13,4 +13,7 @@ DECLARE_int32(warmup);
 DECLARE_int32(poll_num);
 DECLARE_bool(affinity);
 DECLARE_bool(grab_mem);
+DECLARE_string(mode);
+DECLARE_int32(sleep);
+DECLARE_int32(executor);
 #endif  // HELLOWORLD_FLAGS_H

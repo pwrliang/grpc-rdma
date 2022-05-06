@@ -126,7 +126,16 @@ int main(int argc, char** argv) {
     exit(1);
   }
   gflags::ParseCommandLineFlags(&argc, &argv, true);
-  gflags::ShutDownCommandLineFlags();
+
+  if (!FLAGS_mode.empty()) {
+    setenv("GRPC_PLATFORM_TYPE", FLAGS_mode.c_str(), 1);
+  }
+  if (FLAGS_sleep > 0) {
+    setenv("GRPC_SLEEP", std::to_string(FLAGS_sleep).c_str(), 1);
+  }
+  if (FLAGS_executor > 0) {
+    setenv("GRPC_EXECUTOR", std::to_string(FLAGS_executor).c_str(), 1);
+  }
   {
     CommSpec comm_spec;
     comm_spec.Init(MPI_COMM_WORLD);
@@ -185,5 +194,6 @@ int main(int argc, char** argv) {
     }
   }
   FinalizeMPIComm();
+  gflags::ShutDownCommandLineFlags();
   return 0;
 }

@@ -92,7 +92,18 @@ TraceFlag executor_trace(false, "executor");
 Executor::Executor(const char* name) : name_(name) {
   adding_thread_lock_ = GPR_SPINLOCK_STATIC_INITIALIZER;
   gpr_atm_rel_store(&num_threads_, 0);
-  max_threads_ = GPR_MAX(1, 2 * gpr_cpu_num_cores());
+  char* executor = getenv("GRPC_EXECUTOR");
+  if (executor != nullptr) {
+    std::string s_executor(executor);
+    if (std::stoi(s_executor) > 0) {
+      max_threads_ = std::stoi(s_executor);
+      printf("Max Executor: %d\n", max_threads_);
+    } else {
+      max_threads_ = GPR_MAX(1, 2 * gpr_cpu_num_cores());
+    }
+  } else {
+    max_threads_ = GPR_MAX(1, 2 * gpr_cpu_num_cores());
+  }
 }
 
 void Executor::Init() { SetThreading(true); }

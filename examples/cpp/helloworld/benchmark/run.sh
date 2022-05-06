@@ -55,6 +55,11 @@ for i in "$@"; do
     export GRPC_PROFILING=$PROFILING
     shift
     ;;
+  --executor=*)
+    EXECUTOR="${i#*=}"
+    export GRPC_EXECUTOR=$EXECUTOR
+    shift
+    ;;
   --sleep=*)
     SLEEP="${i#*=}"
     export GRPC_SLEEP=$SLEEP
@@ -84,7 +89,7 @@ mkdir -p "$LOG_PATH"
 export RDMA_VERBOSITY=ERROR
 
 function start_server() {
-  mpirun --bind-to none -x GRPC_PLATFORM_TYPE -x RDMA_VERBOSITY -x GRPC_PROFILING -x GRPC_SLEEP \
+  mpirun --bind-to none -x GRPC_PLATFORM_TYPE -x RDMA_VERBOSITY -x GRPC_PROFILING -x GRPC_SLEEP -x GRPC_EXECUTOR \
     -n 1 -host "$SERVER" \
     "$HELLOWORLD_HOME"/$SERVER_PROGRAM \
     -threads="$SERVER_THREADS" \
@@ -93,7 +98,7 @@ function start_server() {
 
 function kill_server() {
   ssh "$SERVER" "ps aux| pgrep greeter |xargs kill 2>/dev/null || true"
-  sleep 2
+  sleep 3
 }
 
 WORKLOADS="greeter_async_client greeter_async_client2"

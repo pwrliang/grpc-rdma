@@ -91,6 +91,10 @@ std::string grpc_stats_time_op_to_str(int op) {
       return "SEND_MEMCPY";
     case GRPC_STATS_TIME_SEND_IBV:
       return "SEND_IBV";
+    case GRPC_STATS_TIME_SEND_POST:
+      return "SEND_POST";
+    case GRPC_STATS_TIME_SEND_POLL:
+      return "SEND_POLL";
     case GRPC_STATS_TIME_SEND_SIZE:
       return "SEND_SIZE";
     case GRPC_STATS_TIME_CLIENT_PREPARE:

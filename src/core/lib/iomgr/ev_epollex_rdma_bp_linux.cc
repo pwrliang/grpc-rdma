@@ -1061,7 +1061,7 @@ static void pollset_destroy(grpc_pollset* pollset) {
 }
 // p不同, grpc_fd相同
 static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
-  GRPCProfiler profiler(GRPC_STATS_TIME_POLLABLE_EPOLL);
+  //  GRPCProfiler profiler(GRPC_STATS_TIME_POLLABLE_EPOLL);
   GPR_TIMER_SCOPE("pollable_epoll", 0);
   int timeout = poll_deadline_to_millis_timeout(deadline);
 
@@ -1084,8 +1084,8 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
     do {
       r = epoll_wait(p->epfd, p->events, MAX_EPOLL_EVENTS, 0);
 
-      if (r >= 0) {
-        gpr_mu_lock(&p->rdma_mu);
+      if (r < MAX_EPOLL_EVENTS) {
+        //        gpr_mu_lock(&p->rdma_mu);
         auto& fds = *p->rdma_fds;
         auto last_poll_idx = p->last_poll_idx;
         auto curr_poll_idx = last_poll_idx;
@@ -1114,25 +1114,27 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
           }
         }
         p->last_poll_idx = curr_poll_idx;
-        gpr_mu_unlock(&p->rdma_mu);
-        if (r == 0) {
-          /* N.B. this is crucial for performance: we spin 1 microsecond to
-           * stop firing too many closures
-           * 1 micro is a trade of between wakeup lag and overhead of scheduling
-           * closures since epoll_wait normally will spend 5 micro seconds to
-           * wakeup
-           * */
-          int64_t sleep_time = p->sleep_in_micro;
-          if (sleep_time > 0) {
-            gpr_sleep_until(
-                gpr_time_add(gpr_now(GPR_CLOCK_REALTIME),
-                             gpr_time_from_micros(sleep_time, GPR_TIMESPAN)));
-          }
+        //        gpr_mu_unlock(&p->rdma_mu);
+      }
+      if (r == 0) {
+        /* N.B. this is crucial for performance: we spin 1 microsecond to
+         * stop firing too many closures
+         * 1 micro is a trade of between wakeup lag and overhead of scheduling
+         * closures since epoll_wait normally will spend 5 micro seconds to
+         * wakeup
+         * */
+        int64_t sleep_time = p->sleep_in_micro;
+        if (sleep_time > 0) {
+          gpr_sleep_until(
+              gpr_time_add(gpr_now(GPR_CLOCK_REALTIME),
+                           gpr_time_from_micros(sleep_time, GPR_TIMESPAN)));
+        } else {
+          std::this_thread::yield();
         }
       }
     } while ((r < 0 && errno == EINTR) ||
-             (r == 0 &&
-              (absl::Now() - begin_poll_time) < absl::Milliseconds(timeout)));
+             (r == 0 && (timeout == -1 || (absl::Now() - begin_poll_time) <
+                                              absl::Milliseconds(timeout))));
   } else {
     if (timeout != 0) {
       GRPC_SCHEDULING_START_BLOCKING_REGION;
