@@ -47,12 +47,7 @@ void RDMASenderReceiverEvent::connect(int fd) {
     conn_->post_recvs(DEFAULT_MAX_POST_RECV - 1);
     update_remote_metadata();  // set remote_rr_tail
 
-    char tmp;
-    if (sync_data(fd, (char*)"s", &tmp, 1)) {
-      gpr_log(GPR_ERROR,
-              "RDMASenderReceiverEvent::connect, failed to sync after connect");
-      exit(-1);
-    }
+    barrier(fd);
 
     connected_ = true;
   });

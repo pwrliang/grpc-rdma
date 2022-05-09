@@ -104,6 +104,8 @@ int modify_qp_to_rtr(struct ibv_qp* qp, uint32_t remote_qpn, uint16_t dlid,
 
 int modify_qp_to_rts(struct ibv_qp* qp);
 
-int sync_data(int fd, char* local, char* remote, const size_t sz);
+int sync_data(int fd, const char* local, char* remote, const size_t sz);
+
+void barrier(int fd);
 
 #endif

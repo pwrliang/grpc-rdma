@@ -38,7 +38,7 @@ void RDMASenderReceiverBP::connect(int fd) {
 
 bool RDMASenderReceiverBP::check_incoming() const {
   WaitConnect();
-  return dynamic_cast<RingBufferBP*>(ringbuf_)->check_mlen();
+  return dynamic_cast<RingBufferBP*>(ringbuf_)->check_mlen() > 0;
 }
 
 size_t RDMASenderReceiverBP::check_and_ack_incomings_locked() {
@@ -114,7 +114,7 @@ bool RDMASenderReceiverBP::send(msghdr* msg, size_t mlen) {
     }
   }
   {
-//    GRPCProfiler profiler(GRPC_STATS_TIME_SEND_IBV);
+    //    GRPCProfiler profiler(GRPC_STATS_TIME_SEND_IBV);
     {
       GRPCProfiler profiler(GRPC_STATS_TIME_SEND_POST);
       last_n_post_send_ =

@@ -5,7 +5,8 @@
 #include <chrono>
 #include <condition_variable>
 #include "grpc/impl/codegen/log.h"
-// -----< RDMAConn >-----
+#include "src/core/lib/debug/trace.h"
+grpc_core::TraceFlag grpc_rdma_conn_trace(false, "rdma_conn");
 
 RDMAConn::RDMAConn(RDMANode* node, bool event_mode) : node_(node) {
   ibv_context* ctx = node_->get_ctx().get();
@@ -118,12 +119,7 @@ int RDMAConn::SyncQP(int fd) {
     exit(-1);
   }
 
-  char tmp;
-  if (sync_data(fd, (char*)"s", &tmp, 1)) {
-    gpr_log(GPR_ERROR,
-            "DMAConn::sync, failed to sync after switching QP to RTS");
-    exit(-1);
-  }
+  barrier(fd);
 
   return 0;
 }
@@ -237,8 +233,10 @@ size_t RDMAConn::poll_recv_completion() {
     exit(-1);
   }
   if (completed == 0) {
-    gpr_log(GPR_INFO,
-            "RDMAConnEvent::poll_recv_completion, ibv_poll_cq return 0");
+    if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_conn_trace)) {
+      gpr_log(GPR_INFO,
+              "RDMAConnEvent::poll_recv_completion, ibv_poll_cq return 0");
+    }
     return 0;
   }
   for (int i = 0; i < completed; i++) {
@@ -251,12 +249,12 @@ size_t RDMAConn::poll_recv_completion() {
   }
 
   rr_garbage_ += completed;
-
-  gpr_log(GPR_INFO,
-          "RDMAConnEvent::poll_recv_completions_and_post_recvs, poll out %d "
-          "completion (%d bytes) from rcq",
-          completed, recv_bytes);
-
+  if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_conn_trace)) {
+    gpr_log(GPR_INFO,
+            "RDMAConnEvent::poll_recv_completions_and_post_recvs, poll out %d "
+            "completion (%d bytes) from rcq",
+            completed, recv_bytes);
+  }
   return recv_bytes;
 }
 

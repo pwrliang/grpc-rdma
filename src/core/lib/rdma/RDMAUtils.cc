@@ -95,9 +95,9 @@ void RDMANode::open(const char* name) {
     exit(-1);
   }
 
-  gpr_log(GPR_INFO,
-          "device %s attribute: max_cqe = %d, max_qp_wr = %d, max_sge = %d\n",
-          name, dev_attr.max_cqe, dev_attr.max_qp_wr, dev_attr.max_sge);
+//  gpr_log(GPR_INFO,
+//          "device %s attribute: max_cqe = %d, max_qp_wr = %d, max_sge = %d",
+//          name, dev_attr.max_cqe, dev_attr.max_qp_wr, dev_attr.max_sge);
 
   ib_pd = std::shared_ptr<ibv_pd>(ibv_alloc_pd(ib_ctx.get()),
                                   [](ibv_pd* p) { ibv_dealloc_pd(p); });
@@ -105,8 +105,6 @@ void RDMANode::open(const char* name) {
     gpr_log(GPR_ERROR, "RDMANode::open, ibv_alloc_pd failed");
     exit(-1);
   }
-
-  // Notify other threads that device is opened
 }
 
 void RDMANode::close() { memset(&port_attr, 0, sizeof(port_attr)); }
@@ -156,7 +154,9 @@ int modify_qp_to_init(ibv_qp* qp) {
   flags = IBV_QP_STATE | IBV_QP_PKEY_INDEX | IBV_QP_PORT | IBV_QP_ACCESS_FLAGS;
   rc = ibv_modify_qp(qp, &attr, flags);
   if (rc) {
-    gpr_log(GPR_ERROR, "modify_qp_to_init, failed to modify QP state to INIT");
+    gpr_log(GPR_ERROR,
+            "modify_qp_to_init, failed to modify QP state to INIT, errno: %d",
+            errno);
   }
   return rc;
 }
@@ -223,7 +223,7 @@ int modify_qp_to_rts(struct ibv_qp* qp) {
   return rc;
 }
 
-int sync_data(int fd, char* local, char* remote, const size_t sz) {
+int sync_data(int fd, const char* local, char* remote, const size_t sz) {
   size_t remain = sz;
   ssize_t done;
   if (fd < 3) {
@@ -264,4 +264,13 @@ int sync_data(int fd, char* local, char* remote, const size_t sz) {
   }
 
   return 0;
+}
+
+void barrier(int fd) {
+  const char* data = "s";
+  char tmp;
+  if (sync_data(fd, data, &tmp, 1)) {
+    gpr_log(GPR_ERROR, "Send data failed");
+    exit(1);
+  }
 }
