@@ -285,6 +285,8 @@ class RDMAServer {
     socklen_t addr_len = sizeof(client_sockaddr);
     int client_id = 0;
 
+    MPI_Barrier(comm_spec_.comm());
+
     while (client_id < comm_spec_.worker_num() - 1) {
       int newsd = accept(sockfd_, &client_sockaddr, &addr_len);
       if (newsd < 0) {

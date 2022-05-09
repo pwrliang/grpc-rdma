@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-set -e
 SCRIPT_DIR=$(realpath "$(dirname "$0")")
 
 if [[ -z "$HOSTS_PATH" ]]; then
@@ -56,15 +55,21 @@ else
   rm -f "${curr_log_path}.tmp"
   echo "============================= Running $MODE with $NP clients, max polling threads: ${POLLING_THREADS}, batch size: $BATCH_SIZE"
   # Evaluate
-  mpirun --bind-to none \
-    --oversubscribe \
-    -mca btl_tcp_if_include ib0 \
-    -hostfile "$HOSTS_PATH" \
-    "$MB_PATH" \
-    -mode="$MODE" \
-    -polling_thread="$POLLING_THREADS" \
-    -batch "$BATCH_SIZE" |& tee -a "${curr_log_path}.tmp"
-    if [[ $? -eq 0 ]]; then
+  while true; do
+    mpirun --bind-to none \
+      --oversubscribe \
+      -mca btl_tcp_if_include ib0 \
+      -hostfile "$HOSTS_PATH" \
+      "$MB_PATH" \
+      -mode="$MODE" \
+      -polling_thread="$POLLING_THREADS" \
+      -batch "$BATCH_SIZE" |& tee -a "${curr_log_path}.tmp"
+    row_count=$(grep -c "Latency" < "${curr_log_path}.tmp")
+    if [[ $row_count == "$NP" ]]; then
       mv "${curr_log_path}.tmp" "${curr_log_path}"
+      break
     fi
+    sleep 5
+  done
+
 fi

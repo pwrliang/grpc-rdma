@@ -43,10 +43,17 @@ class RDMAClient {
               "RDMAClient::connect, error on setsockopt (TCP_NODELAY)");
       exit(-1);
     }
+    // Wait for listening
+    MPI_Barrier(comm_spec_.comm());
+    int r = ::connect(sockfd_, reinterpret_cast<struct sockaddr*>(&serv_addr),
+                      sizeof(serv_addr));
 
-    if (::connect(sockfd_, reinterpret_cast<struct sockaddr*>(&serv_addr),
-                  sizeof(serv_addr)) < 0) {
-      gpr_log(GPR_ERROR, "RDMAClient::connect, error on connect");
+    if (r < 0) {
+      char hn[255];
+      int hn_len;
+      MPI_Get_processor_name(hn, &hn_len);
+      gpr_log(GPR_ERROR, "Client %s cannot connect to server %s, errno: %d", hn,
+              server_address, errno);
       exit(-1);
     }
   }
