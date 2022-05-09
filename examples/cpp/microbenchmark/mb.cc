@@ -8,12 +8,12 @@
 #include <sys/socket.h>
 #include "comm_spec.h"
 #include "gflags/gflags.h"
-#include "grpc/impl/codegen/log.h"
+#include "mb.h"
 #include "mb_client.h"
 #include "mb_server.h"
 
-void StartServer(const CommSpec& comm_spec) {
-  RDMAServer server(comm_spec);
+void StartServer(Mode mode, const CommSpec& comm_spec) {
+  RDMAServer server(mode, comm_spec);
   int fd;
   ifreq ifr;
 
@@ -29,16 +29,16 @@ void StartServer(const CommSpec& comm_spec) {
   server.start(FLAGS_port);
 }
 
-void StartClient(const CommSpec& comm_spec) {
+void StartClient(Mode mode, const CommSpec& comm_spec) {
   RDMAClient client(comm_spec);
 
   char ip[16];
   MPI_Bcast(ip, 16, MPI_CHAR, 0, comm_spec.comm());
 
   client.connect(ip, FLAGS_port);
-  if (FLAGS_mode == "bp") {
+  if (mode == Mode::kBusyPolling || mode == Mode::kBusyPollingRR) {
     client.RunBusyPolling();
-  } else if (FLAGS_mode == "event") {
+  } else if (mode == Mode::kEvent) {
     client.RunEpoll();
   }
 }
@@ -46,9 +46,9 @@ void StartClient(const CommSpec& comm_spec) {
 int main(int argc, char* argv[]) {
   setenv("GRPC_VERBOSITY", "INFO", 1);
   gpr_log_verbosity_init();
-  gflags::SetUsageMessage("Usage: mpiexec [mpi_opts] ./main [main_opts]");
+  gflags::SetUsageMessage("Usage: mpiexec [mpi_opts] ./mb [mb_opts]");
   if (argc == 1) {
-    gflags::ShowUsageWithFlagsRestrict(argv[0], "main");
+    gflags::ShowUsageWithFlagsRestrict(argv[0], "mb");
     exit(1);
   }
   gflags::ParseCommandLineFlags(&argc, &argv, true);
@@ -56,11 +56,13 @@ int main(int argc, char* argv[]) {
   {
     CommSpec comm_spec;
     comm_spec.Init(MPI_COMM_WORLD);
+    Mode mode = parse_mode(FLAGS_mode);
 
     if (comm_spec.worker_id() == 0) {
-      StartServer(comm_spec);
+      GPR_ASSERT(comm_spec.local_num() == 1);
+      StartServer(mode, comm_spec);
     } else {
-      StartClient(comm_spec);
+      StartClient(mode, comm_spec);
     }
   }
   gflags::ShutDownCommandLineFlags();

@@ -101,8 +101,6 @@ class RDMAClient {
     rdmasr.connect(sockfd_);
     rdmasr.WaitConnect();
     MPI_Barrier(comm_spec_.comm());
-    gpr_log(GPR_INFO, "client %d is connected to server",
-            comm_spec_.worker_id());
 
     int epfd = epoll_create1(EPOLL_CLOEXEC);
     int rdma_meta_recv_channel_fd = rdmasr.get_metadata_recv_channel_fd();
@@ -208,7 +206,8 @@ class RDMAClient {
       }
     }
     auto time = ToDoubleMicroseconds((absl::Now() - t_begin));
-    gpr_log(GPR_INFO, "Latency: %lf micro", time / batch_size);
+    gpr_log(GPR_INFO, "Rank: %d Latency: %lf micro", comm_spec_.worker_id(),
+            time / batch_size);
   }
 
  private:

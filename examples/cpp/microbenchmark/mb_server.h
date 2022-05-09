@@ -7,6 +7,7 @@
 #include <thread>
 #include "SockUtils.h"
 #include "flags.h"
+#include "mb.h"
 #include "src/core/lib/rdma/RDMAConn.h"
 #include "src/core/lib/rdma/RDMASenderReceiver.h"
 #define MAX_CONN_NUM 10
@@ -202,7 +203,7 @@ void serve_event(Connections* conns) {
             reinterpret_cast<intptr_t>(ev.data.ptr));
 
         if ((ev.events & EPOLLIN) != 0) {
-          GPR_ASSERT(rdmasr != nullptr);
+          GPR_DEBUG_ASSERT(rdmasr != nullptr);
           rdmasr->check_metadata();
           process_msg(rdmasr);
         }
@@ -211,7 +212,7 @@ void serve_event(Connections* conns) {
             ~static_cast<intptr_t>(2) &
             reinterpret_cast<intptr_t>(ev.data.ptr));
         if ((ev.events & EPOLLIN) != 0) {
-          GPR_ASSERT(rdmasr != nullptr);
+          GPR_DEBUG_ASSERT(rdmasr != nullptr);
           rdmasr->check_data();
           process_msg(rdmasr);
         }
@@ -222,21 +223,26 @@ void serve_event(Connections* conns) {
 
 class RDMAServer {
  public:
-  explicit RDMAServer(const CommSpec& comm_spec) : comm_spec_(comm_spec) {
+  explicit RDMAServer(Mode mode, const CommSpec& comm_spec)
+      : mode_(mode), comm_spec_(comm_spec) {
     sockfd_ = SocketUtils::socket(AF_INET, SOCK_STREAM, 0);
-    n_polling_thread_ = FLAGS_polling_thread;
-    connections_per_thread_.resize(n_polling_thread_);
+    int n_polling_thread = FLAGS_polling_thread;
+    if (n_polling_thread <= 0) {
+      gpr_log(GPR_ERROR, "Invalid polling thread number: %d", n_polling_thread);
+      exit(1);
+    }
+    if (mode == Mode::kBusyPolling) {
+      n_polling_thread = comm_spec.worker_num() - 1;
+    }
+    connections_per_thread_.resize(n_polling_thread);
 
-    for (int i = 0; i < n_polling_thread_; i++) {
+    for (int i = 0; i < n_polling_thread; i++) {
       connections_per_thread_[i].tid = i;
       connections_per_thread_[i].comm_spec = comm_spec_;
-      if (FLAGS_mode == "bp") {
+      if (mode == Mode::kBusyPolling || mode == Mode::kBusyPollingRR) {
         work_thread_.emplace_back(&serve_bp, &connections_per_thread_[i]);
-      } else if (FLAGS_mode == "event") {
+      } else if (mode == Mode::kEvent) {
         work_thread_.emplace_back(&serve_event, &connections_per_thread_[i]);
-      } else {
-        gpr_log(GPR_ERROR, "Invalid mode");
-        exit(1);
       }
     }
 
@@ -270,8 +276,10 @@ class RDMAServer {
       exit(-1);
     }
 
-    gpr_log(GPR_INFO, "RDMA Server is listening on %d, polling thread: %d",
-            port, FLAGS_polling_thread);
+    gpr_log(GPR_INFO,
+            "RDMA Server is listening on %d, mode: %s, "
+            "polling thread: %zu",
+            port, mode_to_string(mode_).c_str(), work_thread_.size());
 
     sockaddr client_sockaddr;
     socklen_t addr_len = sizeof(client_sockaddr);
@@ -311,18 +319,18 @@ class RDMAServer {
   }
 
  private:
-  int sockfd_{};
-  int n_polling_thread_;
+  Mode mode_;
   CommSpec comm_spec_;
+  int sockfd_{};
   std::vector<std::thread> work_thread_;
   std::vector<Connections> connections_per_thread_;
 
   void dispatch(int fd, int conn_id) {
-    int work_thread_id = conn_id % n_polling_thread_;
+    int work_thread_id = conn_id % work_thread_.size();
 
-    if (FLAGS_mode == "bp") {
+    if (mode_ == Mode::kBusyPolling || mode_ == Mode::kBusyPollingRR) {
       connections_per_thread_[work_thread_id].CreateBPConnection(fd);
-    } else if (FLAGS_mode == "event") {
+    } else if (mode_ == Mode::kEvent) {
       connections_per_thread_[work_thread_id].CreateEventConnection(fd);
     }
   }
