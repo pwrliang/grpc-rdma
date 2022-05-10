@@ -44,7 +44,9 @@ class RDMAClient {
       exit(-1);
     }
     // Wait for listening
-    MPI_Barrier(comm_spec_.comm());
+    if (FLAGS_mpiserver) {
+      MPI_Barrier(comm_spec_.comm());
+    }
     int r = ::connect(sockfd_, reinterpret_cast<struct sockaddr*>(&serv_addr),
                       sizeof(serv_addr));
 
@@ -74,7 +76,9 @@ class RDMAClient {
     RDMASenderReceiverBP rdmasr;
     rdmasr.connect(sockfd_);
     rdmasr.WaitConnect();
-    MPI_Barrier(comm_spec_.comm());
+    if (FLAGS_mpiserver) {
+      MPI_Barrier(comm_spec_.comm());
+    }
     gpr_log(GPR_INFO, "client %d is connected to server",
             comm_spec_.worker_id());
 
@@ -107,8 +111,9 @@ class RDMAClient {
     RDMASenderReceiverEvent rdmasr;
     rdmasr.connect(sockfd_);
     rdmasr.WaitConnect();
-    MPI_Barrier(comm_spec_.comm());
-
+    if (FLAGS_mpiserver) {
+      MPI_Barrier(comm_spec_.comm());
+    }
     int epfd = epoll_create1(EPOLL_CLOEXEC);
     int rdma_meta_recv_channel_fd = rdmasr.get_metadata_recv_channel_fd();
     struct epoll_event meta_recv_ev_fd;
@@ -163,6 +168,7 @@ class RDMAClient {
       if (mlen > 0) {
         GPR_ASSERT(mlen == sizeof(data_in));
         size_t read_bytes = rdmasr.recv(&msghdr_in);
+        GPR_ASSERT(read_bytes == mlen);
         if (notify_exit) {
           data_out = -1;
         }
@@ -215,6 +221,9 @@ class RDMAClient {
     auto time = ToDoubleMicroseconds((absl::Now() - t_begin));
     gpr_log(GPR_INFO, "Rank: %d Latency: %lf micro", comm_spec_.worker_id(),
             time / batch_size);
+    sleep(1);
+    MPI_Barrier(comm_spec_.client_comm());
+    exit(0);
   }
 
  private:

@@ -12,4 +12,7 @@ DECLARE_bool(affinity);
 DECLARE_string(mode);
 DECLARE_int32(computing_thread);
 DECLARE_int32(timeout);
+DECLARE_string(host);
+DECLARE_bool(mpiserver);
+DECLARE_int32(nclient);
 #endif  // HELLOWORLD_FLAGS_H

@@ -24,19 +24,25 @@ void StartServer(Mode mode, const CommSpec& comm_spec) {
   ioctl(fd, SIOCGIFADDR, &ifr);
   close(fd);
 
-  char* ip =
-      inet_ntoa((reinterpret_cast<sockaddr_in*>(&ifr.ifr_addr))->sin_addr);
-  MPI_Bcast(ip, 16, MPI_CHAR, 0, comm_spec.comm());
+  if (FLAGS_mpiserver) {
+    char* ip =
+        inet_ntoa((reinterpret_cast<sockaddr_in*>(&ifr.ifr_addr))->sin_addr);
+    MPI_Bcast(ip, 16, MPI_CHAR, 0, comm_spec.comm());
+  }
   server.start(FLAGS_port);
 }
 
 void StartClient(Mode mode, const CommSpec& comm_spec) {
   RDMAClient client(comm_spec);
 
-  char ip[16];
-  MPI_Bcast(ip, 16, MPI_CHAR, 0, comm_spec.comm());
+  if (FLAGS_mpiserver) {
+    char ip[16];
+    MPI_Bcast(ip, 16, MPI_CHAR, 0, comm_spec.comm());
+    client.connect(ip, FLAGS_port);
+  } else {
+    client.connect(FLAGS_host.c_str(), FLAGS_port);
+  }
 
-  client.connect(ip, FLAGS_port);
   if (mode == Mode::kBusyPolling || mode == Mode::kBusyPollingRR) {
     client.RunBusyPolling();
   } else if (mode == Mode::kEvent) {
@@ -59,11 +65,19 @@ int main(int argc, char* argv[]) {
     comm_spec.Init(MPI_COMM_WORLD);
     Mode mode = parse_mode(FLAGS_mode);
 
-    if (comm_spec.worker_id() == 0) {
-      GPR_ASSERT(comm_spec.local_num() == 1);
-      StartServer(mode, comm_spec);
+    if (FLAGS_mpiserver) {
+      if (comm_spec.worker_id() == 0) {
+        GPR_ASSERT(comm_spec.local_num() == 1);
+        StartServer(mode, comm_spec);
+      } else {
+        StartClient(mode, comm_spec);
+      }
     } else {
-      StartClient(mode, comm_spec);
+      if (FLAGS_host.empty()) {
+        StartServer(mode, comm_spec);
+      } else {
+        StartClient(mode, comm_spec);
+      }
     }
   }
   gflags::ShutDownCommandLineFlags();

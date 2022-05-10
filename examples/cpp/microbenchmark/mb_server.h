@@ -171,7 +171,8 @@ void serve_event(Connections* conns) {
     if (mlen > 0) {
       GPR_ASSERT(mlen == sizeof(data_in));
       size_t read_bytes = rdmasr->recv(&msghdr_in);
-      data_out = data_in + 1;
+      GPR_ASSERT(read_bytes == mlen);
+
       if (data_in == -1) {  // Disconnect
         for (int i = 0; i < conns->rdma_conns.size(); i++) {
           if (conns->rdma_conns[i].get() == rdmasr) {
@@ -183,6 +184,7 @@ void serve_event(Connections* conns) {
         return;
       }
 
+      data_out = data_in + 1;
       while (!rdmasr->send(&msghdr_out, sizeof(data_out))) {
       }
     }
@@ -243,7 +245,11 @@ class RDMAServer {
       exit(1);
     }
     if (mode == Mode::kBusyPolling) {
-      n_polling_thread = comm_spec.worker_num() - 1;
+      if (FLAGS_mpiserver) {
+        n_polling_thread = comm_spec.worker_num() - 1;
+      } else {
+        n_polling_thread = FLAGS_nclient;
+      }
     }
     connections_per_thread_.resize(n_polling_thread);
 
@@ -302,10 +308,16 @@ class RDMAServer {
     sockaddr client_sockaddr;
     socklen_t addr_len = sizeof(client_sockaddr);
     int client_id = 0;
+    int n_client;
 
-    MPI_Barrier(comm_spec_.comm());
+    if (FLAGS_mpiserver) {
+      MPI_Barrier(comm_spec_.comm());
+      n_client = comm_spec_.worker_num() - 1;
+    } else {
+      n_client = FLAGS_nclient;
+    }
 
-    while (client_id < comm_spec_.worker_num() - 1) {
+    while (client_id < n_client) {
       int newsd = accept(sockfd_, &client_sockaddr, &addr_len);
       if (newsd < 0) {
         gpr_log(GPR_ERROR, "RDMAServer::start, error on accept");
@@ -326,7 +338,9 @@ class RDMAServer {
     }
 
     // Waiting for all clients connected
-    MPI_Barrier(comm_spec_.comm());
+    if (FLAGS_mpiserver) {
+      MPI_Barrier(comm_spec_.comm());
+    }
     {
       // notify serving threads
       std::lock_guard<std::mutex> lk(cv_m);

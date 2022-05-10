@@ -32,6 +32,7 @@ RDMASenderReceiverEvent::RDMASenderReceiverEvent()
 }
 
 RDMASenderReceiverEvent::~RDMASenderReceiverEvent() {
+  conn_->poll_send_completion(last_n_post_send_);
   delete conn_metadata_;
   delete ringbuf_;
 }
@@ -85,15 +86,15 @@ size_t RDMASenderReceiverEvent::check_and_ack_incomings_locked() {
   if (check_data_.exchange(false)) {
 #endif
     auto new_mlen = conn_->get_recv_events_locked();
-
+    GPR_ASSERT(new_mlen > 0);
     if (conn_->post_recvs_lazy()) {
       update_remote_metadata();
     }
 #ifdef SENDER_RECEIVER_NON_ATOMIC
     unread_mlens_ += new_mlen;
-    return unread_mlens_;
+    ret = unread_mlens_;
 #else
-    return unread_mlens_.fetch_add(new_mlen) + new_mlen;
+    ret = unread_mlens_.fetch_add(new_mlen) + new_mlen;
 #endif
   }
 
