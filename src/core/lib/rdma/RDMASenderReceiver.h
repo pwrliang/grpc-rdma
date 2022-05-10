@@ -90,7 +90,11 @@ class RDMASenderReceiver {
 
   size_t remote_ringbuf_head_, remote_ringbuf_tail_;
   MemRegion local_ringbuf_mr_, remote_ringbuf_mr_;
+#ifdef SENDER_RECEIVER_NON_ATOMIC
+  uint32_t unread_mlens_;
+#else
   std::atomic_uint32_t unread_mlens_;
+#endif
 
   uint8_t* sendbuf_;
   MemRegion sendbuf_mr_;
@@ -212,8 +216,13 @@ class RDMASenderReceiverEvent : public RDMASenderReceiver {
   size_t remote_rr_tail_ = 0, remote_rr_head_ = 0;
   size_t last_failed_send_size_;
 
+#ifdef SENDER_RECEIVER_NON_ATOMIC
+  bool check_data_;
+  bool check_metadata_;
+#else
   std::atomic_bool check_data_;
   std::atomic_bool check_metadata_;
+#endif
 
   std::thread conn_th_;
 };

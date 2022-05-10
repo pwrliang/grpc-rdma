@@ -1,5 +1,6 @@
 #ifndef MICROBENCHMARK_MB_SERVER_H
 #define MICROBENCHMARK_MB_SERVER_H
+
 #include <netinet/tcp.h>
 #include <src/core/lib/iomgr/sys_epoll_wrapper.h>
 #include <sys/epoll.h>
@@ -190,7 +191,7 @@ void serve_event(Connections* conns) {
   while (n_alive_conn > 0) {
     int r;
     do {
-      r = epoll_wait(epfd, events, MAX_EVENTS, -1);
+      r = epoll_wait(epfd, events, MAX_EVENTS, FLAGS_timeout);
     } while ((r < 0 && errno == EINTR) || r == 0);
 
     for (int i = 0; i < r; i++) {
@@ -221,6 +222,16 @@ void serve_event(Connections* conns) {
   }
 }
 
+void compute(std::atomic_bool* running) {
+  {
+    std::unique_lock<std::mutex> lk(cv_m);
+    cv.wait(lk, [] { return all_connected; });
+  }
+
+  while (running->load())
+    ;
+}
+
 class RDMAServer {
  public:
   explicit RDMAServer(Mode mode, const CommSpec& comm_spec)
@@ -240,10 +251,16 @@ class RDMAServer {
       connections_per_thread_[i].tid = i;
       connections_per_thread_[i].comm_spec = comm_spec_;
       if (mode == Mode::kBusyPolling || mode == Mode::kBusyPollingRR) {
-        work_thread_.emplace_back(&serve_bp, &connections_per_thread_[i]);
+        polling_threads_.emplace_back(&serve_bp, &connections_per_thread_[i]);
       } else if (mode == Mode::kEvent) {
-        work_thread_.emplace_back(&serve_event, &connections_per_thread_[i]);
+        polling_threads_.emplace_back(&serve_event,
+                                      &connections_per_thread_[i]);
       }
+    }
+
+    computing_ = true;
+    for (int i = 0; i < FLAGS_computing_thread; i++) {
+      computing_threads_.emplace_back(&compute, &computing_);
     }
 
     int opt = 1;
@@ -278,8 +295,9 @@ class RDMAServer {
 
     gpr_log(GPR_INFO,
             "RDMA Server is listening on %d, mode: %s, "
-            "polling thread: %zu",
-            port, mode_to_string(mode_).c_str(), work_thread_.size());
+            "polling thread: %zu, computing thread: %zu",
+            port, mode_to_string(mode_).c_str(), polling_threads_.size(),
+            computing_threads_.size());
 
     sockaddr client_sockaddr;
     socklen_t addr_len = sizeof(client_sockaddr);
@@ -315,7 +333,11 @@ class RDMAServer {
       all_connected = true;
       cv.notify_all();
     }
-    for (auto& th : work_thread_) {
+    for (auto& th : polling_threads_) {
+      th.join();
+    }
+    computing_ = false;
+    for (auto& th : computing_threads_) {
       th.join();
     }
   }
@@ -324,11 +346,13 @@ class RDMAServer {
   Mode mode_;
   CommSpec comm_spec_;
   int sockfd_{};
-  std::vector<std::thread> work_thread_;
+  std::vector<std::thread> polling_threads_;
+  std::vector<std::thread> computing_threads_;
   std::vector<Connections> connections_per_thread_;
+  std::atomic_bool computing_;
 
   void dispatch(int fd, int conn_id) {
-    int work_thread_id = conn_id % work_thread_.size();
+    int work_thread_id = conn_id % polling_threads_.size();
 
     if (mode_ == Mode::kBusyPolling || mode_ == Mode::kBusyPollingRR) {
       connections_per_thread_[work_thread_id].CreateBPConnection(fd);

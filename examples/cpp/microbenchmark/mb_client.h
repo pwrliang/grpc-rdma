@@ -182,7 +182,7 @@ class RDMAClient {
 
       int r;
       do {
-        r = epoll_wait(epfd, events, MAX_EVENTS, -1);
+        r = epoll_wait(epfd, events, MAX_EVENTS, FLAGS_timeout);
       } while ((r < 0 && errno == EINTR) || r == 0);
 
       for (int j = 0; j < r; j++) {

@@ -8,6 +8,7 @@ fi
 NP=$(awk '{ sum += $1 } END { print sum }' <(tail -n +2 "$HOSTS_PATH" | cut -d"=" -f2,2))
 POLLING_THREADS=$(nproc)
 MB_PATH="$MB_HOME"/mb
+COMPUTING_THREAD=0
 BATCH_SIZE=10000
 MODE=""
 
@@ -24,6 +25,10 @@ for i in "$@"; do
     ;;
   --polling-thread=*)
     POLLING_THREADS="${i#*=}"
+    shift
+    ;;
+  --computing-thread=*)
+    COMPUTING_THREAD="${i#*=}"
     shift
     ;;
   --mode=*)
@@ -46,14 +51,14 @@ if [[ -n "$LOG_SUFFIX" ]]; then
 fi
 mkdir -p "$LOG_PATH"
 
-curr_log_path="$LOG_PATH/${MODE}_client_${NP}.log"
+curr_log_path="$LOG_PATH/${MODE}_client_${NP}_poll_${POLLING_THREADS}_comp_${COMPUTING_THREAD}.log"
 
 #rm -f $curr_log_path
 if [[ -f "$curr_log_path" ]]; then
   echo "$curr_log_path exists, skip"
 else
   rm -f "${curr_log_path}.tmp"
-  echo "============================= Running $MODE with $NP clients, max polling threads: ${POLLING_THREADS}, batch size: $BATCH_SIZE"
+  echo "============================= Running $MODE with $NP clients, max polling threads: ${POLLING_THREADS}, computing thread: ${COMPUTING_THREAD}, batch size: $BATCH_SIZE"
   # Evaluate
   while true; do
     mpirun --bind-to none \
@@ -63,8 +68,9 @@ else
       "$MB_PATH" \
       -mode="$MODE" \
       -polling_thread="$POLLING_THREADS" \
+      -computing_thread="$COMPUTING_THREAD" \
       -batch "$BATCH_SIZE" |& tee -a "${curr_log_path}.tmp"
-    row_count=$(grep -c "Latency" < "${curr_log_path}.tmp")
+    row_count=$(grep -c "Latency" <"${curr_log_path}.tmp")
     if [[ $row_count == "$NP" ]]; then
       mv "${curr_log_path}.tmp" "${curr_log_path}"
       break

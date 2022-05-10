@@ -77,16 +77,32 @@ void RDMASenderReceiverEvent::update_local_metadata() {
 size_t RDMASenderReceiverEvent::check_and_ack_incomings_locked() {
   WaitConnect();
   size_t ret = unread_mlens_;
+
+#ifdef SENDER_RECEIVER_NON_ATOMIC
+  if (check_data_) {
+    check_data_ = false;
+#else
   if (check_data_.exchange(false)) {
+#endif
     auto new_mlen = conn_->get_recv_events_locked();
 
     if (conn_->post_recvs_lazy()) {
       update_remote_metadata();
     }
-    ret = unread_mlens_.fetch_add(new_mlen) + new_mlen;
+#ifdef SENDER_RECEIVER_NON_ATOMIC
+    unread_mlens_ += new_mlen;
+    return unread_mlens_;
+#else
+    return unread_mlens_.fetch_add(new_mlen) + new_mlen;
+#endif
   }
 
+#ifdef SENDER_RECEIVER_NON_ATOMIC
+  if (check_metadata_) {
+    check_metadata_ = false;
+#else
   if (check_metadata_.exchange(false)) {
+#endif
     // get_cq_event and poll recv completion
     conn_metadata_->get_recv_events_locked();
     size_t finsihed_rr =
@@ -127,9 +143,10 @@ bool RDMASenderReceiverEvent::send(msghdr* msg, size_t mlen) {
     last_failed_send_size_ = mlen;
     return false;
   }
+  conn_->poll_send_completion(last_n_post_send_);
 
   {
-    GRPCProfiler profiler(GRPC_STATS_TIME_SEND_MEMCPY);
+    //    GRPCProfiler profiler(GRPC_STATS_TIME_SEND_MEMCPY);
     uint8_t* start = sendbuf_;
     for (size_t iov_idx = 0, nwritten = 0;
          iov_idx < msg->msg_iovlen && nwritten < mlen; iov_idx++) {
@@ -143,11 +160,10 @@ bool RDMASenderReceiverEvent::send(msghdr* msg, size_t mlen) {
   }
 
   {
-    GRPCProfiler profiler(GRPC_STATS_TIME_SEND_IBV);
+    //    GRPCProfiler profiler(GRPC_STATS_TIME_SEND_IBV);
     last_n_post_send_ =
         conn_->post_send(remote_ringbuf_mr_, remote_ringbuf_tail_, sendbuf_mr_,
                          0, mlen, IBV_WR_RDMA_WRITE_WITH_IMM);
-    conn_->poll_send_completion(last_n_post_send_);
   }
 
   remote_rr_head_ =

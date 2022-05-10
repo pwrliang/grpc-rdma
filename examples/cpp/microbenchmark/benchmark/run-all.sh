@@ -26,6 +26,8 @@ function client_scalability() {
     for n_clients in 1 2 4 8 16 32 64 128; do
       set_hostfile $n_clients
       ./run.sh --polling-thread=28 --mode="${mode}" --batch=1000000
+      ./run.sh --polling-thread=8 --computing-thread=20 --mode="${mode}" --batch=1000000
+      ./run.sh --polling-thread=8 --computing-thread=28 --mode="${mode}" --batch=1000000
     done
   done
 }

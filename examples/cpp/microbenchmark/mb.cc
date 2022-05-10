@@ -1,3 +1,4 @@
+#define SENDER_RECEIVER_NON_ATOMIC
 #include <string.h>
 #include <unistd.h>
 
