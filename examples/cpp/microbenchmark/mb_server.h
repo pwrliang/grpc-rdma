@@ -11,7 +11,7 @@
 #include "mb.h"
 #include "src/core/lib/rdma/RDMAConn.h"
 #include "src/core/lib/rdma/RDMASenderReceiver.h"
-#define MAX_CONN_NUM 10
+#define MAX_CONN_NUM 1024
 #define MAX_EVENTS 100
 std::condition_variable cv;
 std::mutex cv_m;
@@ -166,7 +166,6 @@ void serve_event(Connections* conns) {
   size_t n_alive_conn = conns->rdma_conns.size();
 
   auto process_msg = [&](RDMASenderReceiverEvent* rdmasr) {
-    // TODO: this need a lock or use a dedicated thread to dispatch read/write
     auto mlen = rdmasr->check_and_ack_incomings_locked();
     if (mlen > 0) {
       GPR_ASSERT(mlen == sizeof(data_in));
@@ -193,7 +192,7 @@ void serve_event(Connections* conns) {
   while (n_alive_conn > 0) {
     int r;
     do {
-      r = epoll_wait(epfd, events, MAX_EVENTS, FLAGS_timeout);
+      r = epoll_wait(epfd, events, MAX_EVENTS, FLAGS_server_timeout);
     } while ((r < 0 && errno == EINTR) || r == 0);
 
     for (int i = 0; i < r; i++) {
@@ -270,15 +269,10 @@ class RDMAServer {
     }
 
     int opt = 1;
-    if (setsockopt(sockfd_, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt))) {
+    if (setsockopt(sockfd_, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT, &opt,
+                   sizeof(opt))) {
       gpr_log(GPR_ERROR,
               "RDMAServer::RDMAServer, error on setsockopt (SO_REUSEADDR)");
-      exit(-1);
-    }
-    opt = 1;
-    if (setsockopt(sockfd_, SOL_SOCKET, SO_REUSEPORT, &opt, sizeof(opt))) {
-      gpr_log(GPR_ERROR,
-              "RDMAServer::RDMAServer, error on setsockopt (SO_REUSEPORT)");
       exit(-1);
     }
   }
@@ -311,6 +305,7 @@ class RDMAServer {
     int n_client;
 
     if (FLAGS_mpiserver) {
+      // Wait for listening
       MPI_Barrier(comm_spec_.comm());
       n_client = comm_spec_.worker_num() - 1;
     } else {
@@ -324,11 +319,16 @@ class RDMAServer {
         exit(-1);
       }
 
+      auto* addr_in = reinterpret_cast<sockaddr_in*>(&client_sockaddr);
+      char* s = inet_ntoa(addr_in->sin_addr);
+      //      printf("IP address: %s, client id: %d\n", s, client_id);
       int flag = 1;
-      setsockopt(newsd, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(flag));
-
+      setsockopt(newsd, SOL_TCP, TCP_NODELAY, &flag, sizeof(flag));
       dispatch(newsd, client_id);
       client_id++;
+      if (client_id % 10 == 0) {
+        gpr_log(GPR_INFO, "There are %d clients are connected", client_id);
+      }
     }
 
     for (auto& conns : connections_per_thread_) {
@@ -336,6 +336,8 @@ class RDMAServer {
         rdmasr->WaitConnect();
       }
     }
+
+    gpr_log(GPR_INFO, "%d clients are connected", n_client);
 
     // Waiting for all clients connected
     if (FLAGS_mpiserver) {

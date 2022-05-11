@@ -47,17 +47,21 @@ class RDMAClient {
     if (FLAGS_mpiserver) {
       MPI_Barrier(comm_spec_.comm());
     }
-    int r = ::connect(sockfd_, reinterpret_cast<struct sockaddr*>(&serv_addr),
-                      sizeof(serv_addr));
 
-    if (r < 0) {
-      char hn[255];
-      int hn_len;
-      MPI_Get_processor_name(hn, &hn_len);
-      gpr_log(GPR_ERROR, "Client %s cannot connect to server %s, errno: %d", hn,
-              server_address, errno);
-      exit(-1);
-    }
+    int r;
+    do {
+      r = ::connect(sockfd_, reinterpret_cast<struct sockaddr*>(&serv_addr),
+                    sizeof(serv_addr));
+
+      if (r < 0) {
+        char hn[255];
+        int hn_len;
+        MPI_Get_processor_name(hn, &hn_len);
+        gpr_log(GPR_ERROR, "Client %s cannot connect to server %s, errno: %d",
+                hn, server_address, errno);
+        sleep(1);
+      }
+    } while (r < 0);
   }
 
   void RunBusyPolling() {
@@ -79,8 +83,6 @@ class RDMAClient {
     if (FLAGS_mpiserver) {
       MPI_Barrier(comm_spec_.comm());
     }
-    gpr_log(GPR_INFO, "client %d is connected to server",
-            comm_spec_.worker_id());
 
     auto batch_size = FLAGS_batch;
     int warmup_round = FLAGS_warmup;
@@ -100,7 +102,8 @@ class RDMAClient {
       rdmasr.recv(&msghdr_in);
     }
     auto time = ToDoubleMicroseconds((absl::Now() - t_begin));
-    gpr_log(GPR_INFO, "Latency: %lf micro", time / batch_size);
+    gpr_log(GPR_INFO, "Rank: %d Latency: %lf micro", comm_spec_.worker_id(),
+            time / batch_size);
     // Notify the server that I'm finished
     data_out = -1;
     while (!rdmasr.send(&msghdr_out, sizeof(data_out))) {
@@ -188,7 +191,7 @@ class RDMAClient {
 
       int r;
       do {
-        r = epoll_wait(epfd, events, MAX_EVENTS, FLAGS_timeout);
+        r = epoll_wait(epfd, events, MAX_EVENTS, FLAGS_client_timeout);
       } while ((r < 0 && errno == EINTR) || r == 0);
 
       for (int j = 0; j < r; j++) {
