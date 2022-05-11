@@ -14,3 +14,5 @@ DEFINE_int32(server_timeout, 0, "epoll timeout");
 DEFINE_string(host, "", "");
 DEFINE_bool(mpiserver, true, "");
 DEFINE_int32(nclient, 0, "");
+DEFINE_int32(runtime, 8, "");
+DEFINE_bool(rw, false, "epoll read write");

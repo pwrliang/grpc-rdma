@@ -62,7 +62,7 @@ else
   # Evaluate
   while true; do
     mpirun --bind-to none \
-      --oversubscribe \
+      --oversubscribe -quiet \
       -mca btl_tcp_if_include ib0 \
       -hostfile "$HOSTS_PATH" \
       "$MB_PATH" \

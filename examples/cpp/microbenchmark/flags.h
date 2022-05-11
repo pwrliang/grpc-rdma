@@ -16,4 +16,6 @@ DECLARE_int32(server_timeout);
 DECLARE_string(host);
 DECLARE_bool(mpiserver);
 DECLARE_int32(nclient);
+DECLARE_int32(runtime);
+DECLARE_bool(rw);
 #endif  // HELLOWORLD_FLAGS_H
