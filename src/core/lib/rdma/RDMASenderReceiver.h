@@ -153,7 +153,7 @@ class RDMASenderReceiverBP : public RDMASenderReceiver {
   // this should be thread safe,
   bool check_incoming() const;
 
-  size_t check_and_ack_incomings_locked();
+  size_t check_and_ack_incomings_locked(bool read_all = true);
 
  protected:
   int last_n_post_send_;
@@ -188,7 +188,9 @@ class RDMASenderReceiverEvent : public RDMASenderReceiver {
         (remote_rr_tail_ - remote_rr_head_ + DEFAULT_MAX_POST_RECV) %
         DEFAULT_MAX_POST_RECV;
     // FIXME change this to 0
-    if (avail_rr_num <= 2) return false;
+    if (avail_rr_num <= 2) {
+      return false;
+    }
     if (used + mlen > remote_ringbuf_sz - 8) {
       return false;
     }

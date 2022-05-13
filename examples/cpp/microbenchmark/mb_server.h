@@ -12,7 +12,6 @@
 #include "src/core/lib/rdma/RDMAConn.h"
 #include "src/core/lib/rdma/RDMASenderReceiver.h"
 #define MAX_CONN_NUM 1024
-#define MAX_EVENTS 100
 std::condition_variable cv;
 std::mutex cv_m;
 bool all_connected = false;
@@ -113,6 +112,8 @@ void serve_bp(Connections* conns) {
   }
 
   size_t n_alive_conn = conns->rdma_conns.size();
+  auto t_begin = absl::Now();
+  uint32_t nops = 0;
 
   while (n_alive_conn > 0) {
     for (int i = 0; i < conns->rdma_conns.size(); i++) {
@@ -120,19 +121,32 @@ void serve_bp(Connections* conns) {
           dynamic_cast<RDMASenderReceiverBP*>(conns->rdma_conns[i].get());
 
       if (rdmasr != nullptr && rdmasr->check_incoming()) {
-        size_t mlen = rdmasr->check_and_ack_incomings_locked();
-        GPR_ASSERT(mlen == sizeof(data_in));
-        rdmasr->recv(&msghdr_in);
-        if (data_in == -1) {  // release connection
-          conns->rdma_conns[i] = nullptr;
-          n_alive_conn--;
-          continue;
+        size_t rest_mlen = rdmasr->check_and_ack_incomings_locked(false);
+
+        while (rest_mlen > 0) {
+          rest_mlen -= rdmasr->recv(&msghdr_in);
+          if (data_in == -1) {  // release connection
+            conns->rdma_conns[i] = nullptr;
+            n_alive_conn--;
+            GPR_ASSERT(rest_mlen == 0);
+            continue;
+          }
+
+          if (FLAGS_rw) {
+            data_out = data_in + 1;
+            while (!rdmasr->send(&msghdr_out, sizeof(data_out))) {
+            }
+          }
         }
-        data_out = data_in + 1;
-        while (!rdmasr->send(&msghdr_out, sizeof(data_out))) {
-        }
+        nops++;
       }
     }
+  }
+  auto t_end = absl::Now();
+
+  if (nops > 1) {
+    gpr_log(GPR_INFO, "Server thread: %d, served reqs: %u avg time: %lf micro",
+            conns->tid, nops, ToDoubleMicroseconds((t_end - t_begin)) / nops);
   }
 }
 
@@ -168,9 +182,8 @@ void serve_event(Connections* conns) {
   auto process_msg = [&](RDMASenderReceiverEvent* rdmasr) {
     auto mlen = rdmasr->check_and_ack_incomings_locked();
     if (mlen > 0) {
-      GPR_ASSERT(mlen == sizeof(data_in));
-      size_t read_bytes = rdmasr->recv(&msghdr_in);
-      GPR_ASSERT(read_bytes == mlen);
+      GPR_ASSERT(!FLAGS_rw || mlen == sizeof(data_in));
+      int actual_read = rdmasr->recv(&msghdr_in);
 
       if (data_in == -1) {  // Disconnect
         for (int i = 0; i < conns->rdma_conns.size(); i++) {
@@ -183,8 +196,10 @@ void serve_event(Connections* conns) {
         return;
       }
 
-      data_out = data_in + 1;
-      while (!rdmasr->send(&msghdr_out, sizeof(data_out))) {
+      if (FLAGS_rw) {
+        data_out = data_in + 1;
+        while (!rdmasr->send(&msghdr_out, sizeof(data_out))) {
+        }
       }
     }
   };
@@ -352,6 +367,9 @@ class RDMAServer {
     for (auto& th : polling_threads_) {
       th.join();
     }
+    // Wait client to finish
+    MPI_Barrier(comm_spec_.comm());
+
     computing_ = false;
     for (auto& th : computing_threads_) {
       th.join();

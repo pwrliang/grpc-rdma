@@ -145,6 +145,7 @@ bool RDMASenderReceiverEvent::send(msghdr* msg, size_t mlen) {
     return false;
   }
   conn_->poll_send_completion(last_n_post_send_);
+  last_n_post_send_ = 0;
 
   {
     //    GRPCProfiler profiler(GRPC_STATS_TIME_SEND_MEMCPY);
@@ -162,6 +163,7 @@ bool RDMASenderReceiverEvent::send(msghdr* msg, size_t mlen) {
 
   {
     //    GRPCProfiler profiler(GRPC_STATS_TIME_SEND_IBV);
+    GPR_ASSERT(mlen > 0);
     last_n_post_send_ =
         conn_->post_send(remote_ringbuf_mr_, remote_ringbuf_tail_, sendbuf_mr_,
                          0, mlen, IBV_WR_RDMA_WRITE_WITH_IMM);

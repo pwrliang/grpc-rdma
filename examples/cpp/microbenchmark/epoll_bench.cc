@@ -75,12 +75,14 @@ void server_worker(WorkerResource* server_res) {
   ssize_t sz;
   int64_t val = 1;
 
-  auto bcast = [&]() {
+  auto bcast = [&](bool final_write) {
     // write to every worker
     for (int i = 1; i <= FLAGS_nclient; i++) {
-      do {
-        sz = write(server_res->s_to_c_fds[i]->read_fd, &val, sizeof(val));
-      } while (running && sz < 0 && errno == EAGAIN);
+      if (final_write || FLAGS_max_worker != -1 && i <= FLAGS_max_worker) {
+        do {
+          sz = write(server_res->s_to_c_fds[i]->read_fd, &val, sizeof(val));
+        } while (running && sz < 0 && errno == EAGAIN);
+      }
     }
   };
 
@@ -112,11 +114,11 @@ void server_worker(WorkerResource* server_res) {
       }
       server_res->nops++;
     } else {
-      bcast();
+      bcast(false);
     }
   }
-
-  bcast();
+  // active all workers
+  bcast(true);
 }
 
 void client_worker(WorkerResource* cli_res) {
@@ -129,12 +131,16 @@ void client_worker(WorkerResource* cli_res) {
   int64_t val = 1;
 
   auto send_to = [&]() {
+    if (FLAGS_max_worker != -1 && cli_res->worker_id > FLAGS_max_worker) {
+      return;
+    }
     if (cli_res->rw) {
       ssize_t sz;
       do {
         sz = write(cli_res->c2s_fd->read_fd, &val, sizeof(val));
       } while (running && sz < 0 && errno == EAGAIN);
     }
+    //    printf("Worker %d send\n", cli_res->worker_id);
   };
 
   send_to();
@@ -144,6 +150,10 @@ void client_worker(WorkerResource* cli_res) {
       r = epoll_wait(cli_res->epfd->epfd, events, MAX_EPOLL_EVENTS,
                      cli_res->timeout);
     } while ((r < 0 && errno == EINTR) || r == 0);
+
+    //    if(FLAGS_max_worker != -1 && cli_res->worker_id > FLAGS_max_worker) {
+    //      printf("Active %d to: %d\n", r,  cli_res->timeout);
+    //    }
 
     if (r < 0) {
       gpr_log(GPR_ERROR, "epoll error: %s", strerror(errno));
@@ -225,9 +235,11 @@ void Run() {
     if (i == 0 && !FLAGS_rw) {  // skip writer thread
       continue;
     }
-    auto& worker_res = res[i];
-    gpr_log(GPR_INFO, "Thread %d, nops: %d Latency: %lf micro", i,
-            worker_res.nops, t_duration / worker_res.nops);
+    if (FLAGS_max_worker == -1 || i <= FLAGS_max_worker) {
+      auto& worker_res = res[i];
+      gpr_log(GPR_INFO, "Thread %d, nops: %d Latency: %lf micro", i,
+              worker_res.nops, t_duration / worker_res.nops);
+    }
   }
 }
 

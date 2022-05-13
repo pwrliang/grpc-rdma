@@ -41,9 +41,13 @@ bool RDMASenderReceiverBP::check_incoming() const {
   return dynamic_cast<RingBufferBP*>(ringbuf_)->check_mlen() > 0;
 }
 
-size_t RDMASenderReceiverBP::check_and_ack_incomings_locked() {
+size_t RDMASenderReceiverBP::check_and_ack_incomings_locked(bool read_all) {
   WaitConnect();
-  return unread_mlens_ = dynamic_cast<RingBufferBP*>(ringbuf_)->check_mlens();
+  if (read_all) {
+    return unread_mlens_ = dynamic_cast<RingBufferBP*>(ringbuf_)->check_mlens();
+  } else {
+    return unread_mlens_ = dynamic_cast<RingBufferBP*>(ringbuf_)->check_mlen();
+  }
 }
 
 size_t RDMASenderReceiverBP::recv(msghdr* msg) {

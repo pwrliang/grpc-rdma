@@ -12,7 +12,6 @@
 #include "grpc/support/log.h"
 #include "netinet/tcp.h"
 #include "src/core/lib/rdma/RDMASenderReceiver.h"
-#define MAX_EVENTS 100
 
 int random(int min, int max) {
   static bool first = true;
@@ -86,28 +85,43 @@ class RDMAClient {
 
     auto batch_size = FLAGS_batch;
     int warmup_round = FLAGS_warmup;
-
+    bool should_work = FLAGS_max_worker == -1 ||
+                       (comm_spec_.worker_id() <=
+                        FLAGS_max_worker - (FLAGS_mpiserver ? 0 : 1));
     absl::Time t_begin;
+
     for (int i = 0; i < batch_size + warmup_round; ++i) {
       if (i == warmup_round) {
         MPI_Barrier(comm_spec_.client_comm());
         t_begin = absl::Now();
       }
-      while (!rdmasr.send(&msghdr_out, sizeof(data_out))) {
+      if (should_work) {
+        while (!rdmasr.send(&msghdr_out, sizeof(data_out))) {
+        }
+        if (FLAGS_rw) {
+          while (!rdmasr.check_incoming()) {
+          }
+          size_t unread_mlens = rdmasr.check_and_ack_incomings_locked();
+          GPR_ASSERT(unread_mlens == sizeof(data_in));
+          rdmasr.recv(&msghdr_in);
+        }
       }
-      while (!rdmasr.check_incoming()) {
-      }
-      size_t unread_mlens = rdmasr.check_and_ack_incomings_locked();
-      GPR_ASSERT(unread_mlens == sizeof(data_in));
-      rdmasr.recv(&msghdr_in);
     }
-    auto time = ToDoubleMicroseconds((absl::Now() - t_begin));
-    gpr_log(GPR_INFO, "Rank: %d Latency: %lf micro", comm_spec_.worker_id(),
-            time / batch_size);
+
+    if (should_work) {
+      auto time = ToDoubleMicroseconds((absl::Now() - t_begin));
+      gpr_log(GPR_INFO, "Rank: %d Latency: %lf micro", comm_spec_.worker_id(),
+              time / batch_size);
+    }
+    // Wait clients to finish
+    MPI_Barrier(comm_spec_.client_comm());
+
     // Notify the server that I'm finished
     data_out = -1;
     while (!rdmasr.send(&msghdr_out, sizeof(data_out))) {
     }
+    // Wait server to finish
+    MPI_Barrier(comm_spec_.comm());
   }
 
   void RunEpoll() {
@@ -166,22 +180,34 @@ class RDMAClient {
     int warmup_round = FLAGS_warmup;
     epoll_event events[MAX_EVENTS];
 
+    auto send_msg = [&] {
+      while (!rdmasr.send(&msghdr_out, sizeof(data_out))) {
+        rdmasr.check_metadata();
+        rdmasr.check_and_ack_incomings_locked();
+        //        gpr_log(GPR_ERROR, "Client send failed");
+      }
+    };
+
     auto process_msg = [&](bool notify_exit) {
-      auto mlen = rdmasr.check_and_ack_incomings_locked();
-      if (mlen > 0) {
-        GPR_ASSERT(mlen == sizeof(data_in));
-        size_t read_bytes = rdmasr.recv(&msghdr_in);
-        GPR_ASSERT(read_bytes == mlen);
-        if (notify_exit) {
-          data_out = -1;
+      if (FLAGS_rw) {
+        auto mlen = rdmasr.check_and_ack_incomings_locked();
+        if (mlen > 0) {
+          GPR_ASSERT(mlen == sizeof(data_in));
+          size_t read_bytes = rdmasr.recv(&msghdr_in);
+          GPR_ASSERT(read_bytes == mlen);
+          if (notify_exit) {
+            data_out = -1;
+          }
+          send_msg();
         }
-        GPR_ASSERT(rdmasr.send(&msghdr_out, sizeof(data_out)));
+      } else {
+        send_msg();
       }
     };
 
     absl::Time t_begin;
     // Send first msg
-    GPR_ASSERT(rdmasr.send(&msghdr_out, sizeof(data_out)));
+    send_msg();
 
     for (int i = 0; i < batch_size + warmup_round; ++i) {
       if (i == warmup_round) {
@@ -189,44 +215,49 @@ class RDMAClient {
         t_begin = absl::Now();
       }
 
-      int r;
-      do {
-        r = epoll_wait(epfd, events, MAX_EVENTS, FLAGS_client_timeout);
-      } while ((r < 0 && errno == EINTR) || r == 0);
+      if (FLAGS_rw) {
+        int r;
+        printf("Cli Epoll wait\n");
+        do {
+          r = epoll_wait(epfd, events, MAX_EVENTS, FLAGS_client_timeout);
+        } while ((r < 0 && errno == EINTR) || r == 0);
+        printf("Cli Epoll wait finished\n");
 
-      for (int j = 0; j < r; j++) {
-        epoll_event& ev = events[j];
-        void* data_ptr = ev.data.ptr;
+        for (int j = 0; j < r; j++) {
+          epoll_event& ev = events[j];
+          void* data_ptr = ev.data.ptr;
 
-        if ((reinterpret_cast<intptr_t>(data_ptr) & 1) ==
-            1) {  // pollable_add_rdma_channel_fd
-          auto* rdmasr = reinterpret_cast<RDMASenderReceiverEvent*>(
-              ~static_cast<intptr_t>(1) &
-              reinterpret_cast<intptr_t>(ev.data.ptr));
+          if ((reinterpret_cast<intptr_t>(data_ptr) & 1) ==
+              1) {  // pollable_add_rdma_channel_fd
+            auto* rdmasr = reinterpret_cast<RDMASenderReceiverEvent*>(
+                ~static_cast<intptr_t>(1) &
+                reinterpret_cast<intptr_t>(ev.data.ptr));
 
-          if ((ev.events & EPOLLIN) != 0) {
-            GPR_ASSERT(rdmasr != nullptr);
-            rdmasr->check_metadata();
-            process_msg(i == batch_size + warmup_round - 1);
-          }
-        } else if ((reinterpret_cast<intptr_t>(data_ptr) & 2) == 2) {
-          auto* rdmasr = reinterpret_cast<RDMASenderReceiverEvent*>(
-              ~static_cast<intptr_t>(2) &
-              reinterpret_cast<intptr_t>(ev.data.ptr));
-          if ((ev.events & EPOLLIN) != 0) {
-            GPR_ASSERT(rdmasr != nullptr);
-            rdmasr->check_data();
-            process_msg(i == batch_size + warmup_round - 1);
+            if ((ev.events & EPOLLIN) != 0) {
+              GPR_ASSERT(rdmasr != nullptr);
+              rdmasr->check_metadata();
+              process_msg(i == batch_size + warmup_round - 1);
+            }
+          } else if ((reinterpret_cast<intptr_t>(data_ptr) & 2) == 2) {
+            auto* rdmasr = reinterpret_cast<RDMASenderReceiverEvent*>(
+                ~static_cast<intptr_t>(2) &
+                reinterpret_cast<intptr_t>(ev.data.ptr));
+            if ((ev.events & EPOLLIN) != 0) {
+              GPR_ASSERT(rdmasr != nullptr);
+              rdmasr->check_data();
+              process_msg(i == batch_size + warmup_round - 1);
+            }
           }
         }
+      } else {
+        process_msg(i == batch_size + warmup_round - 1);
       }
+      printf("finish %d\n", i);
     }
     auto time = ToDoubleMicroseconds((absl::Now() - t_begin));
     gpr_log(GPR_INFO, "Rank: %d Latency: %lf micro", comm_spec_.worker_id(),
             time / batch_size);
-    sleep(1);
     MPI_Barrier(comm_spec_.client_comm());
-    exit(0);
   }
 
  private:
