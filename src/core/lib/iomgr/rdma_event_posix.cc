@@ -673,4 +673,10 @@ void grpc_rdma_event_destroy_and_release_fd(grpc_endpoint* ep, int* fd,
   RDMA_UNREF(rdma, "destroy");
 }
 
+RDMASenderReceiver* grpc_rdma_event_get_rdmasr(grpc_endpoint* ep) {
+   grpc_rdma* rdma = reinterpret_cast<grpc_rdma*>(ep);
+   GPR_ASSERT(ep->vtable == &vtable);
+   return rdma->rdmasr;
+}
+
 #endif /* GRPC_POSIX_SOCKET_TCP */

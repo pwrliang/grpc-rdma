@@ -35,6 +35,7 @@
 #include <grpc/support/alloc.h>
 #include <grpc/support/log.h>
 #include <grpc/support/string_util.h>
+#include <grpcpp/impl/codegen/call.h>
 
 #include "src/core/lib/channel/channel_stack.h"
 #include "src/core/lib/compression/algorithm_metadata.h"
@@ -62,6 +63,8 @@
 #include "src/core/lib/transport/static_metadata.h"
 #include "src/core/lib/transport/status_metadata.h"
 #include "src/core/lib/transport/transport.h"
+#include "src/core/lib/iomgr/rdma_bp_posix.h"
+#include "src/core/lib/iomgr/rdma_event_posix.h"
 
 /** The maximum number of concurrent batches possible.
     Based upon the maximum number of individually queueable ops in the batch
@@ -268,6 +271,46 @@ struct grpc_call {
     For 2, 3: See receiving_stream_ready() function */
   gpr_atm recv_state = 0;
 };
+
+extern grpc_endpoint* grpc_client_endpoint;
+extern std::map<grpc_channel*, grpc_endpoint*> grpc_server_endpoints;
+
+void* grpc_call_require_zerocopy_sendspace(grpc_call* call, size_t size) {
+  if (call->is_client && grpc_client_endpoint != nullptr) {
+    RDMASenderReceiver* rdmasr = nullptr;
+    switch (grpc_check_iomgr_platform()) {
+      case IOMGR_RDMA_BP:
+        rdmasr = grpc_rdma_bp_get_rdmasr(grpc_client_endpoint);
+        // printf("grpc_call_require_zerocopy_sendspace, rdmasr = %p, grpc_client_endpoint = %p\n", rdmasr, grpc_client_endpoint);
+        return rdmasr->require_zerocopy_sendspace(size);
+      case IOMGR_RDMA_EVENT:
+        rdmasr = grpc_rdma_event_get_rdmasr(grpc_client_endpoint);
+        // printf("grpc_call_require_zerocopy_sendspace, rdmasr = %p, grpc_client_endpoint = %p\n", rdmasr, grpc_client_endpoint);
+        return rdmasr->require_zerocopy_sendspace(size);
+    }
+  }
+  if (call->is_client == false) {
+    RDMASenderReceiver* rdmasr = nullptr;
+    switch (grpc_check_iomgr_platform()) {
+      case IOMGR_RDMA_BP:
+        if (grpc_server_endpoints.count(call->channel)) {
+          rdmasr = grpc_rdma_bp_get_rdmasr(grpc_server_endpoints.at(call->channel));
+          // printf("grpc_call_require_zerocopy_sendspace, rdmasr = %p\n", rdmasr);
+          return rdmasr->require_zerocopy_sendspace(size);
+        }
+        break;
+      case IOMGR_RDMA_EVENT:
+        if (grpc_server_endpoints.count(call->channel)) {
+          rdmasr = grpc_rdma_event_get_rdmasr(grpc_server_endpoints.at(call->channel));
+          // printf("grpc_call_require_zerocopy_sendspace, rdmasr = %p\n", rdmasr);
+          return rdmasr->require_zerocopy_sendspace(size);
+        }
+        break;
+    }
+  }
+  return nullptr;
+}
+
 
 grpc_core::TraceFlag grpc_call_error_trace(false, "call_error");
 grpc_core::TraceFlag grpc_compression_trace(false, "compression");

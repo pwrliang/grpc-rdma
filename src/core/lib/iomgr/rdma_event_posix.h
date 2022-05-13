@@ -55,4 +55,6 @@ int grpc_rdma_event_fd(grpc_endpoint* ep);
 void grpc_rdma_event_destroy_and_release_fd(grpc_endpoint* ep, int* fd,
                                      grpc_closure* done);
 
+RDMASenderReceiver* grpc_rdma_event_get_rdmasr(grpc_endpoint* ep);
+
 #endif /* GRPC_CORE_LIB_IOMGR_RDMA_EVENT_POSIX_H */

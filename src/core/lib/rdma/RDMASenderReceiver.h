@@ -11,7 +11,7 @@
 #include "absl/time/clock.h"
 #include "ringbuffer.h"
 
-const size_t DEFAULT_RINGBUF_SZ = 1024ull * 1024 * 16;
+const size_t DEFAULT_RINGBUF_SZ = 1024ull * 1024 * 4;
 const size_t DEFAULT_HEADBUF_SZ = 64;
 
 class RDMASenderReceiver {
@@ -29,11 +29,35 @@ class RDMASenderReceiver {
     auto pd = node.get_pd();
     size_t sendbuf_size = ringbuf->get_sendbuf_size();
 
+    printf("A\n");
+
     sendbuf_ = new uint8_t[sendbuf_size];
+
+    printf("A, 0, %lld, %p\n", sendbuf_size, sendbuf_);
     if (sendbuf_mr_.local_reg(pd, sendbuf_, sendbuf_size)) {
       gpr_log(GPR_ERROR, "failed to local_reg sendbuf_mr");
+      printf("A, 1\n");
       exit(-1);
     }
+
+    printf("B\n");
+
+    char* flag = getenv("GRPC_RDMA_ZEROCOPY_ENABLE");
+    if (flag && strcmp(flag, "true") == 0) {
+      zerocopy_flag_ = true;
+      last_zerocopy_send_finished_.store(true);
+      zerocopy_sendbuf_ = new uint8_t[sendbuf_size];
+      if (zerocopy_sendbuf_mr_.local_reg(pd, zerocopy_sendbuf_, sendbuf_size)) {
+        gpr_log(GPR_ERROR, "failed to local_reg zerocopy_sendbuf_mr");
+        exit(-1);
+      }
+    } else {
+      zerocopy_flag_ = false;
+      last_zerocopy_send_finished_.store(false);
+    }
+    unfinished_zerocopy_send_size_.store(0);
+
+    printf("C\n");
 
     posix_memalign(&metadata_recvbuf_, 64, metadata_recvbuf_sz_);
     memset(metadata_recvbuf_, 0, metadata_recvbuf_sz_);
@@ -43,6 +67,8 @@ class RDMASenderReceiver {
       exit(-1);
     }
 
+    printf("D\n");
+
     posix_memalign(&metadata_sendbuf_, 64, metadata_sendbuf_sz_);
     memset(metadata_sendbuf_, 0, metadata_sendbuf_sz_);
     if (metadata_sendbuf_mr_.local_reg(pd, metadata_sendbuf_,
@@ -50,6 +76,8 @@ class RDMASenderReceiver {
       gpr_log(GPR_ERROR, "failed to local_reg metadata_sendbuf_mr");
       exit(-1);
     }
+
+    printf("E\n");
   }
 
   virtual ~RDMASenderReceiver() {
@@ -62,6 +90,8 @@ class RDMASenderReceiver {
 
   size_t get_max_send_size() const { return ringbuf_->get_max_send_size(); }
 
+  bool get_zerocopy_flag() const { return zerocopy_flag_; }
+
   virtual bool send(msghdr* msg, size_t mlen) = 0;
   virtual size_t recv(msghdr* msg) = 0;
 
@@ -69,6 +99,27 @@ class RDMASenderReceiver {
     while (!connected_) {
       std::this_thread::yield();
     }
+  }
+
+  void* require_zerocopy_sendspace(size_t size) {
+    if (!zerocopy_flag_ || size >= ringbuf_->get_sendbuf_size() - 64) {
+      return nullptr;
+    }
+
+    size_t max_counter = 1;
+    while (last_zerocopy_send_finished_.exchange(false) == false) {
+      if (max_counter-- == 1) {
+        printf("require %lld send bytes, denied\n", size);
+        return nullptr;
+      }
+    }
+    unfinished_zerocopy_send_size_.fetch_add(size);
+    return (void*)(zerocopy_sendbuf_);
+  }
+
+  bool zerocopy_sendbuf_contains(void* bytes) {
+    uint8_t* ptr = (uint8_t*)bytes;
+    return (ptr >= zerocopy_sendbuf_ && ptr < (zerocopy_sendbuf_ + ringbuf_->get_sendbuf_size()));
   }
 
  protected:
@@ -96,8 +147,12 @@ class RDMASenderReceiver {
   std::atomic_uint32_t unread_mlens_;
 #endif
 
-  uint8_t* sendbuf_;
-  MemRegion sendbuf_mr_;
+  uint8_t *sendbuf_, *zerocopy_sendbuf_;
+  MemRegion sendbuf_mr_, zerocopy_sendbuf_mr_;
+  bool zerocopy_flag_;
+  std::atomic_bool last_zerocopy_send_finished_;
+  std::atomic_size_t unfinished_zerocopy_send_size_;
+  size_t total_send_size = 0, total_zerocopy_send_size = 0;
 
   size_t metadata_recvbuf_sz_;
   void* metadata_recvbuf_;

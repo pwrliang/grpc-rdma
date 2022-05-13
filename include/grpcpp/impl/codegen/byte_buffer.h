@@ -224,6 +224,12 @@ class SerializationTraits<ByteBuffer, void> {
     *own_buffer = true;
     return g_core_codegen_interface->ok();
   }
+  static Status Serialize(const ByteBuffer& source, ByteBuffer* buffer,
+                          bool* own_buffer, grpc_call* call) {
+    *buffer = source;
+    *own_buffer = true;
+    return g_core_codegen_interface->ok();
+  }
 };
 
 }  // namespace grpc

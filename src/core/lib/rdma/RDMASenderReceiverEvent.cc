@@ -86,7 +86,7 @@ size_t RDMASenderReceiverEvent::check_and_ack_incomings_locked() {
   if (check_data_.exchange(false)) {
 #endif
     auto new_mlen = conn_->get_recv_events_locked();
-    GPR_ASSERT(new_mlen > 0);
+    // GPR_ASSERT(new_mlen > 0);
     if (conn_->post_recvs_lazy()) {
       update_remote_metadata();
     }
@@ -131,6 +131,50 @@ size_t RDMASenderReceiverEvent::recv(msghdr* msg) {
 
 // this could be optimized.
 // caller already checked msg
+// bool RDMASenderReceiverEvent::send(msghdr* msg, size_t mlen) {
+//   WaitConnect();
+//   if (mlen > ringbuf_->get_max_send_size()) {
+//     gpr_log(GPR_ERROR, "RDMASenderReceiverEvent::send, mlen > sendbuf size");
+//     return false;
+//   }
+
+//   size_t remote_ringbuf_sz = remote_ringbuf_mr_.length();
+
+//   if (!is_writable(mlen)) {
+//     last_failed_send_size_ = mlen;
+//     return false;
+//   }
+//   conn_->poll_send_completion(last_n_post_send_);
+
+//   {
+//     //    GRPCProfiler profiler(GRPC_STATS_TIME_SEND_MEMCPY);
+//     uint8_t* start = sendbuf_;
+//     for (size_t iov_idx = 0, nwritten = 0;
+//          iov_idx < msg->msg_iovlen && nwritten < mlen; iov_idx++) {
+//       void* iov_base = msg->msg_iov[iov_idx].iov_base;
+//       size_t iov_len = msg->msg_iov[iov_idx].iov_len;
+//       nwritten += iov_len;
+//       GPR_ASSERT(nwritten <= ringbuf_->get_max_send_size());
+//       memcpy(start, iov_base, iov_len);
+//       start += iov_len;
+//     }
+//   }
+
+//   {
+//     //    GRPCProfiler profiler(GRPC_STATS_TIME_SEND_IBV);
+//     last_n_post_send_ =
+//         conn_->post_send(remote_ringbuf_mr_, remote_ringbuf_tail_, sendbuf_mr_,
+//                          0, mlen, IBV_WR_RDMA_WRITE_WITH_IMM);
+//   }
+
+//   remote_rr_head_ =
+//       (remote_rr_head_ + last_n_post_send_) % DEFAULT_MAX_POST_RECV;
+//   remote_ringbuf_tail_ = (remote_ringbuf_tail_ + mlen) % remote_ringbuf_sz;
+//   last_failed_send_size_ = 0;
+//   return true;
+// }
+
+#define RDMA_MAX_WRITE_IOVEC 1024
 bool RDMASenderReceiverEvent::send(msghdr* msg, size_t mlen) {
   WaitConnect();
   if (mlen > ringbuf_->get_max_send_size()) {
@@ -144,34 +188,64 @@ bool RDMASenderReceiverEvent::send(msghdr* msg, size_t mlen) {
     last_failed_send_size_ = mlen;
     return false;
   }
-  conn_->poll_send_completion(last_n_post_send_);
-  last_n_post_send_ = 0;
 
+  size_t zerocopy_size = 0;
+  bool zerocopy_flag = false;
+  struct ibv_sge sges[RDMA_MAX_WRITE_IOVEC];
+  size_t sge_idx = 0;
   {
-    //    GRPCProfiler profiler(GRPC_STATS_TIME_SEND_MEMCPY);
-    uint8_t* start = sendbuf_;
-    for (size_t iov_idx = 0, nwritten = 0;
-         iov_idx < msg->msg_iovlen && nwritten < mlen; iov_idx++) {
+    uint8_t *sendbuf_ptr = sendbuf_;
+    size_t iov_idx = 0, nwritten = 0;
+    init_sge(sges, sendbuf_, 0, sendbuf_mr_.lkey());
+    while (iov_idx < msg->msg_iovlen && nwritten < mlen) {
       void* iov_base = msg->msg_iov[iov_idx].iov_base;
       size_t iov_len = msg->msg_iov[iov_idx].iov_len;
+      if (zerocopy_sendbuf_contains(iov_base)) {
+        zerocopy_flag = true;
+        if (sges[sge_idx].length > 0) sge_idx++; // if currecnt sge is not empty, it cannot be a zerocopy sge again, put in next sge
+        init_sge(&sges[sge_idx], iov_base, iov_len, zerocopy_sendbuf_mr_.lkey());
+        unfinished_zerocopy_send_size_.fetch_sub(iov_len);
+        total_zerocopy_send_size += iov_len;
+        zerocopy_size += iov_len;
+      } else {
+        memcpy(sendbuf_ptr, iov_base, iov_len);
+        if (sges[sge_idx].lkey == sendbuf_mr_.lkey()) { // last sge in sendbuf
+          sges[sge_idx].length += iov_len; // merge in last sge
+        } else { // last sge in zerocopy_sendbuf
+          init_sge(&sges[++sge_idx], sendbuf_ptr, iov_len, sendbuf_mr_.lkey());
+        }
+        sendbuf_ptr += iov_len;
+      }
       nwritten += iov_len;
-      GPR_ASSERT(nwritten <= ringbuf_->get_max_send_size());
-      memcpy(start, iov_base, iov_len);
-      start += iov_len;
+      iov_idx++;
     }
   }
 
   {
     //    GRPCProfiler profiler(GRPC_STATS_TIME_SEND_IBV);
-    GPR_ASSERT(mlen > 0);
-    last_n_post_send_ =
+    if (!zerocopy_flag) {
+      last_n_post_send_ =
         conn_->post_send(remote_ringbuf_mr_, remote_ringbuf_tail_, sendbuf_mr_,
                          0, mlen, IBV_WR_RDMA_WRITE_WITH_IMM);
+    } else {
+      last_n_post_send_ = 
+          conn_->post_sends(remote_ringbuf_mr_, remote_ringbuf_tail_, 
+                            sges, sge_idx + 1, mlen, IBV_WR_RDMA_WRITE_WITH_IMM);
+    }
+  }
+  total_send_size += mlen;
+  {
+    conn_->poll_send_completion(last_n_post_send_);
   }
 
   remote_rr_head_ =
       (remote_rr_head_ + last_n_post_send_) % DEFAULT_MAX_POST_RECV;
   remote_ringbuf_tail_ = (remote_ringbuf_tail_ + mlen) % remote_ringbuf_sz;
   last_failed_send_size_ = 0;
+  printf("send mlen = %lld, zerocopy_mlen = %lld, total_send_sz = %lld, total_zerocopy_send_sz = %lld, %f\n", 
+    mlen, zerocopy_size, total_send_size, total_zerocopy_send_size, double(total_zerocopy_send_size) / total_send_size);
+  if (unfinished_zerocopy_send_size_.load() == 0) {
+    last_zerocopy_send_finished_.store(true);
+  }
   return true;
 }

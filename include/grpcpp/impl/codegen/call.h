@@ -21,6 +21,12 @@
 #include <grpc/impl/codegen/grpc_types.h>
 #include <grpcpp/impl/codegen/call_hook.h>
 
+enum platform_t {IOMGR_TCP, IOMGR_RDMA_BP, IOMGR_RDMA_EVENT};
+
+platform_t grpc_check_iomgr_platform();
+
+void* grpc_call_require_zerocopy_sendspace(grpc_call* call, size_t size);
+
 namespace grpc {
 class CompletionQueue;
 namespace experimental {

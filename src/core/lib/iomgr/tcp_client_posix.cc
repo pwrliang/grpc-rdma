@@ -121,9 +121,15 @@ static void tc_on_alarm(void* acp, grpc_error_handle error) {
   }
 }
 
+grpc_endpoint* grpc_client_endpoint = nullptr;
+
 grpc_endpoint* grpc_tcp_client_create_from_fd(
     grpc_fd* fd, const grpc_channel_args* channel_args, const char* addr_str) {
-  return grpc_endpoint_create(fd, channel_args, addr_str);
+
+  grpc_endpoint* ep = grpc_endpoint_create(fd, channel_args, addr_str);
+  grpc_client_endpoint = ep;
+
+  return ep;
 }
 
 static void on_writable(void* acp, grpc_error_handle error) {
