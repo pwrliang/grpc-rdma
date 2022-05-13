@@ -32,8 +32,11 @@ class RDMASenderReceiver {
     printf("A\n");
 
     sendbuf_ = new uint8_t[sendbuf_size];
+
+    printf("A, 0, %lld, %p\n", sendbuf_size, sendbuf_);
     if (sendbuf_mr_.local_reg(pd, sendbuf_, sendbuf_size)) {
       gpr_log(GPR_ERROR, "failed to local_reg sendbuf_mr");
+      printf("A, 1\n");
       exit(-1);
     }
 
