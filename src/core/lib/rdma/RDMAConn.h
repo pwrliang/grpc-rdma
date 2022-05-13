@@ -37,6 +37,9 @@ class RDMAConn {
 
   int post_send(MemRegion& remote_mr, size_t remote_tail, MemRegion& local_mr,
                 size_t local_offset, size_t sz, ibv_wr_opcode opcode);
+  
+  int post_sends(MemRegion& remote_mr, size_t remote_tail,
+                 struct ibv_sge* sg_list, size_t num_sge, size_t sz, ibv_wr_opcode opcode);
 
   size_t get_recv_events_locked();
 

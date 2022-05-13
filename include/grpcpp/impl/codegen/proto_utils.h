@@ -66,6 +66,38 @@ Status GenericSerialize(const grpc::protobuf::MessageLite& msg, ByteBuffer* bb,
              : Status(StatusCode::INTERNAL, "Failed to serialize message");
 }
 
+template <class ProtoBufferWriter, class T>
+Status GenericSerialize(const grpc::protobuf::MessageLite& msg, ByteBuffer* bb,
+                        bool* own_buffer, grpc_call* call) {
+  static_assert(std::is_base_of<protobuf::io::ZeroCopyOutputStream,
+                                ProtoBufferWriter>::value,
+                "ProtoBufferWriter must be a subclass of "
+                "::protobuf::io::ZeroCopyOutputStream");
+  *own_buffer = true;
+  int byte_size = static_cast<int>(msg.ByteSizeLong());
+
+  void* ptr = grpc_call_require_zerocopy_sendspace(call, byte_size);
+
+  if (ptr != nullptr) {
+    Slice slice(ptr, byte_size, Slice::StaticSlice::STATIC_SLICE);
+    GPR_CODEGEN_ASSERT(slice.end() == msg.SerializeWithCachedSizesToArray(
+                                        const_cast<uint8_t*>(slice.begin())));
+    ByteBuffer tmp(&slice, 1);
+    bb->Swap(&tmp);
+    // printf("GenericSerialize: require zerocopy space %d\n", byte_size);
+    return g_core_codegen_interface->ok();
+  }
+
+  // printf("GenericSerialize: require non-zerocopy space %d\n", byte_size);
+  Slice slice(byte_size);
+  GPR_CODEGEN_ASSERT(slice.end() == msg.SerializeWithCachedSizesToArray(
+                                        const_cast<uint8_t*>(slice.begin())));
+  ByteBuffer tmp(&slice, 1);
+  bb->Swap(&tmp);
+
+  return g_core_codegen_interface->ok();
+}
+
 // BufferReader must be a subclass of ::protobuf::io::ZeroCopyInputStream.
 template <class ProtoBufferReader, class T>
 Status GenericDeserialize(ByteBuffer* buffer,
@@ -105,6 +137,11 @@ class SerializationTraits<
   static Status Serialize(const grpc::protobuf::MessageLite& msg,
                           ByteBuffer* bb, bool* own_buffer) {
     return GenericSerialize<ProtoBufferWriter, T>(msg, bb, own_buffer);
+  }
+
+  static Status Serialize(const grpc::protobuf::MessageLite& msg,
+                          ByteBuffer* bb, bool* own_buffer, grpc_call* call) {
+    return GenericSerialize<ProtoBufferWriter, T>(msg, bb, own_buffer, call);
   }
 
   static Status Deserialize(ByteBuffer* buffer,
