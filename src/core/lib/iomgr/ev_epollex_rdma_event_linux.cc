@@ -1048,6 +1048,10 @@ static grpc_error_handle pollable_process_events(grpc_pollset* pollset,
       // printf("pollable %d process_events, %p, %p, %lld, %lld, %lld\n",
       // pollable_obj->epfd, data_ptr, fd, ev->data.fd, ev->data.u32,
       // ev->data.u64);
+      if (fd->rdmasr == nullptr) { // this fd may have been shutdown
+        // printf("fd = %lld\n", grpc_fd_wrapped_fd(fd));
+        continue;
+      }
       GPR_ASSERT(fd->rdmasr);
       if ((ev->events & EPOLLIN) != 0) {
         // printf("fd %d become readable, data\n", fd->fd);
@@ -1058,6 +1062,10 @@ static grpc_error_handle pollable_process_events(grpc_pollset* pollset,
                3) {  // pollable_add_rdma_channel_fd
       grpc_fd* fd = reinterpret_cast<grpc_fd*>(
           ~static_cast<intptr_t>(3) & reinterpret_cast<intptr_t>(ev->data.ptr));
+      if (fd->rdmasr == nullptr) { // this fd may have been shutdown
+        // printf("fd = %lld\n", grpc_fd_wrapped_fd(fd));
+        continue;
+      }
       GPR_ASSERT(fd->rdmasr);
       if ((ev->events & EPOLLIN) != 0) {
         // printf("fd %d become readable, metadata\n", fd->fd);

@@ -33,7 +33,7 @@ class RDMAConn {
   explicit RDMAConn(RDMANode* node, bool event_mode = false);
   virtual ~RDMAConn();
 
-  void poll_send_completion(int expected_num_entries);
+  int poll_send_completion(int expected_num_entries);
 
   int post_send(MemRegion& remote_mr, size_t remote_tail, MemRegion& local_mr,
                 size_t local_offset, size_t sz, ibv_wr_opcode opcode);
@@ -53,6 +53,7 @@ class RDMAConn {
   // after qp was created, sync data with remote
   int SyncQP(int fd);
   int SyncMR(int fd, MemRegion& local, MemRegion& remote);
+  void Sync(int fd);
 
   int get_recv_channel_fd() const { return recv_channel_->fd; }
 

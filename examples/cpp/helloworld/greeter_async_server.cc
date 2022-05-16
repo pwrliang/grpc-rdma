@@ -89,7 +89,7 @@ class ServerImpl final {
       // The return value of Next should always be checked. This return value
       // tells us whether there is any kind of event or cq_ is shutting down.
       // printf("thread %d got event\n", id);
-      printf("thread %d got event, cq = %p\n", id, cq_.get());
+      // printf("thread %d got event, cq = %p\n", id, cq_.get());
       GPR_ASSERT(cq_->Next(&tag, &ok));
       GPR_ASSERT(ok);
       static_cast<CallData*>(tag)->Proceed();

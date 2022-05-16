@@ -73,6 +73,17 @@ class RDMASenderReceiver {
 
   }
 
+  virtual void Shutdown() {
+    update_local_metadata();
+    if (remote_exit_ == 1) return;
+    reinterpret_cast<size_t*>(metadata_sendbuf_)[0] = ringbuf_->get_head();
+    reinterpret_cast<size_t*>(metadata_sendbuf_)[1] = 1;
+    int n_entries =
+        conn_->post_send(remote_metadata_recvbuf_mr_, 0, metadata_sendbuf_mr_,
+                         0, metadata_sendbuf_sz_, IBV_WR_RDMA_WRITE);
+    conn_->poll_send_completion(n_entries);
+  }
+
   virtual ~RDMASenderReceiver() {
     delete[] sendbuf_;
     free(metadata_recvbuf_);
@@ -94,6 +105,10 @@ class RDMASenderReceiver {
     }
   }
 
+  bool IfRemoteExit() {
+    return remote_exit_ == 1;
+  }
+
   void* require_zerocopy_sendspace(size_t size) {
     if (!zerocopy_flag_ || size >= ringbuf_->get_sendbuf_size() - 64) {
       return nullptr;
@@ -102,7 +117,7 @@ class RDMASenderReceiver {
     size_t max_counter = 1;
     while (last_zerocopy_send_finished_.exchange(false) == false) {
       if (max_counter-- == 1) {
-        printf("require %lld send bytes, denied\n", size);
+        // printf("require %lld send bytes, denied\n", size);
         return nullptr;
       }
     }
@@ -120,6 +135,7 @@ class RDMASenderReceiver {
   virtual void connect(int fd) = 0;
   virtual void update_remote_metadata() {
     reinterpret_cast<size_t*>(metadata_sendbuf_)[0] = ringbuf_->get_head();
+    reinterpret_cast<size_t*>(metadata_sendbuf_)[1] = 0;
     int n_entries =
         conn_->post_send(remote_metadata_recvbuf_mr_, 0, metadata_sendbuf_mr_,
                          0, metadata_sendbuf_sz_, IBV_WR_RDMA_WRITE);
@@ -127,6 +143,7 @@ class RDMASenderReceiver {
   }
   virtual void update_local_metadata() {
     remote_ringbuf_head_ = reinterpret_cast<size_t*>(metadata_recvbuf_)[0];
+    remote_exit_ = reinterpret_cast<size_t*>(metadata_recvbuf_)[1];
   }
   virtual bool is_writable(size_t mlen) = 0;
 
@@ -161,6 +178,8 @@ class RDMASenderReceiver {
   absl::Time last_recv_time_;
 
   bool connected_;
+  int remote_exit_ = 0;
+  int fd_;
 };
 
 /*
@@ -196,6 +215,10 @@ class RDMASenderReceiverBP : public RDMASenderReceiver {
     // If unread datasize + the size of data we want to send is greater than
     // ring buffer size, we can not send message. we reserve 1 byte to
     // distinguish the status between empty and full
+    if (remote_exit_) {
+      // printf("fd = %d, remote exit\n", fd_);
+      return false;
+    }
 
     return used + len <= remote_ringbuf_sz - 8;
   }
@@ -219,6 +242,7 @@ class RDMASenderReceiverEvent : public RDMASenderReceiver {
   void connect(int fd) override;
   void update_remote_metadata() override;
   void update_local_metadata() override;
+  void Shutdown() override;
   bool connected() { return connected_; }
 
   bool send(msghdr* msg, size_t mlen) override;
@@ -241,6 +265,10 @@ class RDMASenderReceiverEvent : public RDMASenderReceiver {
       return false;
     }
     if (used + mlen > remote_ringbuf_sz - 8) {
+      return false;
+    }
+    if (remote_exit_) {
+      // printf("fd = %d, remote exit\n", fd_);
       return false;
     }
     return true;

@@ -124,6 +124,15 @@ int RDMAConn::SyncQP(int fd) {
   return 0;
 }
 
+void RDMAConn::Sync(int fd) {
+  char lo[] = "sync";
+  char rt[10];
+  if (sync_data(fd, lo, rt, strlen(lo))) {
+    gpr_log(GPR_ERROR, "RDMAConn::Sync, failed to sync data");
+    exit(1);
+  }
+}
+
 int RDMAConn::post_send(MemRegion& remote_mr, size_t remote_tail,
                         MemRegion& local_mr, size_t local_offset, size_t sz,
                         ibv_wr_opcode opcode) {
@@ -221,14 +230,14 @@ int RDMAConn::post_sends(MemRegion& remote_mr, size_t remote_tail,
   return 1 + post_sends(remote_mr, remote_tail, next_sg_list, next_num_sge, sz, opcode);
 }
 
-void RDMAConn::poll_send_completion(int expected_num_entries) {
+int RDMAConn::poll_send_completion(int expected_num_entries) {
   if (expected_num_entries == 0) {
-    return;
+    return -1;
   } else if (expected_num_entries > DEFAULT_MAX_POST_SEND) {
     gpr_log(
         GPR_ERROR,
         "RDMAConn::poll_send_completion, expected_num_entries is too large");
-    exit(-1);
+    return -1;
   }
 
   int rest_num_entries = expected_num_entries;
@@ -239,7 +248,7 @@ void RDMAConn::poll_send_completion(int expected_num_entries) {
                         wc + expected_num_entries - rest_num_entries);
     if (n < 0) {
       gpr_log(GPR_ERROR, "RDMAConn::poll_send_completion, failed to poll scq");
-      exit(-1);
+      return n;
     }
     rest_num_entries -= n;
   } while (rest_num_entries > 0);
@@ -249,9 +258,10 @@ void RDMAConn::poll_send_completion(int expected_num_entries) {
       gpr_log(GPR_ERROR,
               "RDMAConn::poll_send_completion, failed to poll scq, status %d",
               wc[i].status);
-      exit(-1);
+      return wc[i].status;
     }
   }
+  return 0;
 }
 
 void RDMAConn::post_recvs(size_t n) {

@@ -4,6 +4,7 @@
 #define HELLOWORLD_FLAGS_H
 #include <gflags/gflags_declare.h>
 
+DECLARE_int32(cqs);
 DECLARE_int32(threads);
 DECLARE_int32(batch);
 DECLARE_string(host);

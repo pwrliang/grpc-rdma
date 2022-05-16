@@ -28,6 +28,7 @@
 
 grpc_core::TraceFlag grpc_tcp_trace(false, "tcp");
 std::map<std::string, grpc_endpoint*> peer2endpoint;
+std::mutex peer2endpoint_mtx;
 std::atomic_size_t global_endpoint_count;
 
 std::string grpc_trim_peer(const std::string peer) {
@@ -58,7 +59,10 @@ grpc_endpoint* grpc_endpoint_create(grpc_fd* fd, const grpc_channel_args* args,
   }
   std::string peer = grpc_trim_peer(peer_string);
   std::string local = (std::string)grpc_endpoint_get_local_address(ep);
-  peer2endpoint.insert(std::pair<std::string, grpc_endpoint*>(peer, ep));
+  {
+    std::unique_lock<std::mutex> lck(peer2endpoint_mtx);
+    peer2endpoint.insert(std::pair<std::string, grpc_endpoint*>(peer, ep));
+  }
   printf("endpoint %p is created, peer: %s, local: %s, attached to fd: %d, global endpoint count = %d\n",
          ep, peer.c_str(), local.c_str(), grpc_endpoint_get_fd(ep), global_endpoint_count.fetch_add(1) + 1);
   return ep;
@@ -96,7 +100,10 @@ void grpc_endpoint_destroy(grpc_endpoint* ep) {
   int fd = grpc_endpoint_get_fd(ep);
   std::string peer = grpc_trim_peer((std::string)grpc_endpoint_get_peer(ep));
   std::string local = (std::string)grpc_endpoint_get_local_address(ep);
-  peer2endpoint.erase(peer);
+  {
+    std::unique_lock<std::mutex> lck(peer2endpoint_mtx);
+    peer2endpoint.erase(peer);
+  }
   ep->vtable->destroy(ep); 
   printf("endpoint %p is destroyed, peer: %s, local: %s, attached fd: %d, global endpoint count = %d\n",
          ep, peer.c_str(), local.c_str(), fd, global_endpoint_count.fetch_sub(1) - 1);

@@ -151,6 +151,7 @@ static void notify_on_write(grpc_rdma* rdma) {
 static void rdma_shutdown(grpc_endpoint* ep, grpc_error_handle why) {
   grpc_rdma* rdma = reinterpret_cast<grpc_rdma*>(ep);
   // printf("rdma shutdown, shutdown fd %d\n", grpc_fd_wrapped_fd(rdma->em_fd));
+  rdma->rdmasr->Shutdown();
   grpc_fd_shutdown(rdma->em_fd, why);
   grpc_resource_user_shutdown(rdma->resource_user);
 }
@@ -442,6 +443,10 @@ static bool rdma_flush(grpc_rdma* rdma, grpc_error_handle* error) {
       grpc_stats_time_add_custom(GRPC_STATS_TIME_SEND_SIZE, sending_length);
     }
     if (!send_ok) {
+      if (rdma->rdmasr->IfRemoteExit()) {
+        grpc_slice_buffer_reset_and_unref_internal(rdma->outgoing_buffer);
+        return true;
+      }
       // not enough space in remote
       rdma->outgoing_byte_idx = unwind_byte_idx;
       for (size_t idx = 0; idx < unwind_slice_idx; idx++) {
