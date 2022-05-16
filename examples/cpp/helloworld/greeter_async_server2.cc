@@ -24,6 +24,7 @@
 #include <memory>
 #include <string>
 #include <thread>
+#include <set>
 
 #ifdef BAZEL_BUILD
 #include "examples/protos/helloworld.grpc.pb.h"

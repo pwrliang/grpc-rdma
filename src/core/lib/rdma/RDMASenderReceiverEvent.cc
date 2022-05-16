@@ -32,7 +32,7 @@ RDMASenderReceiverEvent::RDMASenderReceiverEvent()
 }
 
 RDMASenderReceiverEvent::~RDMASenderReceiverEvent() {
-  conn_->poll_send_completion(last_n_post_send_);
+  // conn_->poll_send_completion(last_n_post_send_);
   delete conn_metadata_;
   delete ringbuf_;
 }
@@ -243,8 +243,8 @@ bool RDMASenderReceiverEvent::send(msghdr* msg, size_t mlen) {
       (remote_rr_head_ + last_n_post_send_) % DEFAULT_MAX_POST_RECV;
   remote_ringbuf_tail_ = (remote_ringbuf_tail_ + mlen) % remote_ringbuf_sz;
   last_failed_send_size_ = 0;
-  printf("send mlen = %lld, zerocopy_mlen = %lld, total_send_sz = %lld, total_zerocopy_send_sz = %lld, %f\n", 
-    mlen, zerocopy_size, total_send_size, total_zerocopy_send_size, double(total_zerocopy_send_size) / total_send_size);
+  // printf("send mlen = %lld, zerocopy_mlen = %lld, total_send_sz = %lld, total_zerocopy_send_sz = %lld, %f\n", 
+  //   mlen, zerocopy_size, total_send_size, total_zerocopy_send_size, double(total_zerocopy_send_size) / total_send_size);
   if (unfinished_zerocopy_send_size_.load() == 0) {
     last_zerocopy_send_finished_.store(true);
   }

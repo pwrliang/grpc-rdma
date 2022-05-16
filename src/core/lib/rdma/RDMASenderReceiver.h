@@ -11,7 +11,7 @@
 #include "absl/time/clock.h"
 #include "ringbuffer.h"
 
-const size_t DEFAULT_RINGBUF_SZ = 1024ull * 1024 * 4;
+const size_t DEFAULT_RINGBUF_SZ = 1024ull * 1024;
 const size_t DEFAULT_HEADBUF_SZ = 64;
 
 class RDMASenderReceiver {
@@ -29,18 +29,14 @@ class RDMASenderReceiver {
     auto pd = node.get_pd();
     size_t sendbuf_size = ringbuf->get_sendbuf_size();
 
-    printf("A\n");
 
     sendbuf_ = new uint8_t[sendbuf_size];
 
-    printf("A, 0, %lld, %p\n", sendbuf_size, sendbuf_);
     if (sendbuf_mr_.local_reg(pd, sendbuf_, sendbuf_size)) {
       gpr_log(GPR_ERROR, "failed to local_reg sendbuf_mr");
-      printf("A, 1\n");
       exit(-1);
     }
 
-    printf("B\n");
 
     char* flag = getenv("GRPC_RDMA_ZEROCOPY_ENABLE");
     if (flag && strcmp(flag, "true") == 0) {
@@ -57,7 +53,6 @@ class RDMASenderReceiver {
     }
     unfinished_zerocopy_send_size_.store(0);
 
-    printf("C\n");
 
     posix_memalign(&metadata_recvbuf_, 64, metadata_recvbuf_sz_);
     memset(metadata_recvbuf_, 0, metadata_recvbuf_sz_);
@@ -67,7 +62,6 @@ class RDMASenderReceiver {
       exit(-1);
     }
 
-    printf("D\n");
 
     posix_memalign(&metadata_sendbuf_, 64, metadata_sendbuf_sz_);
     memset(metadata_sendbuf_, 0, metadata_sendbuf_sz_);
@@ -77,7 +71,6 @@ class RDMASenderReceiver {
       exit(-1);
     }
 
-    printf("E\n");
   }
 
   virtual ~RDMASenderReceiver() {
@@ -118,6 +111,7 @@ class RDMASenderReceiver {
   }
 
   bool zerocopy_sendbuf_contains(void* bytes) {
+    if (!zerocopy_flag_) return false;
     uint8_t* ptr = (uint8_t*)bytes;
     return (ptr >= zerocopy_sendbuf_ && ptr < (zerocopy_sendbuf_ + ringbuf_->get_sendbuf_size()));
   }

@@ -218,8 +218,8 @@ bool RDMASenderReceiverBP::send(msghdr* msg, size_t mlen) {
   }
   remote_ringbuf_tail_ = (remote_ringbuf_tail_ + len) % remote_ringbuf_sz;
   total_send_size += mlen;
-  printf("send mlen = %lld, zerocopy_mlen = %lld, total_send_sz = %lld, total_zerocopy_send_sz = %lld, %f\n", 
-    mlen, zerocopy_size, total_send_size, total_zerocopy_send_size, double(total_zerocopy_send_size) / total_send_size);
+  // printf("send mlen = %lld, zerocopy_mlen = %lld, total_send_sz = %lld, total_zerocopy_send_sz = %lld, %f\n", 
+  //   mlen, zerocopy_size, total_send_size, total_zerocopy_send_size, double(total_zerocopy_send_size) / total_send_size);
   if (unfinished_zerocopy_send_size_.load() == 0) {
     last_zerocopy_send_finished_.store(true);
   }
