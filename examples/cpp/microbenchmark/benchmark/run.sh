@@ -11,6 +11,8 @@ MB_PATH="$MB_HOME"/mb
 COMPUTING_THREAD=0
 BATCH_SIZE=10000
 MODE=""
+RW=false
+MAX_WORKER=-1
 
 if [[ ! -f "$MB_PATH" ]]; then
   echo "Invalid MB_HOME"
@@ -35,6 +37,14 @@ for i in "$@"; do
     MODE="${i#*=}"
     shift
     ;;
+  --read-write)
+    RW=true
+    shift
+    ;;
+  --max-worker=*)
+    MAX_WORKER="${i#*=}"
+    shift
+    ;;
   --* | -*)
     echo "Unknown option $i"
     exit 1
@@ -51,7 +61,7 @@ if [[ -n "$LOG_SUFFIX" ]]; then
 fi
 mkdir -p "$LOG_PATH"
 
-curr_log_path="$LOG_PATH/${MODE}_client_${NP}_poll_${POLLING_THREADS}_comp_${COMPUTING_THREAD}.log"
+curr_log_path="$LOG_PATH/${MODE}_client_${NP}_poll_${POLLING_THREADS}_rw_${RW}.log"
 
 #rm -f $curr_log_path
 if [[ -f "$curr_log_path" ]]; then
@@ -62,16 +72,18 @@ else
   # Evaluate
   while true; do
     mpirun --bind-to none \
-      --oversubscribe \
+      --oversubscribe -quiet \
       -mca btl_tcp_if_include ib0 \
       -hostfile "$HOSTS_PATH" \
       "$MB_PATH" \
       -mode="$MODE" \
+      -rw=$RW \
       -polling_thread="$POLLING_THREADS" \
       -computing_thread="$COMPUTING_THREAD" \
-      -batch "$BATCH_SIZE" |& tee -a "${curr_log_path}.tmp"
+      -batch "$BATCH_SIZE" \
+      -max_worker "$MAX_WORKER" |& tee -a "${curr_log_path}.tmp"
     row_count=$(grep -c "Latency" <"${curr_log_path}.tmp")
-    if [[ $row_count == "$NP" ]]; then
+    if [[ ($MAX_WORKER -ne -1 && $row_count -eq $MAX_WORKER) || ($MAX_WORKER -eq -1 && $row_count -eq "$NP") ]]; then
       mv "${curr_log_path}.tmp" "${curr_log_path}"
       break
     fi

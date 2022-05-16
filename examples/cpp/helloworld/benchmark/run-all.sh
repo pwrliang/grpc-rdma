@@ -74,8 +74,8 @@ function profile() {
 function client_scalability() {
   REQs=(64 1024 4096 65536 131072)
   RESPs=(64 1024 4096 65536 131072)
-#  REQs=(64)
-#  RESPs=(64)
+  REQs=(64)
+  RESPs=(64)
 #          req_batch_size=$(get_batch_size "$REQ")
 #          resp_batch_size=$(get_batch_size "$RESP")
 #          batch_size=$((req_batch_size > resp_batch_size ? req_batch_size : resp_batch_size))
@@ -85,7 +85,7 @@ function client_scalability() {
     for poll_num in "${POLL_NUMS[@]}"; do
       for grp_mode in "${GRPC_MODES[@]}"; do
         export GRPC_PLATFORM_TYPE=$grp_mode
-        for n_clients in 1 2 4 8 16 24 26 28 32 64 128; do
+        for n_clients in 1 2 4 8 16 24 26 28 32 48 64 128; do
 #        for n_clients in $(seq 20 1 28); do
           set_hostfile $n_clients
           export LOG_SUFFIX="${grp_mode}_${REQ}_${RESP}_${poll_num}"

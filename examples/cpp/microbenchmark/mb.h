@@ -2,7 +2,10 @@
 #define MICROBENCHMARK_MB_H
 #include <string>
 #include "grpc/impl/codegen/log.h"
+#define MAX_EVENTS 100
+
 enum class Mode { kBusyPolling, kBusyPollingRR, kEvent };
+bool running = true;
 
 Mode parse_mode(const std::string& mode) {
   if (mode == "bp") {

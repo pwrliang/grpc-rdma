@@ -188,7 +188,6 @@ bool RDMASenderReceiverEvent::send(msghdr* msg, size_t mlen) {
     last_failed_send_size_ = mlen;
     return false;
   }
-  // conn_->poll_send_completion(last_n_post_send_);
 
   size_t zerocopy_size = 0;
   bool zerocopy_flag = false;

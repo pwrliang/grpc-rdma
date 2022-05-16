@@ -22,3 +22,7 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -pthread")
 add_executable(mb mb.cc flags.cc)
 target_link_libraries(mb
         ${GFLAGS_LIBRARIES} ${MPI_CXX_LIBRARIES} ${_GRPC_GRPCPP} ibverbs)
+
+add_executable(epoll_bench epoll_bench.cc flags.cc)
+target_link_libraries(epoll_bench
+        ${GFLAGS_LIBRARIES} ${_GRPC_GRPCPP})
