@@ -141,7 +141,7 @@ int RDMAConn::post_send(MemRegion& remote_mr, size_t remote_tail,
     init_sr(&sr, &sge, opcode,
             static_cast<uint8_t*>(remote_mr.addr()) + remote_tail,
             remote_mr.rkey(), 1, sz, 0, nullptr);
-//    GPR_ASSERT(sz > 0);
+    //    GPR_ASSERT(sz > 0);
     if (ibv_post_send(qp_.get(), &sr, &bad_wr) != 0) {
       gpr_log(GPR_ERROR, "Failed to post send");
       exit(-1);
@@ -171,7 +171,8 @@ int RDMAConn::post_send(MemRegion& remote_mr, size_t remote_tail,
 }
 
 int RDMAConn::post_sends(MemRegion& remote_mr, size_t remote_tail,
-                 struct ibv_sge* sg_list, size_t num_sge, size_t sz, ibv_wr_opcode opcode) {
+                         struct ibv_sge* sg_list, size_t num_sge, size_t sz,
+                         ibv_wr_opcode opcode) {
   size_t remote_cap = remote_mr.length();
   size_t r_len = MIN(remote_cap - remote_tail, sz);
 
@@ -180,37 +181,44 @@ int RDMAConn::post_sends(MemRegion& remote_mr, size_t remote_tail,
   while (_num_sge_ < DEFAULT_MAX_SEND_SGE && nwritten < r_len) {
     nwritten += sg_list[_num_sge_].length;
     _num_sge_++;
-  }      
+  }
 
   // 0 < _num_sge_: at least enter while loop once
   // _num_sge_ <= DEFAULT_MAX_SEND_SGE: max is DEFAULT_MAX_SEND_SGE
-  // _num_sge_ <= num_sge: nwritten <= sz. when nwritten == sz, _num_sge_ == num_sge
+  // _num_sge_ <= num_sge: nwritten <= sz. when nwritten == sz, _num_sge_ ==
+  // num_sge
 
   struct ibv_send_wr sr;
   struct ibv_sge* next_sg_list = nullptr;
   struct ibv_send_wr* bad_wr = nullptr;
   size_t next_num_sge = 0;
   if (nwritten <= r_len) {
-    init_sr(&sr, sg_list, opcode, (uint8_t*)remote_mr.addr() + remote_tail, remote_mr.rkey(), _num_sge_, nwritten, 0, nullptr);
+    init_sr(&sr, sg_list, opcode, (uint8_t*)remote_mr.addr() + remote_tail,
+            remote_mr.rkey(), _num_sge_, nwritten, 0, nullptr);
     if (ibv_post_send(qp_.get(), &sr, &bad_wr) != 0) {
       exit(-1);
     }
-    if (_num_sge_ < num_sge) { // next send: sg_list[_num_sge_], ..., sg_list[num_sge - 1]
+    if (_num_sge_ <
+        num_sge) {  // next send: sg_list[_num_sge_], ..., sg_list[num_sge - 1]
       next_sg_list = &(sg_list[_num_sge_]);
       next_num_sge = num_sge - _num_sge_;
     }
-  } else { // nwritten > r_len
+  } else {  // nwritten > r_len
     size_t extra = nwritten - r_len;
     nwritten = r_len;
-    sg_list[_num_sge_ - 1].length -= extra; // cut off extra size, send first half
-    init_sr(&sr, sg_list, opcode, (uint8_t*)remote_mr.addr() + remote_tail, remote_mr.rkey(), _num_sge_, nwritten, 0, nullptr);
+    sg_list[_num_sge_ - 1].length -=
+        extra;  // cut off extra size, send first half
+    init_sr(&sr, sg_list, opcode, (uint8_t*)remote_mr.addr() + remote_tail,
+            remote_mr.rkey(), _num_sge_, nwritten, 0, nullptr);
     if (ibv_post_send(qp_.get(), &sr, &bad_wr) != 0) {
       exit(-1);
     }
     // reuse sg_list[_num_sge_ - 1] in next send
-    sg_list[_num_sge_ - 1].addr += sg_list[_num_sge_ - 1].length; // addr move forward first half size
-    sg_list[_num_sge_ - 1].length = extra; // set length as extra size.
-    next_sg_list = &(sg_list[_num_sge_ - 1]); // next send: sg_list[_num_sge_ - 1], ..., sg_list[num_sge - 1]
+    sg_list[_num_sge_ - 1].addr +=
+        sg_list[_num_sge_ - 1].length;      // addr move forward first half size
+    sg_list[_num_sge_ - 1].length = extra;  // set length as extra size.
+    next_sg_list = &(sg_list[_num_sge_ - 1]);  // next send: sg_list[_num_sge_ -
+                                               // 1], ..., sg_list[num_sge - 1]
     next_num_sge = num_sge - _num_sge_ + 1;
   }
 
@@ -218,7 +226,8 @@ int RDMAConn::post_sends(MemRegion& remote_mr, size_t remote_tail,
   sz -= nwritten;
 
   if (sz == 0) return 1;
-  return 1 + post_sends(remote_mr, remote_tail, next_sg_list, next_num_sge, sz, opcode);
+  return 1 + post_sends(remote_mr, remote_tail, next_sg_list, next_num_sge, sz,
+                        opcode);
 }
 
 void RDMAConn::poll_send_completion(int expected_num_entries) {
@@ -306,6 +315,10 @@ size_t RDMAConn::poll_recv_completion() {
             "RDMAConnEvent::poll_recv_completions_and_post_recvs, poll out %d "
             "completion (%d bytes) from rcq",
             completed, recv_bytes);
+  }
+
+  if (completed == DEFAULT_MAX_POST_RECV) {
+    return recv_bytes + poll_recv_completion();
   }
   return recv_bytes;
 }

@@ -8,13 +8,13 @@
 #include <sys/ioctl.h>
 #include <sys/socket.h>
 #include "comm_spec.h"
-#include "gflags/gflags.h"
+#include "flags.h"
 #include "mb.h"
 #include "mb_client.h"
 #include "mb_server.h"
 
-void StartServer(Mode mode, const CommSpec& comm_spec) {
-  RDMAServer server(mode, comm_spec);
+void StartServer(const BenchmarkConfig& config, const CommSpec& comm_spec) {
+  RDMAServer server(config, comm_spec);
   int fd;
   ifreq ifr;
 
@@ -24,7 +24,7 @@ void StartServer(Mode mode, const CommSpec& comm_spec) {
   ioctl(fd, SIOCGIFADDR, &ifr);
   close(fd);
 
-  if (FLAGS_mpiserver) {
+  if (config.mpi_server) {
     char* ip =
         inet_ntoa((reinterpret_cast<sockaddr_in*>(&ifr.ifr_addr))->sin_addr);
     MPI_Bcast(ip, 16, MPI_CHAR, 0, comm_spec.comm());
@@ -32,10 +32,10 @@ void StartServer(Mode mode, const CommSpec& comm_spec) {
   server.start(FLAGS_port);
 }
 
-void StartClient(Mode mode, const CommSpec& comm_spec) {
-  RDMAClient client(comm_spec);
+void StartClient(const BenchmarkConfig& config, const CommSpec& comm_spec) {
+  RDMAClient client(config, comm_spec);
 
-  if (FLAGS_mpiserver) {
+  if (config.mpi_server) {
     char ip[16];
     MPI_Bcast(ip, 16, MPI_CHAR, 0, comm_spec.comm());
     client.connect(ip, FLAGS_port);
@@ -43,9 +43,10 @@ void StartClient(Mode mode, const CommSpec& comm_spec) {
     client.connect(FLAGS_host.c_str(), FLAGS_port);
   }
 
-  if (mode == Mode::kBusyPolling || mode == Mode::kBusyPollingRR) {
+  if (config.mode == Mode::kBusyPolling ||
+      config.mode == Mode::kBusyPollingRR) {
     client.RunBusyPolling();
-  } else if (mode == Mode::kEvent) {
+  } else if (config.mode == Mode::kEvent) {
     client.RunEpoll();
   }
 }
@@ -63,20 +64,42 @@ int main(int argc, char* argv[]) {
   {
     CommSpec comm_spec;
     comm_spec.Init(MPI_COMM_WORLD);
-    Mode mode = parse_mode(FLAGS_mode);
+    BenchmarkConfig config;
+    config.mode = parse_mode(FLAGS_mode);
+    config.dir = parse_dir(FLAGS_dir);
+    config.mpi_server = FLAGS_mpiserver;
+    config.n_max_polling_thread = FLAGS_polling_thread;
+    config.n_client = FLAGS_nclient;
+    config.n_active_client = FLAGS_max_worker;
+    config.n_warmup = FLAGS_warmup;
+    config.n_batch = FLAGS_batch;
+    config.server_timeout = FLAGS_server_timeout;
+    config.client_timeout = FLAGS_client_timeout;
+
+    GPR_ASSERT(config.mpi_server && config.n_client == 0 ||
+               !config.mpi_server && config.n_client > 0);
+    GPR_ASSERT(config.n_batch > 0);
+    GPR_ASSERT(config.n_max_polling_thread > 0);
 
     if (FLAGS_mpiserver) {
       if (comm_spec.worker_id() == 0) {
-        GPR_ASSERT(comm_spec.local_num() == 1);
-        StartServer(mode, comm_spec);
+        if (comm_spec.local_num() > 1) {
+          char hn[255];
+          int hn_len;
+          MPI_Get_processor_name(hn, &hn_len);
+          gpr_log(GPR_ERROR,
+                  "Trying to launch multiple server on the same node %s", hn);
+          exit(1);
+        }
+        StartServer(config, comm_spec);
       } else {
-        StartClient(mode, comm_spec);
+        StartClient(config, comm_spec);
       }
     } else {
       if (FLAGS_host.empty()) {
-        StartServer(mode, comm_spec);
+        StartServer(config, comm_spec);
       } else {
-        StartClient(mode, comm_spec);
+        StartClient(config, comm_spec);
       }
     }
   }

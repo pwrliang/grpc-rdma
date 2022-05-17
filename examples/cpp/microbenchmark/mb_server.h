@@ -7,31 +7,18 @@
 #include <sys/socket.h>
 #include <thread>
 #include "SockUtils.h"
-#include "flags.h"
+#include "get_clock.h"
 #include "mb.h"
 #include "src/core/lib/rdma/RDMAConn.h"
 #include "src/core/lib/rdma/RDMASenderReceiver.h"
+
 #define MAX_CONN_NUM 1024
 std::condition_variable cv;
 std::mutex cv_m;
 bool all_connected = false;
 
-int bind_thread_to_core(int core_id) {
-  int num_cores = sysconf(_SC_NPROCESSORS_ONLN);
-  if (core_id < 0 || core_id >= num_cores) {
-    return EINVAL;
-  }
-
-  cpu_set_t cpuset;
-  CPU_ZERO(&cpuset);
-  CPU_SET(core_id, &cpuset);
-
-  pthread_t current_thread = pthread_self();
-  return pthread_setaffinity_np(current_thread, sizeof(cpu_set_t), &cpuset);
-}
-
 struct Connections {
-  Connections() { epfd = epoll_create1(EPOLL_CLOEXEC); }
+  Connections() : epfd(epoll_create1(EPOLL_CLOEXEC)), tid(0), epoll_cycles(0) {}
 
   void CreateBPConnection(int fd) {
     auto conn = std::make_shared<RDMASenderReceiverBP>();
@@ -81,14 +68,17 @@ struct Connections {
     int num_cores = sysconf(_SC_NPROCESSORS_ONLN);
     bind_thread_to_core(tid % num_cores);
   }
+
   CommSpec comm_spec;
   std::vector<std::shared_ptr<RDMASenderReceiver>> rdma_conns;
   int epfd;
   int tid;
+  cycles_t epoll_cycles;
+  struct rusage rusage;
 };
 
-void serve_bp(Connections* conns) {
-  int64_t data_in, data_out;
+void serve_bp(Connections* conns, const BenchmarkConfig* config) {
+  int64_t data_in = 0, data_out = 0;
   iovec iov_in, iov_out;
   msghdr msghdr_in, msghdr_out;
 
@@ -102,7 +92,7 @@ void serve_bp(Connections* conns) {
   msghdr_out.msg_iov = &iov_out;
   msghdr_out.msg_iovlen = 1;
 
-  if (FLAGS_affinity) {
+  if (config->affinity) {
     conns->BindCore();
   }
 
@@ -110,51 +100,72 @@ void serve_bp(Connections* conns) {
     std::unique_lock<std::mutex> lk(cv_m);
     cv.wait(lk, [] { return all_connected; });
   }
-
-  size_t n_alive_conn = conns->rdma_conns.size();
   auto t_begin = absl::Now();
   uint32_t nops = 0;
 
-  while (n_alive_conn > 0) {
-    for (int i = 0; i < conns->rdma_conns.size(); i++) {
-      auto* rdmasr =
-          dynamic_cast<RDMASenderReceiverBP*>(conns->rdma_conns[i].get());
+  if (config->dir == Dir::kBi || config->dir == Dir::kC2S) {
+    size_t n_alive_conn = conns->rdma_conns.size();
 
-      if (rdmasr != nullptr && rdmasr->check_incoming()) {
-        size_t rest_mlen = rdmasr->check_and_ack_incomings_locked(false);
+    while (n_alive_conn > 0) {
+      for (int i = 0; i < conns->rdma_conns.size(); i++) {
+        auto* rdmasr =
+            dynamic_cast<RDMASenderReceiverBP*>(conns->rdma_conns[i].get());
 
-        while (rest_mlen > 0) {
-          rest_mlen -= rdmasr->recv(&msghdr_in);
-          if (data_in == -1) {  // release connection
-            conns->rdma_conns[i] = nullptr;
-            n_alive_conn--;
-            GPR_ASSERT(rest_mlen == 0);
-            continue;
-          }
+        if (rdmasr != nullptr && rdmasr->check_incoming()) {
+          size_t rest_mlen = rdmasr->check_and_ack_incomings_locked();
 
-          if (FLAGS_rw) {
-            data_out = data_in + 1;
-            while (!rdmasr->send(&msghdr_out, sizeof(data_out))) {
+          while (rest_mlen > 0) {
+            rest_mlen -= rdmasr->recv(&msghdr_in);
+            nops++;
+
+            if (data_in == -1) {  // release connection
+              conns->rdma_conns[i] = nullptr;
+              n_alive_conn--;
+              GPR_ASSERT(rest_mlen == 0);
+              continue;
+            }
+
+            if (config->dir == Dir::kBi) {
+              data_out = data_in + 1;
+              while (!rdmasr->send(&msghdr_out, sizeof(data_out))) {
+              }
             }
           }
+        }
+      }
+    }
+  } else {
+    for (int i = 0; i < config->n_batch; i++) {
+      for (auto& rdmasr : conns->rdma_conns) {
+        data_out = data_in + 1;
+        if (i == config->n_batch - 1) {
+          data_out = -1;
+        }
+
+        while (!rdmasr->send(&msghdr_out, sizeof(data_out))) {
         }
         nops++;
       }
     }
   }
+
   auto t_end = absl::Now();
+  getrusage(RUSAGE_THREAD, &conns->rusage);
 
   if (nops > 1) {
-    gpr_log(GPR_INFO, "Server thread: %d, served reqs: %u avg time: %lf micro",
-            conns->tid, nops, ToDoubleMicroseconds((t_end - t_begin)) / nops);
+    gpr_log(GPR_INFO,
+            "Server thread: %d, Served Reqs: %u Avg Time: %lf nvcsw: %ld "
+            "nivcsw: %ld",
+            conns->tid, nops, ToDoubleMicroseconds((t_end - t_begin)) / nops,
+            conns->rusage.ru_nvcsw, conns->rusage.ru_nivcsw);
   }
 }
 
-void serve_event(Connections* conns) {
+void serve_event(Connections* conns, const BenchmarkConfig* config) {
   int epfd = conns->epfd;
   epoll_event events[MAX_EVENTS];
 
-  int64_t data_in, data_out;
+  int64_t data_in = 0, data_out = 0;
   iovec iov_in, iov_out;
   msghdr msghdr_in, msghdr_out;
 
@@ -168,7 +179,7 @@ void serve_event(Connections* conns) {
   msghdr_out.msg_iov = &iov_out;
   msghdr_out.msg_iovlen = 1;
 
-  if (FLAGS_affinity) {
+  if (config->affinity) {
     conns->BindCore();
   }
 
@@ -176,65 +187,99 @@ void serve_event(Connections* conns) {
     std::unique_lock<std::mutex> lk(cv_m);
     cv.wait(lk, [] { return all_connected; });
   }
+  auto t_begin = absl::Now();
+  uint32_t nops = 0;
 
-  size_t n_alive_conn = conns->rdma_conns.size();
+  if (config->dir == Dir::kBi || config->dir == Dir::kC2S) {
+    size_t n_alive_conn = conns->rdma_conns.size();
 
-  auto process_msg = [&](RDMASenderReceiverEvent* rdmasr) {
-    auto mlen = rdmasr->check_and_ack_incomings_locked();
-    if (mlen > 0) {
-      GPR_ASSERT(!FLAGS_rw || mlen == sizeof(data_in));
-      int actual_read = rdmasr->recv(&msghdr_in);
+    auto process_event = [&](RDMASenderReceiverEvent* rdmasr) {
+      auto rest_mlen = rdmasr->check_and_ack_incomings_locked();
 
-      if (data_in == -1) {  // Disconnect
-        for (int i = 0; i < conns->rdma_conns.size(); i++) {
-          if (conns->rdma_conns[i].get() == rdmasr) {
-            conns->rdma_conns[i] = nullptr;
-            n_alive_conn--;
-            break;
+      while (rest_mlen > 0) {
+        rest_mlen -= rdmasr->recv(&msghdr_in);
+        nops++;
+
+        if (data_in == -1) {  // Disconnect
+          for (int i = 0; i < conns->rdma_conns.size(); i++) {
+            if (conns->rdma_conns[i].get() == rdmasr) {
+              conns->rdma_conns[i] = nullptr;
+              n_alive_conn--;
+              break;
+            }
+          }
+          return;
+        }
+
+        if (config->dir == Dir::kBi) {
+          data_out = data_in + 1;
+          while (!rdmasr->send(&msghdr_out, sizeof(data_out))) {
           }
         }
-        return;
       }
+    };
 
-      if (FLAGS_rw) {
+    while (n_alive_conn > 0) {
+      int r;
+      cycles_t c1 = get_cycles();
+      do {
+        r = epoll_wait(epfd, events, MAX_EVENTS, config->server_timeout);
+      } while ((r < 0 && errno == EINTR) || r == 0);
+      cycles_t c2 = get_cycles();
+      conns->epoll_cycles += c2 - c1;
+
+      for (int i = 0; i < r; i++) {
+        epoll_event& ev = events[i];
+        void* data_ptr = ev.data.ptr;
+
+        if ((reinterpret_cast<intptr_t>(data_ptr) & 1) == 1) {
+          auto* rdmasr = reinterpret_cast<RDMASenderReceiverEvent*>(
+              ~static_cast<intptr_t>(1) &
+              reinterpret_cast<intptr_t>(ev.data.ptr));
+
+          if ((ev.events & EPOLLIN) != 0) {
+            GPR_DEBUG_ASSERT(rdmasr != nullptr);
+            rdmasr->check_metadata();
+            process_event(rdmasr);
+          }
+        } else if ((reinterpret_cast<intptr_t>(data_ptr) & 2) == 2) {
+          auto* rdmasr = reinterpret_cast<RDMASenderReceiverEvent*>(
+              ~static_cast<intptr_t>(2) &
+              reinterpret_cast<intptr_t>(ev.data.ptr));
+          if ((ev.events & EPOLLIN) != 0) {
+            GPR_DEBUG_ASSERT(rdmasr != nullptr);
+            rdmasr->check_data();
+            process_event(rdmasr);
+          }
+        }
+      }
+    }
+  } else if (config->dir == Dir::kS2C) {
+    // TODO: selective send
+    GPR_ASSERT(config->n_active_client <= 0);
+    for (int i = 0; i < config->n_batch; i++) {
+      for (auto& rdmasr : conns->rdma_conns) {
         data_out = data_in + 1;
+        if (i == config->n_batch - 1) {
+          data_out = -1;
+        }
+
         while (!rdmasr->send(&msghdr_out, sizeof(data_out))) {
         }
+        nops++;
       }
     }
-  };
+  }
 
-  while (n_alive_conn > 0) {
-    int r;
-    do {
-      r = epoll_wait(epfd, events, MAX_EVENTS, FLAGS_server_timeout);
-    } while ((r < 0 && errno == EINTR) || r == 0);
+  auto t_end = absl::Now();
+  getrusage(RUSAGE_THREAD, &conns->rusage);
 
-    for (int i = 0; i < r; i++) {
-      epoll_event& ev = events[i];
-      void* data_ptr = ev.data.ptr;
-
-      if ((reinterpret_cast<intptr_t>(data_ptr) & 1) == 1) {
-        auto* rdmasr = reinterpret_cast<RDMASenderReceiverEvent*>(
-            ~static_cast<intptr_t>(1) &
-            reinterpret_cast<intptr_t>(ev.data.ptr));
-
-        if ((ev.events & EPOLLIN) != 0) {
-          GPR_DEBUG_ASSERT(rdmasr != nullptr);
-          rdmasr->check_metadata();
-          process_msg(rdmasr);
-        }
-      } else if ((reinterpret_cast<intptr_t>(data_ptr) & 2) == 2) {
-        auto* rdmasr = reinterpret_cast<RDMASenderReceiverEvent*>(
-            ~static_cast<intptr_t>(2) &
-            reinterpret_cast<intptr_t>(ev.data.ptr));
-        if ((ev.events & EPOLLIN) != 0) {
-          GPR_DEBUG_ASSERT(rdmasr != nullptr);
-          rdmasr->check_data();
-          process_msg(rdmasr);
-        }
-      }
-    }
+  if (nops > 1) {
+    gpr_log(GPR_INFO,
+            "Server thread: %d, Served Reqs: %u Avg Time: %lf nvcsw: %ld "
+            "nivcsw: %ld",
+            conns->tid, nops, ToDoubleMicroseconds((t_end - t_begin)) / nops,
+            conns->rusage.ru_nvcsw, conns->rusage.ru_nivcsw);
   }
 }
 
@@ -250,19 +295,16 @@ void compute(std::atomic_bool* running) {
 
 class RDMAServer {
  public:
-  explicit RDMAServer(Mode mode, const CommSpec& comm_spec)
-      : mode_(mode), comm_spec_(comm_spec) {
+  explicit RDMAServer(const BenchmarkConfig& config, const CommSpec& comm_spec)
+      : config_(config), comm_spec_(comm_spec) {
     sockfd_ = SocketUtils::socket(AF_INET, SOCK_STREAM, 0);
-    int n_polling_thread = FLAGS_polling_thread;
-    if (n_polling_thread <= 0) {
-      gpr_log(GPR_ERROR, "Invalid polling thread number: %d", n_polling_thread);
-      exit(1);
-    }
-    if (mode == Mode::kBusyPolling) {
-      if (FLAGS_mpiserver) {
+    int n_polling_thread = config_.n_max_polling_thread;
+
+    if (config.mode == Mode::kBusyPolling) {
+      if (config.mpi_server) {
         n_polling_thread = comm_spec.worker_num() - 1;
       } else {
-        n_polling_thread = FLAGS_nclient;
+        n_polling_thread = config.n_client;
       }
     }
     connections_per_thread_.resize(n_polling_thread);
@@ -270,11 +312,13 @@ class RDMAServer {
     for (int i = 0; i < n_polling_thread; i++) {
       connections_per_thread_[i].tid = i;
       connections_per_thread_[i].comm_spec = comm_spec_;
-      if (mode == Mode::kBusyPolling || mode == Mode::kBusyPollingRR) {
-        polling_threads_.emplace_back(&serve_bp, &connections_per_thread_[i]);
-      } else if (mode == Mode::kEvent) {
-        polling_threads_.emplace_back(&serve_event,
-                                      &connections_per_thread_[i]);
+      if (config.mode == Mode::kBusyPolling ||
+          config.mode == Mode::kBusyPollingRR) {
+        polling_threads_.emplace_back(&serve_bp, &connections_per_thread_[i],
+                                      &config);
+      } else if (config.mode == Mode::kEvent) {
+        polling_threads_.emplace_back(&serve_event, &connections_per_thread_[i],
+                                      &config);
       }
     }
 
@@ -311,7 +355,7 @@ class RDMAServer {
     gpr_log(GPR_INFO,
             "RDMA Server is listening on %d, mode: %s, "
             "polling thread: %zu, computing thread: %zu",
-            port, mode_to_string(mode_).c_str(), polling_threads_.size(),
+            port, mode_to_string(config_.mode).c_str(), polling_threads_.size(),
             computing_threads_.size());
 
     sockaddr client_sockaddr;
@@ -319,12 +363,12 @@ class RDMAServer {
     int client_id = 0;
     int n_client;
 
-    if (FLAGS_mpiserver) {
+    if (config_.mpi_server) {
       // Wait for listening
       MPI_Barrier(comm_spec_.comm());
       n_client = comm_spec_.worker_num() - 1;
     } else {
-      n_client = FLAGS_nclient;
+      n_client = config_.n_client;
     }
 
     while (client_id < n_client) {
@@ -355,7 +399,7 @@ class RDMAServer {
     gpr_log(GPR_INFO, "%d clients are connected", n_client);
 
     // Waiting for all clients connected
-    if (FLAGS_mpiserver) {
+    if (config_.mpi_server) {
       MPI_Barrier(comm_spec_.comm());
     }
     {
@@ -367,8 +411,6 @@ class RDMAServer {
     for (auto& th : polling_threads_) {
       th.join();
     }
-    // Wait client to finish
-    MPI_Barrier(comm_spec_.comm());
 
     computing_ = false;
     for (auto& th : computing_threads_) {
@@ -377,7 +419,7 @@ class RDMAServer {
   }
 
  private:
-  Mode mode_;
+  BenchmarkConfig config_;
   CommSpec comm_spec_;
   int sockfd_{};
   std::vector<std::thread> polling_threads_;
@@ -388,9 +430,10 @@ class RDMAServer {
   void dispatch(int fd, int conn_id) {
     int work_thread_id = conn_id % polling_threads_.size();
 
-    if (mode_ == Mode::kBusyPolling || mode_ == Mode::kBusyPollingRR) {
+    if (config_.mode == Mode::kBusyPolling ||
+        config_.mode == Mode::kBusyPollingRR) {
       connections_per_thread_[work_thread_id].CreateBPConnection(fd);
-    } else if (mode_ == Mode::kEvent) {
+    } else if (config_.mode == Mode::kEvent) {
       connections_per_thread_[work_thread_id].CreateEventConnection(fd);
     }
   }

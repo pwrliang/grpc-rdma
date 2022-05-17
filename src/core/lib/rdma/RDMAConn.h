@@ -72,6 +72,7 @@ class RDMAConn {
       return false;
     }
     post_recvs(rr_garbage_);
+//    printf("post recv %lld\n", rr_garbage_);
     rr_garbage_ = 0;
     return true;
   }

@@ -8,8 +8,10 @@
 #include <thread>
 #include "absl/time/clock.h"
 #include "flags.h"
+#include "get_clock.h"
 #include "grpc/support/log.h"
-#define MAX_EPOLL_EVENTS 100
+
+#define MAX_EPOLL_EVENTS 1
 std::mutex mutex;
 std::condition_variable cv;
 bool ready = false;
@@ -53,8 +55,9 @@ struct WorkerResource {
   std::vector<std::shared_ptr<event_fd>> s_to_c_fds;  // only valid for server
   int timeout;
   bool rw;
+  cycles_t epoll_cycles;
 
-  explicit WorkerResource(int wid) : worker_id(wid), nops(0) {
+  explicit WorkerResource(int wid) : worker_id(wid), nops(0), epoll_cycles(0) {
     if (worker_id == 0) {
       timeout = FLAGS_server_timeout;
     } else {
@@ -78,7 +81,8 @@ void server_worker(WorkerResource* server_res) {
   auto bcast = [&](bool final_write) {
     // write to every worker
     for (int i = 1; i <= FLAGS_nclient; i++) {
-      if (final_write || FLAGS_max_worker != -1 && i <= FLAGS_max_worker) {
+      if (final_write || FLAGS_max_worker == -1 ||
+          FLAGS_max_worker != -1 && i <= FLAGS_max_worker) {
         do {
           sz = write(server_res->s_to_c_fds[i]->read_fd, &val, sizeof(val));
         } while (running && sz < 0 && errno == EAGAIN);
@@ -89,10 +93,14 @@ void server_worker(WorkerResource* server_res) {
   while (running) {
     if (server_res->rw) {
       int r;
+      cycles_t c1 = get_cycles();
       do {
         r = epoll_wait(server_res->epfd->epfd, events, MAX_EPOLL_EVENTS,
                        server_res->timeout);
       } while ((r < 0 && errno == EINTR) || r == 0);
+      cycles_t c2 = get_cycles();
+      server_res->epoll_cycles += c2 - c1;
+
       if (r < 0) {
         gpr_log(GPR_ERROR, "epoll error: %s", strerror(errno));
         exit(1);
@@ -145,11 +153,16 @@ void client_worker(WorkerResource* cli_res) {
 
   send_to();
   while (running) {
+    cycles_t c1 = get_cycles();
     int r;
+
     do {
       r = epoll_wait(cli_res->epfd->epfd, events, MAX_EPOLL_EVENTS,
                      cli_res->timeout);
     } while ((r < 0 && errno == EINTR) || r == 0);
+    cycles_t c2 = get_cycles();
+
+    cli_res->epoll_cycles += c2 - c1;
 
     //    if(FLAGS_max_worker != -1 && cli_res->worker_id > FLAGS_max_worker) {
     //      printf("Active %d to: %d\n", r,  cli_res->timeout);
@@ -230,6 +243,8 @@ void Run() {
     th.join();
   }
   auto t_duration = ToDoubleMicroseconds((absl::Now() - t_begin));
+  int no_cpu_freq_fail = 0;
+  double mhz = get_cpu_mhz(no_cpu_freq_fail);
 
   for (int i = 0; i <= FLAGS_nclient; i++) {
     if (i == 0 && !FLAGS_rw) {  // skip writer thread
@@ -237,8 +252,10 @@ void Run() {
     }
     if (FLAGS_max_worker == -1 || i <= FLAGS_max_worker) {
       auto& worker_res = res[i];
-      gpr_log(GPR_INFO, "Thread %d, nops: %d Latency: %lf micro", i,
-              worker_res.nops, t_duration / worker_res.nops);
+      gpr_log(GPR_INFO,
+              "Thread %d, nops: %d Latency: %lf usec, epoll latency: %lf usec",
+              i, worker_res.nops, t_duration / worker_res.nops,
+              (worker_res.epoll_cycles / mhz) / worker_res.nops);
     }
   }
 }

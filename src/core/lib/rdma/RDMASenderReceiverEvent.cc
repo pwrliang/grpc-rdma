@@ -71,6 +71,7 @@ void RDMASenderReceiverEvent::update_remote_metadata() {
 
 void RDMASenderReceiverEvent::update_local_metadata() {
   WaitConnect();
+  size_t old_remote_rr_tail_ = remote_rr_tail_;
   remote_ringbuf_head_ = reinterpret_cast<size_t*>(metadata_recvbuf_)[0];
   remote_rr_tail_ = reinterpret_cast<size_t*>(metadata_recvbuf_)[1];
 }
@@ -237,15 +238,14 @@ bool RDMASenderReceiverEvent::send(msghdr* msg, size_t mlen) {
   {
     conn_->poll_send_completion(last_n_post_send_);
   }
-
   remote_rr_head_ =
       (remote_rr_head_ + last_n_post_send_) % DEFAULT_MAX_POST_RECV;
+
   remote_ringbuf_tail_ = (remote_ringbuf_tail_ + mlen) % remote_ringbuf_sz;
   last_failed_send_size_ = 0;
-  printf("send mlen = %lld, zerocopy_mlen = %lld, total_send_sz = %lld, total_zerocopy_send_sz = %lld, %f\n", 
-    mlen, zerocopy_size, total_send_size, total_zerocopy_send_size, double(total_zerocopy_send_size) / total_send_size);
   if (unfinished_zerocopy_send_size_.load() == 0) {
     last_zerocopy_send_finished_.store(true);
   }
+  last_n_post_send_ = 0;
   return true;
 }

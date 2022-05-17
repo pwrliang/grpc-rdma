@@ -22,27 +22,13 @@ int MemRegion::local_reg(std::shared_ptr<ibv_pd> pd, void* mem, size_t size,
   remote = false;
   flag = f;
 
-  printf("local_reg, A, %lld, %p, %p\n", size, mem, pd.get());
-
-
-  uint8_t* bytes = (uint8_t*)(mem);
-  bytes[0]=123;
-  printf("ABC%d\n", bytes[0]);
-
-  struct ibv_mr* mr = ibv_reg_mr(pd.get(), mem, size, flag);
-
-  printf("local_reg, A0, %lld, %p, %p\n", size, mem, mr);
-
   local_mr = std::shared_ptr<ibv_mr>(
-      mr, [](ibv_mr* p) {
-        printf("local_reg, A1, %p\n", p);
+      ibv_reg_mr(pd.get(), mem, size, flag), [](ibv_mr* p) {
         if (ibv_dereg_mr(p)) {
           gpr_log(GPR_ERROR,
                   "MemRegion::local_reg, failed to deregister memory region!");
         }
       });
-
-  printf("local_reg, B\n");
   if (!local_mr) {
     gpr_log(GPR_ERROR,
             "MemRegion::local_reg, failed to register memory region!");
