@@ -155,6 +155,7 @@ class RDMAClient {
     }
     ss << " nvcsw: " << rusage.ru_nvcsw << " nivscw: " << rusage.ru_nivcsw;
     gpr_log(GPR_INFO, "%s", ss.str().c_str());
+    MPI_Barrier(comm_spec_.client_comm());
   }
 
   void RunEpoll() {
@@ -226,12 +227,12 @@ class RDMAClient {
       }
     };
 
-    auto process_event = [&]() {
+    auto process_event = [&](RDMASenderReceiverEvent* rdmasr) {
       bool c_should_exit = false;
-      auto mlen = rdmasr.check_and_ack_incomings_locked();
+      auto rest_mlen = rdmasr->check_and_ack_incomings_locked();
 
-      while (mlen > 0) {
-        size_t read_bytes = rdmasr.recv(&msghdr_in);
+      while (rest_mlen > 0) {
+        rest_mlen -= rdmasr->recv(&msghdr_in);
 
         if (config_.dir == Dir::kS2C && data_in == -1) {
           c_should_exit = true;
@@ -240,8 +241,6 @@ class RDMAClient {
         if (config_.dir == Dir::kBi) {
           send_msg();
         }
-
-        mlen -= read_bytes;
       }
 
       return c_should_exit;
@@ -250,7 +249,10 @@ class RDMAClient {
     absl::Time t_begin;
     cycles_t epoll_cycles = 0;
 
-    for (int i = 0; i < batch_size + warmup_round; ++i) {
+    for (int i = 0; config_.dir == Dir::kS2C ||
+                    ((config_.dir == Dir::kBi || config_.dir == Dir::kC2S) &&
+                     i < batch_size + warmup_round);
+         ++i) {
       if (i == warmup_round) {
         MPI_Barrier(comm_spec_.client_comm());
         t_begin = absl::Now();
@@ -283,9 +285,9 @@ class RDMAClient {
                 reinterpret_cast<intptr_t>(ev.data.ptr));
 
             if ((ev.events & EPOLLIN) != 0) {
-              GPR_ASSERT(rdmasr != nullptr);
+              GPR_DEBUG_ASSERT(rdmasr != nullptr);
               rdmasr->check_metadata();
-              if (process_event()) {
+              if (process_event(rdmasr)) {
                 goto finish;
               }
             }
@@ -294,9 +296,9 @@ class RDMAClient {
                 ~static_cast<intptr_t>(2) &
                 reinterpret_cast<intptr_t>(ev.data.ptr));
             if ((ev.events & EPOLLIN) != 0) {
-              GPR_ASSERT(rdmasr != nullptr);
+              GPR_DEBUG_ASSERT(rdmasr != nullptr);
               rdmasr->check_data();
-              if (process_event()) {
+              if (process_event(rdmasr)) {
                 goto finish;
               }
             }
@@ -305,6 +307,7 @@ class RDMAClient {
       }
     }
   finish:
+    printf("Cient exit\n");
     // Notify server to exit
     if (config_.dir == Dir::kBi || config_.dir == Dir::kC2S) {
       data_out = -1;
@@ -328,6 +331,7 @@ class RDMAClient {
     }
     ss << " nvcsw: " << rusage.ru_nvcsw << " nivscw: " << rusage.ru_nivcsw;
     gpr_log(GPR_INFO, "%s", ss.str().c_str());
+    MPI_Barrier(comm_spec_.client_comm());
   }
 
  private:

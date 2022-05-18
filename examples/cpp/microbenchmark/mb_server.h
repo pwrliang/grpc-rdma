@@ -189,6 +189,12 @@ void serve_event(Connections* conns, const BenchmarkConfig* config) {
   }
   auto t_begin = absl::Now();
   uint32_t nops = 0;
+  auto send_msg = [&](RDMASenderReceiverEvent* rdmasr) {
+    while (!rdmasr->send(&msghdr_out, sizeof(data_out))) {
+      rdmasr->check_metadata();
+      rdmasr->check_and_ack_incomings_locked();
+    }
+  };
 
   if (config->dir == Dir::kBi || config->dir == Dir::kC2S) {
     size_t n_alive_conn = conns->rdma_conns.size();
@@ -205,6 +211,7 @@ void serve_event(Connections* conns, const BenchmarkConfig* config) {
             if (conns->rdma_conns[i].get() == rdmasr) {
               conns->rdma_conns[i] = nullptr;
               n_alive_conn--;
+              GPR_ASSERT(rest_mlen == 0);
               break;
             }
           }
@@ -213,8 +220,7 @@ void serve_event(Connections* conns, const BenchmarkConfig* config) {
 
         if (config->dir == Dir::kBi) {
           data_out = data_in + 1;
-          while (!rdmasr->send(&msghdr_out, sizeof(data_out))) {
-          }
+          send_msg(rdmasr);
         }
       }
     };
@@ -264,8 +270,7 @@ void serve_event(Connections* conns, const BenchmarkConfig* config) {
           data_out = -1;
         }
 
-        while (!rdmasr->send(&msghdr_out, sizeof(data_out))) {
-        }
+        send_msg(dynamic_cast<RDMASenderReceiverEvent*>(rdmasr.get()));
         nops++;
       }
     }

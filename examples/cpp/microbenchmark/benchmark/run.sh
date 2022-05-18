@@ -11,8 +11,11 @@ MB_PATH="$MB_HOME"/mb
 COMPUTING_THREAD=0
 BATCH_SIZE=10000
 MODE=""
-RW=false
+DIR=""
 MAX_WORKER=-1
+AFFINITY=false
+SERVER_TIMEOUT=0
+CLIENT_TIMEOUT=0
 
 if [[ ! -f "$MB_PATH" ]]; then
   echo "Invalid MB_HOME"
@@ -37,12 +40,24 @@ for i in "$@"; do
     MODE="${i#*=}"
     shift
     ;;
-  --read-write)
-    RW=true
+  --direction=*)
+    DIR="${i#*=}"
+    shift
+    ;;
+  --affinity)
+    AFFINITY=true
     shift
     ;;
   --max-worker=*)
     MAX_WORKER="${i#*=}"
+    shift
+    ;;
+  --server-timeout=*)
+    SERVER_TIMEOUT="${i#*=}"
+    shift
+    ;;
+  --client-timeout=*)
+    CLIENT_TIMEOUT="${i#*=}"
     shift
     ;;
   --* | -*)
@@ -61,14 +76,14 @@ if [[ -n "$LOG_SUFFIX" ]]; then
 fi
 mkdir -p "$LOG_PATH"
 
-curr_log_path="$LOG_PATH/${MODE}_client_${NP}_poll_${POLLING_THREADS}_rw_${RW}.log"
+curr_log_path="$LOG_PATH/${MODE}_client_${NP}_poll_${POLLING_THREADS}_dir_${DIR}.log"
 
 #rm -f $curr_log_path
 if [[ -f "$curr_log_path" ]]; then
   echo "$curr_log_path exists, skip"
 else
   rm -f "${curr_log_path}.tmp"
-  echo "============================= Running $MODE with $NP clients, max polling threads: ${POLLING_THREADS}, computing thread: ${COMPUTING_THREAD}, batch size: $BATCH_SIZE"
+  echo "Running $MODE with $NP clients, max polling threads: ${POLLING_THREADS}, computing thread: ${COMPUTING_THREAD}, batch size: $BATCH_SIZE Direction: ${DIR}"
   # Evaluate
   while true; do
     mpirun --bind-to none \
@@ -77,10 +92,13 @@ else
       -hostfile "$HOSTS_PATH" \
       "$MB_PATH" \
       -mode="$MODE" \
-      -rw=$RW \
+      -dir="$DIR" \
       -polling_thread="$POLLING_THREADS" \
       -computing_thread="$COMPUTING_THREAD" \
       -batch "$BATCH_SIZE" \
+      -affinity "$AFFINITY" \
+      -server_timeout "$SERVER_TIMEOUT" \
+      -client_timeout "$CLIENT_TIMEOUT" \
       -max_worker "$MAX_WORKER" |& tee -a "${curr_log_path}.tmp"
     row_count=$(grep -c "Latency" <"${curr_log_path}.tmp")
     if [[ ($MAX_WORKER -ne -1 && $row_count -eq $MAX_WORKER) || ($MAX_WORKER -eq -1 && $row_count -eq "$NP") ]]; then

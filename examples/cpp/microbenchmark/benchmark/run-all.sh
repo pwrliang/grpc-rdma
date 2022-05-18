@@ -9,7 +9,6 @@ if [[ ! -f "$hostfile_template" ]]; then
 fi
 
 MODES=(bp bprr event)
-MODES=(bp)
 
 function set_hostfile() {
   n_clients=$1
@@ -20,17 +19,23 @@ function set_hostfile() {
 }
 
 function client_scalability() {
-  max_worker=1
+  max_worker=-1
   if [[ $max_worker -ne -1 ]]; then
     export LOG_SUFFIX="${max_worker}_worker"
   fi
+
   for mode in "${MODES[@]}"; do
-    for n_clients in 1 2 4 8 16 28 32 64 128 256; do
-      set_hostfile $n_clients
-      ./run.sh --polling-thread=28 --mode="${mode}" --batch=1000000 --max-worker=$max_worker
-      ./run.sh --polling-thread=28 --mode="${mode}" --batch=1000000 --read-write --max-worker=$max_worker
-      #      ./run.sh --polling-thread=8 --computing-thread=20 --mode="${mode}" --batch=1000000
-      #      ./run.sh --polling-thread=8 --computing-thread=28 --mode="${mode}" --batch=1000000
+    for dir in s2c c2s bi; do
+      for n_clients in 1 2 4 8 16 28 32; do
+        set_hostfile $n_clients
+        ./run.sh --polling-thread=28 \
+          --mode="${mode}" \
+          --direction="${dir}" \
+          --batch=200000 \
+          --server-timeout=-1 \
+          --client-timeout=-1 \
+          --affinity
+      done
     done
   done
 }
@@ -50,11 +55,11 @@ function epoll_thread_scalability() {
   SCRIPT_DIR=$(realpath "$(dirname "$0")")
   LOG_PREFIX=$(realpath "$SCRIPT_DIR/logs")
 
-  for n_threads in 1 2 4 8 16 28 32 64 128 256; do
+  for n_threads in 1 2 4 8 16 28 32 64 128; do
     LOG_PATH="$LOG_PREFIX/epoll_thread_${n_threads}_r.log"
-    "$MB_HOME"/epoll_bench -nclient $n_threads -runtime 8 |& tee "$LOG_PATH"
+    "$MB_HOME"/epoll_bench -nclient $n_threads -runtime 8 -client_timeout -1 -max_worker 999 |& tee "$LOG_PATH"
     LOG_PATH="$LOG_PREFIX/epoll_thread_${n_threads}_rw.log"
-    "$MB_HOME"/epoll_bench -nclient $n_threads -runtime 8 -rw |& tee "$LOG_PATH"
+    "$MB_HOME"/epoll_bench -nclient $n_threads -runtime 8 -rw -client_timeout -1 -server_timeout -1 -max_worker 999 |& tee "$LOG_PATH"
   done
 }
 
