@@ -1,11 +1,11 @@
 #ifndef MICROBENCHMARK_MB_CLIENT_H
 #define MICROBENCHMARK_MB_CLIENT_H
-
 #include <src/core/lib/iomgr/sys_epoll_wrapper.h>
 #include <sys/resource.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <queue>
 #include "SockUtils.h"
 #include "absl/time/time.h"
 #include "get_clock.h"
@@ -34,6 +34,10 @@ class RDMAClient {
       gpr_log(GPR_ERROR,
               "RDMAClient::connect, error on setsockopt (TCP_NODELAY)");
       exit(-1);
+    }
+    if (config_.mpi_server && comm_spec_.worker_id() == 1 ||
+        !config_.mpi_server && comm_spec_.worker_id() == 0) {
+      gpr_log(GPR_INFO, "connect with %s", server_address);
     }
     // Wait for listening
     if (config_.mpi_server) {
@@ -82,7 +86,6 @@ class RDMAClient {
       bind_thread_to_core(comm_spec_.local_id() % num_cores);
     }
 
-    int warmup_round = config_.n_warmup;
     auto batch_size = config_.n_batch;
     bool should_work = config_.n_active_client <= 0 ||
                        (comm_spec_.worker_id() <=
@@ -95,12 +98,11 @@ class RDMAClient {
       }
     };
 
-    for (int i = 0; i < batch_size + warmup_round; ++i) {
-      if (i == warmup_round) {
-        MPI_Barrier(comm_spec_.client_comm());
-        t_begin = absl::Now();
-      }
+    MPI_Barrier(comm_spec_.client_comm());
 
+    t_begin = absl::Now();
+
+    for (int i = 0; i < batch_size; ++i) {
       if (i == 0 && config_.dir == Dir::kBi || config_.dir == Dir::kC2S) {
         send_msg();
       }
@@ -110,10 +112,7 @@ class RDMAClient {
         while (!rdmasr.check_incoming()) {
         }
         cycles_t c2 = get_cycles();
-
-        if (i >= warmup_round) {
-          poll_cycles += (c2 - c1);
-        }
+        poll_cycles += (c2 - c1);
 
         size_t mlens = rdmasr.check_and_ack_incomings_locked();
         while (mlens > 0) {
@@ -155,7 +154,15 @@ class RDMAClient {
     }
     ss << " nvcsw: " << rusage.ru_nvcsw << " nivscw: " << rusage.ru_nivcsw;
     gpr_log(GPR_INFO, "%s", ss.str().c_str());
-    MPI_Barrier(comm_spec_.client_comm());
+
+    MPI_Request request;
+    MPI_Ibarrier(comm_spec_.client_comm(), &request);
+
+    int flag = 0;
+    do {
+      MPI_Test(&request, &flag, MPI_STATUS_IGNORE);
+      std::this_thread::yield();
+    } while (flag == 0);
   }
 
   void RunEpoll() {
@@ -217,13 +224,15 @@ class RDMAClient {
     msghdr_in.msg_iov = &iov_in;
     msghdr_in.msg_iovlen = 1;
 
-    auto warmup_round = config_.n_warmup;
     auto batch_size = config_.n_batch;
     epoll_event events[MAX_EVENTS];
+    int failed_cnt = 0;
+
     auto send_msg = [&] {
       while (!rdmasr.send(&msghdr_out, sizeof(data_out))) {
         rdmasr.check_metadata();
         rdmasr.check_and_ack_incomings_locked();
+        failed_cnt++;
       }
     };
 
@@ -249,15 +258,13 @@ class RDMAClient {
     absl::Time t_begin;
     cycles_t epoll_cycles = 0;
 
+    MPI_Barrier(comm_spec_.client_comm());
+
+    t_begin = absl::Now();
     for (int i = 0; config_.dir == Dir::kS2C ||
                     ((config_.dir == Dir::kBi || config_.dir == Dir::kC2S) &&
-                     i < batch_size + warmup_round);
+                     i < batch_size);
          ++i) {
-      if (i == warmup_round) {
-        MPI_Barrier(comm_spec_.client_comm());
-        t_begin = absl::Now();
-      }
-
       if (i == 0 && config_.dir == Dir::kBi || config_.dir == Dir::kC2S) {
         send_msg();
       }
@@ -269,10 +276,7 @@ class RDMAClient {
           r = epoll_wait(epfd, events, MAX_EVENTS, config_.client_timeout);
         } while ((r < 0 && errno == EINTR) || r == 0);
         cycles_t c2 = get_cycles();
-
-        if (i >= warmup_round) {
-          epoll_cycles += c2 - c1;
-        }
+        epoll_cycles += c2 - c1;
 
         for (int j = 0; j < r; j++) {
           epoll_event& ev = events[j];
@@ -307,7 +311,6 @@ class RDMAClient {
       }
     }
   finish:
-    printf("Cient exit\n");
     // Notify server to exit
     if (config_.dir == Dir::kBi || config_.dir == Dir::kC2S) {
       data_out = -1;
@@ -330,8 +333,204 @@ class RDMAClient {
       ss << " Poll Time: " << epoll_cycles / mhz / batch_size;
     }
     ss << " nvcsw: " << rusage.ru_nvcsw << " nivscw: " << rusage.ru_nivcsw;
+    ss << " failed cnt: " << failed_cnt;
     gpr_log(GPR_INFO, "%s", ss.str().c_str());
+    MPI_Request request;
+    MPI_Ibarrier(comm_spec_.client_comm(), &request);
+
+    int flag = 0;
+    do {
+      MPI_Test(&request, &flag, MPI_STATUS_IGNORE);
+      std::this_thread::yield();
+    } while (flag == 0);
+  }
+
+  void RunTCP() {
+    // Waiting for all clients connected
+    if (config_.mpi_server) {
+      MPI_Barrier(comm_spec_.comm());
+    }
+
+    if (config_.affinity) {
+      int num_cores = sysconf(_SC_NPROCESSORS_ONLN);
+      bind_thread_to_core(comm_spec_.local_id() % num_cores);
+    }
+
+    int epfd = epoll_create1(EPOLL_CLOEXEC);
+    struct epoll_event ep_event;
+    ep_event.events =
+        static_cast<uint32_t>(EPOLLIN | EPOLLOUT | EPOLLEXCLUSIVE);
+    ep_event.data.fd = sockfd_;
+    if (epoll_ctl(epfd, EPOLL_CTL_ADD, sockfd_, &ep_event) != 0) {
+      switch (errno) {
+        case EEXIST:
+          break;
+        default:
+          gpr_log(GPR_ERROR, "epoll_ctl error, errno: %d", errno);
+      }
+    }
+
+    int64_t data_out = 0, data_in = 0;
+    msghdr msghdr_out, msghdr_in;
+    iovec iov_out, iov_in;
+
+    memset(&msghdr_in, 0, sizeof(msghdr));
+    memset(&msghdr_out, 0, sizeof(msghdr));
+
+    iov_out.iov_base = &data_out;
+    iov_out.iov_len = sizeof(data_out);
+    iov_in.iov_base = &data_in;
+    iov_in.iov_len = sizeof(data_in);
+    msghdr_out.msg_iov = &iov_out;
+    msghdr_out.msg_iovlen = 1;
+    msghdr_in.msg_iov = &iov_in;
+    msghdr_in.msg_iovlen = 1;
+
+    absl::Time t_begin;
+    auto batch_size = config_.n_batch;
+    epoll_event events[MAX_EVENTS];
+    int failed_cnt = 0;
+    size_t send_ok_count = 0, recv_ok_count = 0;
+    size_t epoll_count = 0, send_count = 0, recv_count = 0;
+    cycles_t epoll_cycles = 0, send_cycles = 0, recv_cycles = 0;
+    std::queue<int64_t> failed_data;
+
+    auto send_msg = [&] {
+      auto c1 = get_cycles();
+      auto byte_sent = tcp_send(sockfd_, &msghdr_out);
+      auto c2 = get_cycles();
+
+      send_cycles += c2 - c1;
+      send_count++;
+
+      if (byte_sent == -1) {
+        failed_data.emplace(data_out);
+        return false;
+      }
+
+      send_ok_count++;
+      GPR_ASSERT(byte_sent == sizeof(data_out));
+      return true;
+    };
+
+    auto process_event = [&](int fd) {
+      bool c_should_exit = false;
+      ssize_t read_bytes;
+
+      do {
+        auto c1 = get_cycles();
+        read_bytes = recvmsg(fd, &msghdr_in, 0);
+        auto c2 = get_cycles();
+        recv_cycles += c2 - c1;
+        recv_count++;
+      } while (read_bytes < 0 && errno == EINTR);
+
+      if (read_bytes == -1) {
+        return c_should_exit;
+      }
+
+      recv_ok_count++;
+
+      if (config_.dir == Dir::kBi && recv_ok_count == batch_size ||
+          config_.dir == Dir::kS2C && data_in == -1) {
+        c_should_exit = true;
+      }
+
+      if (config_.dir == Dir::kBi) {
+        send_msg();
+      }
+
+      return c_should_exit;
+    };
+
     MPI_Barrier(comm_spec_.client_comm());
+
+    t_begin = absl::Now();
+
+    while (true) {
+      switch (config_.dir) {
+        case Dir::kC2S: {
+          send_msg();
+          if (send_ok_count == batch_size) {
+            goto finish;
+          }
+          break;
+        }
+        case Dir::kBi: {
+          // send first msg
+          if (send_ok_count == 0) {
+            send_msg();
+          }
+          break;
+        }
+      }
+
+      int r;
+      cycles_t c1 = get_cycles();
+      do {
+        r = epoll_wait(epfd, events, MAX_EVENTS, config_.client_timeout);
+      } while ((r < 0 && errno == EINTR) || r == 0);
+      cycles_t c2 = get_cycles();
+      epoll_cycles += c2 - c1;
+      epoll_count++;
+
+      for (int j = 0; j < r; j++) {
+        epoll_event& ev = events[j];
+
+        if ((ev.events & EPOLLIN) != 0) {
+          if (process_event(ev.data.fd)) {
+            goto finish;
+          }
+        }
+
+        if ((ev.events & EPOLLOUT) != 0) {
+          while (!failed_data.empty()) {
+            data_out = failed_data.front();
+            if (!send_msg()) {
+              failed_data.pop();
+              break;
+            }
+            failed_data.pop();
+          }
+        }
+      }
+    }
+  finish:
+    // Notify server to exit
+    if (config_.dir == Dir::kBi || config_.dir == Dir::kC2S) {
+      data_out = -1;
+      send_msg();
+    }
+
+    rusage rusage;
+    getrusage(RUSAGE_THREAD, &rusage);
+
+    auto time = ToDoubleMicroseconds((absl::Now() - t_begin));
+    int no_cpu_freq_fail = 0;
+    double mhz = get_cpu_mhz(no_cpu_freq_fail);
+
+    std::stringstream ss;
+    ss << "Rank: " << comm_spec_.worker_id();
+    if (send_count > 0) {
+      ss << " Send Latency: " << send_cycles / mhz / send_count;
+    }
+    if (recv_count > 0) {
+      ss << " Recv Latency: " << recv_cycles / mhz / recv_count;
+    }
+    if (epoll_count > 0) {
+      ss << " Epoll Time: " << epoll_cycles / mhz / epoll_count;
+    }
+    ss << " nvcsw: " << rusage.ru_nvcsw << " nivscw: " << rusage.ru_nivcsw;
+    ss << " failed cnt: " << failed_cnt;
+    gpr_log(GPR_INFO, "%s", ss.str().c_str());
+    MPI_Request request;
+    MPI_Ibarrier(comm_spec_.client_comm(), &request);
+
+    int flag = 0;
+    do {
+      MPI_Test(&request, &flag, MPI_STATUS_IGNORE);
+      std::this_thread::yield();
+    } while (flag == 0);
   }
 
  private:

@@ -48,6 +48,8 @@ void StartClient(const BenchmarkConfig& config, const CommSpec& comm_spec) {
     client.RunBusyPolling();
   } else if (config.mode == Mode::kEvent) {
     client.RunEpoll();
+  } else if (config.mode == Mode::kTCP) {
+    client.RunTCP();
   }
 }
 
@@ -71,8 +73,8 @@ int main(int argc, char* argv[]) {
     config.n_max_polling_thread = FLAGS_polling_thread;
     config.n_client = FLAGS_nclient;
     config.n_active_client = FLAGS_max_worker;
-    config.n_warmup = FLAGS_warmup;
     config.n_batch = FLAGS_batch;
+    config.affinity = FLAGS_affinity;
     config.server_timeout = FLAGS_server_timeout;
     config.client_timeout = FLAGS_client_timeout;
 

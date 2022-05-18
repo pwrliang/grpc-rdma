@@ -1,12 +1,12 @@
 #ifndef MICROBENCHMARK_MB_H
 #define MICROBENCHMARK_MB_H
+#include <unistd.h>
 #include <string>
 #include "grpc/impl/codegen/log.h"
 #define MAX_EVENTS 100
 
-enum class Mode { kBusyPolling, kBusyPollingRR, kEvent };
+enum class Mode { kBusyPolling, kBusyPollingRR, kEvent, kTCP };
 enum class Dir { kS2C, kC2S, kBi };
-bool running = true;
 
 Mode parse_mode(const std::string& mode) {
   if (mode == "bp") {
@@ -15,6 +15,8 @@ Mode parse_mode(const std::string& mode) {
     return Mode::kBusyPollingRR;
   } else if (mode == "event") {
     return Mode::kEvent;
+  } else if (mode == "tcp") {
+    return Mode::kTCP;
   }
   gpr_log(GPR_ERROR, "Invalid mode: %s", mode.c_str());
   exit(1);
@@ -28,6 +30,8 @@ std::string mode_to_string(Mode mode) {
       return "Busy Poling (RR)";
     case Mode::kEvent:
       return "Event";
+    case Mode::kTCP:
+      return "TCP";
   }
   return "";
 }
@@ -64,7 +68,6 @@ struct BenchmarkConfig {
   int n_max_polling_thread{};
   int n_client{};
   int n_active_client{};
-  int n_warmup{};
   int n_batch{};
   // for event mode
   int server_timeout{};
@@ -83,6 +86,14 @@ int bind_thread_to_core(int core_id) {
 
   pthread_t current_thread = pthread_self();
   return pthread_setaffinity_np(current_thread, sizeof(cpu_set_t), &cpuset);
+}
+
+ssize_t tcp_send(int fd, const struct msghdr* msg, int additional_flags = 0) {
+  ssize_t sent_length;
+  do {
+    sent_length = sendmsg(fd, msg, MSG_NOSIGNAL | additional_flags);
+  } while (sent_length < 0 && errno == EINTR);
+  return sent_length;
 }
 
 #endif  // MICROBENCHMARK_MB_H

@@ -37,7 +37,7 @@ class RDMAConn {
 
   int post_send(MemRegion& remote_mr, size_t remote_tail, MemRegion& local_mr,
                 size_t local_offset, size_t sz, ibv_wr_opcode opcode);
-  
+
   int post_sends(MemRegion& remote_mr, size_t remote_tail,
                  struct ibv_sge* sg_list, size_t num_sge, size_t sz, ibv_wr_opcode opcode);
 
@@ -72,7 +72,6 @@ class RDMAConn {
       return false;
     }
     post_recvs(rr_garbage_);
-//    printf("post recv %lld\n", rr_garbage_);
     rr_garbage_ = 0;
     return true;
   }

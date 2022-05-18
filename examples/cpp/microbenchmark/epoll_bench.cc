@@ -7,9 +7,11 @@
 #include <mutex>
 #include <thread>
 #include "absl/time/clock.h"
+#include "comm_spec.h"
 #include "flags.h"
 #include "get_clock.h"
 #include "grpc/support/log.h"
+#include "mb.h"
 
 #define MAX_EPOLL_EVENTS 1
 std::mutex mutex;
@@ -69,7 +71,15 @@ struct WorkerResource {
   }
 };
 
-void server_worker(WorkerResource* server_res) {
+void server_worker(WorkerResource* server_res, const CommSpec& comm_spec) {
+  if (FLAGS_affinity) {
+    int num_cores = sysconf(_SC_NPROCESSORS_ONLN);
+    int core_id = comm_spec.worker_id() * (FLAGS_nclient + 1) % num_cores;
+
+    gpr_log(GPR_INFO, "Server Bind to %d", core_id);
+    bind_thread_to_core(core_id);
+  }
+
   std::unique_lock<std::mutex> lock(mutex);
   cv.wait(lock, [&] { return ready; });
   lock.unlock();
@@ -129,7 +139,16 @@ void server_worker(WorkerResource* server_res) {
   bcast(true);
 }
 
-void client_worker(WorkerResource* cli_res) {
+void client_worker(WorkerResource* cli_res, const CommSpec& comm_spec) {
+  if (FLAGS_affinity) {
+    int num_cores = sysconf(_SC_NPROCESSORS_ONLN);
+    int core_id = comm_spec.worker_id() * (FLAGS_nclient + 1) % num_cores;
+    core_id = (core_id + cli_res->worker_id) % num_cores;
+
+    gpr_log(GPR_INFO, "Client %d Bind to %d", cli_res->worker_id, core_id);
+    bind_thread_to_core(core_id);
+  }
+
   std::unique_lock<std::mutex> lock(mutex);
   cv.wait(lock, [&] { return ready; });
   lock.unlock();
@@ -192,7 +211,7 @@ void client_worker(WorkerResource* cli_res) {
   send_to();
 }
 
-void Run() {
+void Run(const CommSpec& comm_spec) {
   std::vector<WorkerResource> res;
   std::vector<std::thread> ths;
 
@@ -222,9 +241,9 @@ void Run() {
 
   for (int i = 0; i <= FLAGS_nclient; i++) {
     if (i == 0) {
-      ths.emplace_back(server_worker, &res[i]);
+      ths.emplace_back(server_worker, &res[i], comm_spec);
     } else {
-      ths.emplace_back(client_worker, &res[i]);
+      ths.emplace_back(client_worker, &res[i], comm_spec);
     }
   }
 
@@ -234,6 +253,7 @@ void Run() {
   }
 
   cv.notify_all();
+  MPI_Barrier(comm_spec.comm());
 
   auto t_begin = absl::Now();
   sleep(FLAGS_runtime);
@@ -271,9 +291,14 @@ int main(int argc, char* argv[]) {
     exit(1);
   }
   gflags::ParseCommandLineFlags(&argc, &argv, true);
+  InitMPIComm();
+  {
+    CommSpec comm_spec;
+    comm_spec.Init(MPI_COMM_WORLD);
+
+    Run(comm_spec);
+  }
   gflags::ShutDownCommandLineFlags();
-
-  Run();
-
+  FinalizeMPIComm();
   return 0;
 }

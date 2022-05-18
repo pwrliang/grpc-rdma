@@ -25,4 +25,7 @@ target_link_libraries(mb
 
 add_executable(epoll_bench epoll_bench.cc get_clock.cc flags.cc)
 target_link_libraries(epoll_bench
-        ${GFLAGS_LIBRARIES} ${_GRPC_GRPCPP})
+        ${GFLAGS_LIBRARIES} ${MPI_CXX_LIBRARIES} ${_GRPC_GRPCPP})
+
+add_executable(grab_cpu grab_cpu.cc)
+target_link_libraries(grab_cpu ${_GRPC_GRPCPP})

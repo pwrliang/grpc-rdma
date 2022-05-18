@@ -6,7 +6,6 @@
 
 DECLARE_int32(batch);
 DECLARE_int32(port);
-DECLARE_int32(warmup);
 DECLARE_int32(polling_thread);
 DECLARE_bool(affinity);
 DECLARE_string(mode);
@@ -19,4 +18,6 @@ DECLARE_int32(nclient);
 DECLARE_int32(runtime);
 DECLARE_string(dir);
 DECLARE_int32(max_worker);
+DECLARE_bool(rw);
+DECLARE_int32(start_cpu);
 #endif  // HELLOWORLD_FLAGS_H
