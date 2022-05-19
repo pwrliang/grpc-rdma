@@ -67,11 +67,11 @@ struct BenchmarkConfig {
   bool affinity{};
   int n_max_polling_thread{};
   int n_client{};
-  int n_active_client{};
   int n_batch{};
   // for event mode
   int server_timeout{};
   int client_timeout{};
+  int send_interval_us{};
 };
 
 int bind_thread_to_core(int core_id) {

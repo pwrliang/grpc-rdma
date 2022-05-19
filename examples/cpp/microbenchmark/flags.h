@@ -17,7 +17,7 @@ DECLARE_bool(mpiserver);
 DECLARE_int32(nclient);
 DECLARE_int32(runtime);
 DECLARE_string(dir);
-DECLARE_int32(max_worker);
 DECLARE_bool(rw);
 DECLARE_int32(start_cpu);
+DECLARE_int32(send_interval);
 #endif  // HELLOWORLD_FLAGS_H

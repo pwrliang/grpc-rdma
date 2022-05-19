@@ -11,6 +11,7 @@
 #include "get_clock.h"
 #include "gflags/gflags.h"
 #include "grpc/support/log.h"
+#include "grpc/support/time.h"
 #include "netinet/tcp.h"
 #include "src/core/lib/rdma/RDMASenderReceiver.h"
 
@@ -87,11 +88,8 @@ class RDMAClient {
     }
 
     auto batch_size = config_.n_batch;
-    bool should_work = config_.n_active_client <= 0 ||
-                       (comm_spec_.worker_id() <=
-                        config_.n_active_client - (config_.mpi_server ? 0 : 1));
-    absl::Time t_begin;
-    cycles_t poll_cycles = 0;
+    cycles_t iter_cycles = 0;
+    size_t n_iter = 0;
 
     auto send_msg = [&] {
       while (!rdmasr.send(&msghdr_out, sizeof(data_out))) {
@@ -100,58 +98,89 @@ class RDMAClient {
 
     MPI_Barrier(comm_spec_.client_comm());
 
-    t_begin = absl::Now();
+    auto t_begin = absl::Now();
 
-    for (int i = 0; i < batch_size; ++i) {
-      if (i == 0 && config_.dir == Dir::kBi || config_.dir == Dir::kC2S) {
-        send_msg();
+    switch (config_.dir) {
+      case Dir::kC2S: {
+        for (int i = 0; i < batch_size; ++i) {
+          cycles_t c1 = get_cycles();
+          if (i == batch_size - 1) {  // notify server to exit
+            data_out = -1;
+          }
+          send_msg();
+          cycles_t c2 = get_cycles();
+          iter_cycles += c2 - c1;
+          if (config_.send_interval_us > 0) {
+            gpr_sleep_until(gpr_time_add(
+                gpr_now(GPR_CLOCK_REALTIME),
+                gpr_time_from_micros(config_.send_interval_us, GPR_TIMESPAN)));
+          }
+        }
+        n_iter = batch_size;
+        break;
       }
-
-      if (config_.dir == Dir::kBi || config_.dir == Dir::kS2C) {
+      case Dir::kS2C: {
+        bool running = true;
         cycles_t c1 = get_cycles();
-        while (!rdmasr.check_incoming()) {
+
+        while (running) {
+          while (!rdmasr.check_incoming()) {
+          }
+
+          size_t mlens = rdmasr.check_and_ack_incomings_locked();
+          while (mlens > 0) {
+            mlens -= rdmasr.recv(&msghdr_in);
+            // Server notifies client to exit
+            if (data_in == -1) {
+              running = false;
+              GPR_ASSERT(mlens == 0);
+            }
+          }
+          n_iter++;
         }
         cycles_t c2 = get_cycles();
-        poll_cycles += (c2 - c1);
-
-        size_t mlens = rdmasr.check_and_ack_incomings_locked();
-        while (mlens > 0) {
-          size_t actual_size = rdmasr.recv(&msghdr_in);
-
-          // Server notifies client to exit
-          if (config_.dir == Dir::kS2C && data_in == -1) {
-            goto finish;
+        iter_cycles += c2 - c1;
+        break;
+      }
+      case Dir::kBi: {
+        while (n_iter < batch_size) {
+          cycles_t c1 = get_cycles();
+          send_msg();
+          while (!rdmasr.check_incoming()) {
           }
 
-          if (config_.dir == Dir::kBi) {
-            send_msg();
+          size_t mlens = rdmasr.check_and_ack_incomings_locked();
+          mlens -= rdmasr.recv(&msghdr_in);
+          GPR_ASSERT(mlens == 0);
+
+          cycles_t c2 = get_cycles();
+          iter_cycles += c2 - c1;
+          n_iter++;
+          if (config_.send_interval_us > 0) {
+            gpr_sleep_until(gpr_time_add(
+                gpr_now(GPR_CLOCK_REALTIME),
+                gpr_time_from_micros(config_.send_interval_us, GPR_TIMESPAN)));
           }
-          mlens -= actual_size;
         }
+        // Notify server to exit
+        data_out = -1;
+        send_msg();
+        break;
       }
     }
 
-  finish:
-    // Notify server to exit
-    if (config_.dir == Dir::kBi || config_.dir == Dir::kC2S) {
-      data_out = -1;
-      send_msg();
-    }
+    auto t_end = absl::Now();
 
     rusage rusage;
     getrusage(RUSAGE_THREAD, &rusage);
-    auto time = ToDoubleMicroseconds((absl::Now() - t_begin));
+    int no_cpu_freq_fail = 0;
+    double mhz = get_cpu_mhz(no_cpu_freq_fail);
 
     std::stringstream ss;
     ss << "Rank: " << comm_spec_.worker_id()
-       << " Latency: " << time / batch_size;
-
-    if (config_.dir == Dir::kBi || config_.dir == Dir::kS2C) {
-      int no_cpu_freq_fail = 0;
-      double mhz = get_cpu_mhz(no_cpu_freq_fail);
-
-      ss << " Poll Time: " << poll_cycles / mhz / batch_size;
-    }
+       << " Runtime: " << ToDoubleSeconds((t_end - t_begin)) << " s"
+       << " Iter: " << n_iter << " Avg Iter: " << iter_cycles / mhz / n_iter
+       << " us";
     ss << " nvcsw: " << rusage.ru_nvcsw << " nivscw: " << rusage.ru_nivcsw;
     gpr_log(GPR_INFO, "%s", ss.str().c_str());
 
@@ -236,105 +265,161 @@ class RDMAClient {
       }
     };
 
-    auto process_event = [&](RDMASenderReceiverEvent* rdmasr) {
-      bool c_should_exit = false;
-      auto rest_mlen = rdmasr->check_and_ack_incomings_locked();
-
-      while (rest_mlen > 0) {
-        rest_mlen -= rdmasr->recv(&msghdr_in);
-
-        if (config_.dir == Dir::kS2C && data_in == -1) {
-          c_should_exit = true;
-        }
-
-        if (config_.dir == Dir::kBi) {
-          send_msg();
-        }
-      }
-
-      return c_should_exit;
-    };
-
-    absl::Time t_begin;
-    cycles_t epoll_cycles = 0;
+    cycles_t iter_cycles = 0;
+    size_t n_iter = 0;
 
     MPI_Barrier(comm_spec_.client_comm());
 
-    t_begin = absl::Now();
-    for (int i = 0; config_.dir == Dir::kS2C ||
-                    ((config_.dir == Dir::kBi || config_.dir == Dir::kC2S) &&
-                     i < batch_size);
-         ++i) {
-      if (i == 0 && config_.dir == Dir::kBi || config_.dir == Dir::kC2S) {
-        send_msg();
+    auto t_begin = absl::Now();
+
+    switch (config_.dir) {
+      case Dir::kC2S: {
+        for (int i = 0; i < batch_size; ++i) {
+          cycles_t c1 = get_cycles();
+          if (i == batch_size - 1) {  // notify server to exit
+            data_out = -1;
+          }
+          send_msg();
+          cycles_t c2 = get_cycles();
+          iter_cycles += c2 - c1;
+          if (config_.send_interval_us > 0) {
+            gpr_sleep_until(gpr_time_add(
+                gpr_now(GPR_CLOCK_REALTIME),
+                gpr_time_from_micros(config_.send_interval_us, GPR_TIMESPAN)));
+          }
+        }
+        n_iter = batch_size;
+        break;
       }
+      case Dir::kS2C: {
+        bool running = true;
+        auto process_event = [&](RDMASenderReceiverEvent* rdmasr) {
+          auto rest_mlen = rdmasr->check_and_ack_incomings_locked();
 
-      if (config_.dir == Dir::kBi || config_.dir == Dir::kS2C) {
-        int r;
-        cycles_t c1 = get_cycles();
-        do {
-          r = epoll_wait(epfd, events, MAX_EVENTS, config_.client_timeout);
-        } while ((r < 0 && errno == EINTR) || r == 0);
-        cycles_t c2 = get_cycles();
-        epoll_cycles += c2 - c1;
+          while (rest_mlen > 0) {
+            rest_mlen -= rdmasr->recv(&msghdr_in);
 
-        for (int j = 0; j < r; j++) {
-          epoll_event& ev = events[j];
-          void* data_ptr = ev.data.ptr;
-
-          if ((reinterpret_cast<intptr_t>(data_ptr) & 1) ==
-              1) {  // pollable_add_rdma_channel_fd
-            auto* rdmasr = reinterpret_cast<RDMASenderReceiverEvent*>(
-                ~static_cast<intptr_t>(1) &
-                reinterpret_cast<intptr_t>(ev.data.ptr));
-
-            if ((ev.events & EPOLLIN) != 0) {
-              GPR_DEBUG_ASSERT(rdmasr != nullptr);
-              rdmasr->check_metadata();
-              if (process_event(rdmasr)) {
-                goto finish;
-              }
+            if (data_in == -1) {
+              running = false;
+              GPR_ASSERT(rest_mlen == 0);
             }
-          } else if ((reinterpret_cast<intptr_t>(data_ptr) & 2) == 2) {
-            auto* rdmasr = reinterpret_cast<RDMASenderReceiverEvent*>(
-                ~static_cast<intptr_t>(2) &
-                reinterpret_cast<intptr_t>(ev.data.ptr));
-            if ((ev.events & EPOLLIN) != 0) {
-              GPR_DEBUG_ASSERT(rdmasr != nullptr);
-              rdmasr->check_data();
-              if (process_event(rdmasr)) {
-                goto finish;
+          }
+        };
+
+        cycles_t c1 = get_cycles();
+        while (running) {
+          int r;
+
+          do {
+            r = epoll_wait(epfd, events, MAX_EVENTS, config_.client_timeout);
+          } while ((r < 0 && errno == EINTR) || r == 0);
+
+          for (int j = 0; j < r; j++) {
+            epoll_event& ev = events[j];
+            void* data_ptr = ev.data.ptr;
+
+            if ((reinterpret_cast<intptr_t>(data_ptr) & 1) == 1) {
+              auto* rdmasr_ev = reinterpret_cast<RDMASenderReceiverEvent*>(
+                  ~static_cast<intptr_t>(1) &
+                  reinterpret_cast<intptr_t>(ev.data.ptr));
+
+              if ((ev.events & EPOLLIN) != 0) {
+                rdmasr_ev->check_metadata();
+                process_event(rdmasr_ev);
+              }
+            } else if ((reinterpret_cast<intptr_t>(data_ptr) & 2) == 2) {
+              auto* rdmasr_ev = reinterpret_cast<RDMASenderReceiverEvent*>(
+                  ~static_cast<intptr_t>(2) &
+                  reinterpret_cast<intptr_t>(ev.data.ptr));
+              if ((ev.events & EPOLLIN) != 0) {
+                rdmasr_ev->check_data();
+                process_event(rdmasr_ev);
               }
             }
           }
         }
+        cycles_t c2 = get_cycles();
+        iter_cycles += c2 - c1;
+        n_iter++;
+        break;
+      }
+      case Dir::kBi: {
+        auto process_event = [&](RDMASenderReceiverEvent* rdmasr) {
+          auto rest_mlen = rdmasr->check_and_ack_incomings_locked();
+
+          if (rest_mlen > 0) {
+            rest_mlen -= rdmasr->recv(&msghdr_in);
+            GPR_ASSERT(rest_mlen == 0);
+            send_msg();
+          }
+        };
+
+        send_msg();
+
+        while (n_iter < batch_size) {
+          cycles_t c1 = get_cycles();
+
+          int r;
+          do {
+            r = epoll_wait(epfd, events, MAX_EVENTS, config_.client_timeout);
+          } while ((r < 0 && errno == EINTR) || r == 0);
+
+          for (int j = 0; j < r; j++) {
+            epoll_event& ev = events[j];
+            void* data_ptr = ev.data.ptr;
+
+            if ((reinterpret_cast<intptr_t>(data_ptr) & 1) == 1) {
+              auto* rdmasr_ev = reinterpret_cast<RDMASenderReceiverEvent*>(
+                  ~static_cast<intptr_t>(1) &
+                  reinterpret_cast<intptr_t>(ev.data.ptr));
+
+              if ((ev.events & EPOLLIN) != 0) {
+                rdmasr_ev->check_metadata();
+                process_event(rdmasr_ev);
+              }
+            } else if ((reinterpret_cast<intptr_t>(data_ptr) & 2) == 2) {
+              auto* rdmasr_ev = reinterpret_cast<RDMASenderReceiverEvent*>(
+                  ~static_cast<intptr_t>(2) &
+                  reinterpret_cast<intptr_t>(ev.data.ptr));
+
+              if ((ev.events & EPOLLIN) != 0) {
+                rdmasr_ev->check_data();
+                process_event(rdmasr_ev);
+              }
+            }
+          }
+
+          cycles_t c2 = get_cycles();
+          iter_cycles += c2 - c1;
+          n_iter++;
+          if (config_.send_interval_us > 0) {
+            gpr_sleep_until(gpr_time_add(
+                gpr_now(GPR_CLOCK_REALTIME),
+                gpr_time_from_micros(config_.send_interval_us, GPR_TIMESPAN)));
+          }
+        }
+        // Notify server to exit
+        data_out = -1;
+        send_msg();
+        break;
       }
     }
-  finish:
-    // Notify server to exit
-    if (config_.dir == Dir::kBi || config_.dir == Dir::kC2S) {
-      data_out = -1;
-      send_msg();
-    }
+
+    auto t_end = absl::Now();
 
     rusage rusage;
     getrusage(RUSAGE_THREAD, &rusage);
-
-    auto time = ToDoubleMicroseconds((absl::Now() - t_begin));
+    int no_cpu_freq_fail = 0;
+    double mhz = get_cpu_mhz(no_cpu_freq_fail);
 
     std::stringstream ss;
     ss << "Rank: " << comm_spec_.worker_id()
-       << " Latency: " << time / batch_size;
-
-    if (config_.dir == Dir::kBi || config_.dir == Dir::kS2C) {
-      int no_cpu_freq_fail = 0;
-      double mhz = get_cpu_mhz(no_cpu_freq_fail);
-
-      ss << " Poll Time: " << epoll_cycles / mhz / batch_size;
-    }
+       << " Runtime: " << ToDoubleSeconds((t_end - t_begin)) << " s"
+       << " Iter: " << n_iter << " Avg Iter: " << iter_cycles / mhz / n_iter
+       << " us";
     ss << " nvcsw: " << rusage.ru_nvcsw << " nivscw: " << rusage.ru_nivcsw;
-    ss << " failed cnt: " << failed_cnt;
     gpr_log(GPR_INFO, "%s", ss.str().c_str());
+
     MPI_Request request;
     MPI_Ibarrier(comm_spec_.client_comm(), &request);
 

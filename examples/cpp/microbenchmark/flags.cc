@@ -19,3 +19,4 @@ DEFINE_string(dir, "bi", "s2c,c2s,bi");
 DEFINE_int32(max_worker, -1, "");
 DEFINE_bool(rw, true, "read and write");
 DEFINE_int32(start_cpu, 0, "Start number of CPU binding");
+DEFINE_int32(send_interval, 0, "max sleep time for each sending");

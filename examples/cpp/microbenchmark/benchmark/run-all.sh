@@ -23,22 +23,19 @@ function client_scalability() {
   if [[ $max_worker -ne -1 ]]; then
     export LOG_SUFFIX="${max_worker}_worker"
   fi
-  MODES=(bprr)
   for mode in "${MODES[@]}"; do
 #    for dir in s2c c2s bi; do
-      dir=c2s
-#      for n_clients in 1 2 4 8 16 28 32; do
-        n_clients=16
-        rm -f ./logs/*
+      dir=bi
+      for n_clients in 1 2 4 8 16 28 32 64 128 256; do
         set_hostfile $n_clients
-        ./run.sh --polling-thread=8 \
+        ./run.sh --polling-thread=28 \
           --mode="${mode}" \
           --direction="${dir}" \
-          --batch=2000000 \
+          --batch=200000 \
           --server-timeout=-1 \
           --client-timeout=-1 \
-          --affinity
-#      done
+          --affinity --overwrite --send-interval=100
+      done
 #    done
   done
 }

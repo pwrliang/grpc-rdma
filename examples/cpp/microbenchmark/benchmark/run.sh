@@ -12,10 +12,11 @@ COMPUTING_THREAD=0
 BATCH_SIZE=10000
 MODE=""
 DIR=""
-MAX_WORKER=-1
 AFFINITY=false
 SERVER_TIMEOUT=0
 CLIENT_TIMEOUT=0
+SEND_INTERVAL=0
+OVERWRITE=false
 
 if [[ ! -f "$MB_PATH" ]]; then
   echo "Invalid MB_HOME"
@@ -48,8 +49,8 @@ for i in "$@"; do
     AFFINITY=true
     shift
     ;;
-  --max-worker=*)
-    MAX_WORKER="${i#*=}"
+  --overwrite)
+    OVERWRITE=true
     shift
     ;;
   --server-timeout=*)
@@ -58,6 +59,10 @@ for i in "$@"; do
     ;;
   --client-timeout=*)
     CLIENT_TIMEOUT="${i#*=}"
+    shift
+    ;;
+  --send-interval=*)
+    SEND_INTERVAL="${i#*=}"
     shift
     ;;
   --* | -*)
@@ -76,9 +81,11 @@ if [[ -n "$LOG_SUFFIX" ]]; then
 fi
 mkdir -p "$LOG_PATH"
 
-curr_log_path="$LOG_PATH/${MODE}_client_${NP}_poll_${POLLING_THREADS}_dir_${DIR}.log"
+curr_log_path="$LOG_PATH/${MODE}_client_${NP}_poll_${POLLING_THREADS}_interval_${SEND_INTERVAL}_dir_${DIR}.log"
+if [[ $OVERWRITE ]]; then
+  rm -f "$curr_log_path"
+fi
 
-#rm -f $curr_log_path
 if [[ -f "$curr_log_path" ]]; then
   echo "$curr_log_path exists, skip"
 else
@@ -99,9 +106,9 @@ else
       -affinity "$AFFINITY" \
       -server_timeout "$SERVER_TIMEOUT" \
       -client_timeout "$CLIENT_TIMEOUT" \
-      -max_worker "$MAX_WORKER" |& tee -a "${curr_log_path}.tmp"
-    row_count=$(grep -c "Latency" <"${curr_log_path}.tmp")
-    if [[ ($MAX_WORKER -ne -1 && $row_count -eq $MAX_WORKER) || ($MAX_WORKER -eq -1 && $row_count -eq "$NP") ]]; then
+      -send_interval "$SEND_INTERVAL" |& tee -a "${curr_log_path}.tmp"
+    row_count=$(grep -c "Rank:" <"${curr_log_path}.tmp")
+    if [[ $row_count -eq "$NP" ]]; then
       mv "${curr_log_path}.tmp" "${curr_log_path}"
       break
     fi

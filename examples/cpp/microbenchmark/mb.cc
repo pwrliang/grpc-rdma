@@ -72,11 +72,11 @@ int main(int argc, char* argv[]) {
     config.mpi_server = FLAGS_mpiserver;
     config.n_max_polling_thread = FLAGS_polling_thread;
     config.n_client = FLAGS_nclient;
-    config.n_active_client = FLAGS_max_worker;
     config.n_batch = FLAGS_batch;
     config.affinity = FLAGS_affinity;
     config.server_timeout = FLAGS_server_timeout;
     config.client_timeout = FLAGS_client_timeout;
+    config.send_interval_us = FLAGS_send_interval;
 
     GPR_ASSERT(config.mpi_server && config.n_client == 0 ||
                !config.mpi_server && config.n_client > 0);

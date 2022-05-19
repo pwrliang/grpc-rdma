@@ -227,6 +227,7 @@ void serve_event(Connections* conns, const BenchmarkConfig* config) {
   auto t_begin = absl::Now();
 
   int failed_cnt = 0;
+  int send_cnt = 0;
 
   auto send_msg = [&](RDMASenderReceiverEvent* rdmasr) {
     cycles_t c1 = get_cycles();
@@ -235,6 +236,8 @@ void serve_event(Connections* conns, const BenchmarkConfig* config) {
       rdmasr->check_and_ack_incomings_locked();
       failed_cnt++;
     }
+    send_cnt++;
+
     cycles_t c2 = get_cycles();
     conns->send_cycles += c2 - c1;
     conns->send_count++;
@@ -250,6 +253,11 @@ void serve_event(Connections* conns, const BenchmarkConfig* config) {
       conns->check_cycles += c2 - c1;
       conns->check_count++;
 
+      if (config->dir == Dir::kBi) {
+        GPR_ASSERT(rest_mlen == 0 || rest_mlen == sizeof(data_in) ||
+                   rest_mlen == 2 * sizeof(data_in));
+      }
+
       while (rest_mlen > 0) {
         cycles_t c1 = get_cycles();
         rest_mlen -= rdmasr->recv(&msghdr_in);
@@ -262,8 +270,6 @@ void serve_event(Connections* conns, const BenchmarkConfig* config) {
             if (conns->rdma_conns[i].get() == rdmasr) {
               //              conns->rdma_conns[i] = nullptr;
               n_alive_conn--;
-              //              gpr_log(GPR_INFO, "Rest client %d",
-              //              rest_n_client--);
               GPR_ASSERT(rest_mlen == 0);
               break;
             }
@@ -298,7 +304,6 @@ void serve_event(Connections* conns, const BenchmarkConfig* config) {
               reinterpret_cast<intptr_t>(ev.data.ptr));
 
           if ((ev.events & EPOLLIN) != 0) {
-            GPR_DEBUG_ASSERT(rdmasr != nullptr);
             rdmasr->check_metadata();
             process_event(rdmasr);
           }
@@ -307,7 +312,6 @@ void serve_event(Connections* conns, const BenchmarkConfig* config) {
               ~static_cast<intptr_t>(2) &
               reinterpret_cast<intptr_t>(ev.data.ptr));
           if ((ev.events & EPOLLIN) != 0) {
-            GPR_DEBUG_ASSERT(rdmasr != nullptr);
             rdmasr->check_data();
             process_event(rdmasr);
           }
@@ -315,8 +319,6 @@ void serve_event(Connections* conns, const BenchmarkConfig* config) {
       }
     }
   } else if (config->dir == Dir::kS2C) {
-    // TODO: selective send
-    GPR_ASSERT(config->n_active_client <= 0);
     for (int i = 0; i < config->n_batch; i++) {
       for (auto& rdmasr : conns->rdma_conns) {
         data_out = data_in + 1;
@@ -335,30 +337,32 @@ void serve_event(Connections* conns, const BenchmarkConfig* config) {
   int no_cpu_freq_fail = 0;
   double mhz = get_cpu_mhz(no_cpu_freq_fail);
 
-  std::stringstream ss;
+  if (conns->send_count > 0 || conns->recv_count > 0) {
+    std::stringstream ss;
 
-  ss << "Server thread: " << conns->tid
-     << " Time: " << ToDoubleMilliseconds((t_end - t_begin)) << " ms";
+    ss << "Server thread: " << conns->tid
+       << " Time: " << ToDoubleMilliseconds((t_end - t_begin)) << " ms";
 
-  if (conns->send_count > 0) {
-    ss << " Send Lat: " << conns->send_cycles / mhz / conns->send_count
-       << " us";
+    if (conns->send_count > 0) {
+      ss << " Send Lat: " << conns->send_cycles / mhz / conns->send_count
+         << " us";
+    }
+    if (conns->recv_count > 0) {
+      ss << " Recv Lat: " << conns->recv_cycles / mhz / conns->recv_count
+         << " us";
+    }
+    if (conns->epoll_count > 0) {
+      ss << " Epoll Lat: " << conns->epoll_cycles / mhz / conns->epoll_count
+         << " us";
+    }
+    if (conns->check_count > 0) {
+      ss << " Check Lat: " << conns->check_cycles / mhz / conns->check_count
+         << " us";
+    }
+    ss << " nvcsw: " << conns->rusage.ru_nvcsw
+       << " nivcsw: " << conns->rusage.ru_nivcsw;
+    gpr_log(GPR_INFO, "%s", ss.str().c_str());
   }
-  if (conns->recv_count > 0) {
-    ss << " Recv Lat: " << conns->recv_cycles / mhz / conns->recv_count
-       << " us";
-  }
-  if (conns->epoll_count > 0) {
-    ss << " Epoll Lat: " << conns->epoll_cycles / mhz / conns->epoll_count
-       << " us";
-  }
-  if (conns->check_count > 0) {
-    ss << " Check Lat: " << conns->check_cycles / mhz / conns->check_count
-       << " us";
-  }
-  ss << " nvcsw: " << conns->rusage.ru_nvcsw
-     << " nivcsw: " << conns->rusage.ru_nivcsw;
-  gpr_log(GPR_INFO, "%s", ss.str().c_str());
 }
 
 void serve_tcp(Connections* conns, const BenchmarkConfig* config) {
@@ -467,8 +471,6 @@ void serve_tcp(Connections* conns, const BenchmarkConfig* config) {
       }
     }
   } else if (config->dir == Dir::kS2C) {
-    // TODO: selective send
-    GPR_ASSERT(config->n_active_client <= 0);
     for (int i = 0; i < config->n_batch; i++) {
       for (auto fd : conns->tcp_conns) {
         data_out = data_in + 1;
