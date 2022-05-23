@@ -7,7 +7,7 @@
 #include "grpc/impl/codegen/log.h"
 #include "src/core/lib/debug/trace.h"
 grpc_core::TraceFlag grpc_rdma_conn_trace(false, "rdma_conn");
-
+extern bool is_server;
 RDMAConn::RDMAConn(RDMANode* node, bool event_mode) : node_(node) {
   ibv_context* ctx = node_->get_ctx().get();
   ibv_pd* pd = node_->get_pd().get();
@@ -35,6 +35,18 @@ RDMAConn::RDMAConn(RDMANode* node, bool event_mode) : node_(node) {
   rcq_ = std::shared_ptr<ibv_cq>(
       ibv_create_cq(ctx, DEFAULT_CQE, nullptr, recv_channel_.get(), 0),
       [](ibv_cq* p) { ibv_destroy_cq(p); });
+//  if (event_mode && is_server) {
+//    ibv_modify_cq_attr attr;
+//    memset(&attr, 0, sizeof(attr));
+//    attr.attr_mask = IBV_CQ_ATTR_MODERATE;
+//    attr.moderate.cq_count = 32767;
+//    attr.moderate.cq_period = 40;
+//    int err = ibv_modify_cq(rcq_.get(), &attr);
+//    if (err != 0) {
+//      gpr_log(GPR_ERROR, "Err modify cq: %d", err);
+//    }
+//  }
+
   if (!rcq_) {
     gpr_log(GPR_ERROR, "Failed to create CQ for a connection");
     exit(-1);

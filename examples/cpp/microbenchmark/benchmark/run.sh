@@ -16,7 +16,7 @@ AFFINITY=false
 SERVER_TIMEOUT=0
 CLIENT_TIMEOUT=0
 SEND_INTERVAL=0
-OVERWRITE=false
+OVERWRITE=0
 
 if [[ ! -f "$MB_PATH" ]]; then
   echo "Invalid MB_HOME"
@@ -50,7 +50,7 @@ for i in "$@"; do
     shift
     ;;
   --overwrite)
-    OVERWRITE=true
+    OVERWRITE=1
     shift
     ;;
   --server-timeout=*)
@@ -81,8 +81,8 @@ if [[ -n "$LOG_SUFFIX" ]]; then
 fi
 mkdir -p "$LOG_PATH"
 
-curr_log_path="$LOG_PATH/${MODE}_client_${NP}_poll_${POLLING_THREADS}_interval_${SEND_INTERVAL}_dir_${DIR}.log"
-if [[ $OVERWRITE ]]; then
+curr_log_path="$LOG_PATH/${MODE}_client_${NP}_poll_${POLLING_THREADS}_interval_${SEND_INTERVAL}_dir_${DIR}_affinity_${AFFINITY}.log"
+if [[ $OVERWRITE -eq 1 ]]; then
   rm -f "$curr_log_path"
 fi
 

@@ -19,14 +19,12 @@ function set_hostfile() {
 }
 
 function client_scalability() {
-  max_worker=-1
-  if [[ $max_worker -ne -1 ]]; then
-    export LOG_SUFFIX="${max_worker}_worker"
-  fi
+  MODES=(event)
+  dir=bi
   for mode in "${MODES[@]}"; do
-#    for dir in s2c c2s bi; do
-      dir=bi
-      for n_clients in 1 2 4 8 16 28 32 64 128 256; do
+    for interval in 0; do
+      #for n_clients in 1 2 4 8 16 28 32 64 128; do
+      for n_clients in 28; do
         set_hostfile $n_clients
         ./run.sh --polling-thread=28 \
           --mode="${mode}" \
@@ -34,9 +32,18 @@ function client_scalability() {
           --batch=200000 \
           --server-timeout=-1 \
           --client-timeout=-1 \
-          --affinity --overwrite --send-interval=100
+          --send-interval=$interval \
+          --overwrite
+#
+#        ./run.sh --polling-thread=28 \
+#          --mode="${mode}" \
+#          --direction="${dir}" \
+#          --batch=200000 \
+#          --server-timeout=-1 \
+#          --client-timeout=-1 \
+#          --affinity --send-interval=$interval
       done
-#    done
+    done
   done
 }
 

@@ -1,15 +1,30 @@
 #include "include/grpcpp/stats_time.h"
 #include <grpc/support/sync.h>
+#include <mutex>
 #include "absl/time/clock.h"
+#include "include/grpc/impl/codegen/log.h"
 #include "src/core/lib/debug/VariadicTable.h"
-grpc_stats_time_data* grpc_stats_time_storage = nullptr;
+thread_local grpc_stats_time_data* grpc_stats_time_storage = nullptr;
 bool grpc_stats_time_enabled = false;
+std::vector<grpc_stats_time_data*> grpc_stats_time_vec;
+std::mutex grpc_stats_time_mtx;
 
-void grpc_stats_time_init() {
+void grpc_stats_time_init(int thread_id) {
   auto* unit = getenv("GRPC_PROFILING");
+
   if (unit != nullptr) {
+    std::lock_guard<std::mutex> lg(grpc_stats_time_mtx);
+
+    if (grpc_stats_time_storage != nullptr) {
+      gpr_log(GPR_ERROR, "grpc_stats_time_storage already initialized");
+      return;
+    }
+
     auto s_unit = std::string(unit);
+
     grpc_stats_time_storage = new grpc_stats_time_data();
+    grpc_stats_time_storage->thread_id = thread_id;
+
     if (s_unit == "nano") {
       grpc_stats_time_storage->unit = GRPC_STATS_TIME_NANO;
     } else if (s_unit == "micro") {
@@ -25,6 +40,7 @@ void grpc_stats_time_init() {
       grpc_stats_time_storage->stats_per_op.push_back(
           new grpc_stats_time_entry());
     }
+    grpc_stats_time_vec.push_back(grpc_stats_time_storage);
   }
 }
 
@@ -133,10 +149,12 @@ double median(std::vector<int64_t>& v) {
 }
 
 void grpc_stats_time_print(std::ostream& os) {
-  if (grpc_stats_time_storage != nullptr) {
+  std::lock_guard<std::mutex> lg(grpc_stats_time_mtx);
+
+  for (auto time_storage : grpc_stats_time_vec) {
     int scale;
     std::string unit;
-    switch (grpc_stats_time_storage->unit) {
+    switch (time_storage->unit) {
       case GRPC_STATS_TIME_NANO: {
         unit = "nano";
         scale = 1;
@@ -159,7 +177,7 @@ void grpc_stats_time_print(std::ostream& os) {
     int max_group_id = -1;
     for (int op = 0; op < GRPC_STATS_TIME_MAX_OP_SIZE; op++) {
       max_group_id = std::max(max_group_id,
-                              grpc_stats_time_storage->stats_per_op[op]->group);
+                              time_storage->stats_per_op[op]->group);
     }
     std::vector<int64_t> total_count, total_time, max_time;
     total_count.resize(max_group_id + 1, 0);
@@ -167,7 +185,7 @@ void grpc_stats_time_print(std::ostream& os) {
     max_time.resize(max_group_id + 1, 0);
 
     for (int op = 0; op < GRPC_STATS_TIME_MAX_OP_SIZE; op++) {
-      auto& time_entry = *grpc_stats_time_storage->stats_per_op[op];
+      auto& time_entry = *time_storage->stats_per_op[op];
       auto curr_scale = scale;
       std::string suffix = "";
       if (!time_entry.scale) {

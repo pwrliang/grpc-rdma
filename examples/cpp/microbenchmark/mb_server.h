@@ -18,6 +18,7 @@ std::condition_variable cv;
 std::mutex cv_m;
 bool all_connected = false;
 std::atomic_int rest_n_client;
+extern bool is_server;
 
 struct Connections {
   Connections()
@@ -398,7 +399,7 @@ void serve_tcp(Connections* conns, const BenchmarkConfig* config) {
 
   auto send_msg = [&](int fd) {
     cycles_t c1 = get_cycles();
-    auto byte_sent = tcp_send(fd, &msghdr_out);
+    auto byte_sent = tcp_send1(fd, &msghdr_out);
     cycles_t c2 = get_cycles();
     conns->send_cycles += c2 - c1;
     conns->send_count++;
@@ -531,6 +532,7 @@ class RDMAServer {
  public:
   explicit RDMAServer(const BenchmarkConfig& config, const CommSpec& comm_spec)
       : config_(config), comm_spec_(comm_spec) {
+    is_server = true;
     sockfd_ = SocketUtils::socket(AF_INET, SOCK_STREAM, 0);
     int n_polling_thread = config_.n_max_polling_thread;
 

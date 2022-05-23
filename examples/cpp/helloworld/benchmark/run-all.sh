@@ -11,6 +11,7 @@ fi
 
 POLL_NUMS=(1)
 GRPC_MODES=(TCP RDMA_BP RDMA_EVENT)
+GRPC_MODES=(RDMA_BP)
 
 function set_hostfile() {
   n_clients=$1
@@ -85,11 +86,16 @@ function client_scalability() {
     for poll_num in "${POLL_NUMS[@]}"; do
       for grp_mode in "${GRPC_MODES[@]}"; do
         export GRPC_PLATFORM_TYPE=$grp_mode
-        for n_clients in 1 2 4 8 16 24 26 28 32 48 64 128; do
+        for n_clients in 4 8; do
 #        for n_clients in $(seq 20 1 28); do
           set_hostfile $n_clients
           export LOG_SUFFIX="${grp_mode}_${REQ}_${RESP}_${poll_num}"
-          ./run.sh --server_thread=24 --client_thread=1 --req="$REQ" --resp="$RESP" --poll-num="$poll_num" --batch=200000
+          ./run.sh --server_thread=24 \
+                   --client_thread=1 \
+                   --req="$REQ" \
+                   --resp="$RESP" \
+                   --poll-num="$poll_num" \
+                   --batch=200000
         done
       done
     done

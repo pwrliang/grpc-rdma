@@ -168,6 +168,8 @@ class ServerImpl final {
               }
             }
 
+            grpc_stats_time_init(idx);
+
             while (true) {
               GPR_ASSERT(cq->Next(&tag, &ok));
               GPR_ASSERT(ok);
