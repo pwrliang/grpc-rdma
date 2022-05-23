@@ -139,7 +139,6 @@ void grpc_init(void) {
     grpc_core::Fork::GlobalInit();
     grpc_fork_handlers_auto_register();
     grpc_stats_init();
-    grpc_stats_time_init();
     grpc_init_static_metadata_ctx();
     grpc_slice_intern_init();
     grpc_mdctx_global_init();

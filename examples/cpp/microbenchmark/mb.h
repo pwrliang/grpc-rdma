@@ -88,7 +88,7 @@ int bind_thread_to_core(int core_id) {
   return pthread_setaffinity_np(current_thread, sizeof(cpu_set_t), &cpuset);
 }
 
-ssize_t tcp_send(int fd, const struct msghdr* msg, int additional_flags = 0) {
+ssize_t tcp_send1(int fd, const struct msghdr* msg, int additional_flags = 0) {
   ssize_t sent_length;
   do {
     sent_length = sendmsg(fd, msg, MSG_NOSIGNAL | additional_flags);

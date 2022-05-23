@@ -482,7 +482,7 @@ class RDMAClient {
 
     auto send_msg = [&] {
       auto c1 = get_cycles();
-      auto byte_sent = tcp_send(sockfd_, &msghdr_out);
+      auto byte_sent = tcp_send1(sockfd_, &msghdr_out);
       auto c2 = get_cycles();
 
       send_cycles += c2 - c1;

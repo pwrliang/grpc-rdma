@@ -192,6 +192,8 @@ static void tcp_server_destroy(grpc_tcp_server* s) {
   }
 }
 
+bool is_server = false;
+
 /* event manager callback when reads are ready */
 static void on_read(void* arg, grpc_error_handle err) {
   grpc_tcp_listener* sp = static_cast<grpc_tcp_listener*>(arg);
@@ -208,6 +210,7 @@ static void on_read(void* arg, grpc_error_handle err) {
     /* Note: If we ever decide to return this address to the user, remember to
        strip off the ::ffff:0.0.0.0/96 prefix first. */
     int fd = grpc_accept4(sp->fd, &addr, 1, 1);
+    is_server = true;
     if (fd < 0) {
       switch (errno) {
         case EINTR:

@@ -3,6 +3,7 @@
 #include <grpc/support/sync.h>
 #include <atomic>
 #include <vector>
+#include <mutex>
 #include "absl/time/clock.h"
 typedef enum {
   GRPC_STATS_TIME_POLLABLE_EPOLL,
@@ -46,6 +47,8 @@ struct grpc_stats_time_entry {
   std::atomic_llong max_time;
   bool scale;
   int group;
+  int thread_id;
+  
   grpc_stats_time_entry()
       : duration(0), count(0), max_time(0), scale(true), group(-1) {}
 
@@ -65,11 +68,14 @@ struct grpc_stats_time_entry {
 typedef struct grpc_stats_time_data {
   std::vector<grpc_stats_time_entry*> stats_per_op;
   grpc_stats_time_unit unit;
+  int thread_id;
 } grpc_stats_time_data;
 
-extern grpc_stats_time_data* grpc_stats_time_storage;
+extern thread_local grpc_stats_time_data* grpc_stats_time_storage;
+extern std::vector<grpc_stats_time_data*> grpc_stats_time_vec;
+extern std::mutex grpc_stats_time_mtx;
 
-void grpc_stats_time_init(void);
+void grpc_stats_time_init(int);
 void grpc_stats_time_shutdown(void);
 void grpc_stats_time_enable();
 void grpc_stats_time_disable();
