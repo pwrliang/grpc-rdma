@@ -2,6 +2,7 @@
 
 #include <gflags/gflags.h>
 
+DEFINE_int32(cqs, 1, "");
 DEFINE_int32(threads, 1, "");
 DEFINE_int32(batch, 100000, "");
 DEFINE_string(host, "localhost", "");

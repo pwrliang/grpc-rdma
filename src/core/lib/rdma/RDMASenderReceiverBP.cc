@@ -27,6 +27,7 @@ RDMASenderReceiverBP::~RDMASenderReceiverBP() {
 }
 
 void RDMASenderReceiverBP::connect(int fd) {
+  fd_ = fd;
   conn_th_ = std::thread([this, fd]() {
     conn_->SyncQP(fd);
     conn_->SyncMR(fd, local_metadata_recvbuf_mr_, remote_metadata_recvbuf_mr_);

@@ -55,8 +55,6 @@
 #include "src/core/lib/transport/metadata.h"
 #include "src/core/lib/transport/static_metadata.h"
 
-std::map<grpc_channel*, grpc_endpoint*> grpc_server_endpoints;
-
 namespace grpc_core {
 
 TraceFlag grpc_server_channel_trace(false, "server_channel");
@@ -623,7 +621,6 @@ grpc_error_handle Server::SetupTransport(
   if (channel == nullptr) {
     return error;
   }
-  grpc_server_endpoints.insert(std::pair<grpc_channel*, grpc_endpoint*>(channel, grpc_transport_get_endpoint(transport)));
   ChannelData* chand = static_cast<ChannelData*>(
       grpc_channel_stack_element(grpc_channel_get_channel_stack(channel), 0)
           ->channel_data);

@@ -1080,6 +1080,7 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
 
   if (has_rdma_fds) {
     auto begin_poll_time = absl::Now();
+    bool break_flag = false;
 
     do {
       r = epoll_wait(p->epfd, p->events, MAX_EPOLL_EVENTS, 0);
@@ -1094,6 +1095,11 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
           auto* fd = fds[curr_poll_idx];
 
           GPR_ASSERT(fd->rdmasr != nullptr);
+          // if (fd->rdmasr->IfRemoteExit()) {
+          //   break_flag = true;
+          //   break;
+          // }
+
           uint32_t events = 0;
           // FIXME: We may implement this with Edeg-Trigger, but last time
           // that causes tensorflow-lenet to suck
@@ -1132,7 +1138,7 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
           std::this_thread::yield();
         }
       }
-    } while ((r < 0 && errno == EINTR) ||
+    } while ((r < 0 && errno == EINTR) || break_flag ||
              (r == 0 && (timeout == -1 || (absl::Now() - begin_poll_time) <
                                               absl::Milliseconds(timeout))));
   } else {

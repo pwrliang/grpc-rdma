@@ -272,43 +272,30 @@ struct grpc_call {
   gpr_atm recv_state = 0;
 };
 
-extern grpc_endpoint* grpc_client_endpoint;
-extern std::map<grpc_channel*, grpc_endpoint*> grpc_server_endpoints;
+// extern grpc_endpoint* grpc_client_endpoint;
+// extern std::map<grpc_channel*, grpc_endpoint*> grpc_server_endpoints;
+extern std::map <std::string, grpc_endpoint*> peer2endpoint;
 
 void* grpc_call_require_zerocopy_sendspace(grpc_call* call, size_t size) {
-  if (call->is_client && grpc_client_endpoint != nullptr) {
-    RDMASenderReceiver* rdmasr = nullptr;
-    switch (grpc_check_iomgr_platform()) {
-      case IOMGR_RDMA_BP:
-        rdmasr = grpc_rdma_bp_get_rdmasr(grpc_client_endpoint);
-        // printf("grpc_call_require_zerocopy_sendspace, rdmasr = %p, grpc_client_endpoint = %p\n", rdmasr, grpc_client_endpoint);
-        return rdmasr->require_zerocopy_sendspace(size);
-      case IOMGR_RDMA_EVENT:
-        rdmasr = grpc_rdma_event_get_rdmasr(grpc_client_endpoint);
-        // printf("grpc_call_require_zerocopy_sendspace, rdmasr = %p, grpc_client_endpoint = %p\n", rdmasr, grpc_client_endpoint);
-        return rdmasr->require_zerocopy_sendspace(size);
-    }
-  }
-  if (call->is_client == false) {
-    RDMASenderReceiver* rdmasr = nullptr;
-    switch (grpc_check_iomgr_platform()) {
-      case IOMGR_RDMA_BP:
-        if (grpc_server_endpoints.count(call->channel)) {
-          rdmasr = grpc_rdma_bp_get_rdmasr(grpc_server_endpoints.at(call->channel));
-          // printf("grpc_call_require_zerocopy_sendspace, rdmasr = %p\n", rdmasr);
-          return rdmasr->require_zerocopy_sendspace(size);
-        }
-        break;
-      case IOMGR_RDMA_EVENT:
-        if (grpc_server_endpoints.count(call->channel)) {
-          rdmasr = grpc_rdma_event_get_rdmasr(grpc_server_endpoints.at(call->channel));
-          // printf("grpc_call_require_zerocopy_sendspace, rdmasr = %p\n", rdmasr);
-          return rdmasr->require_zerocopy_sendspace(size);
-        }
-        break;
-    }
+  // printf("call get peer: %s\n", grpc_call_get_peer(call));
+
+  std::string peer = grpc_trim_peer(std::string(grpc_call_get_peer(call)));
+  
+  if (peer2endpoint.count(peer) == 0) return nullptr;
+
+  grpc_endpoint* ep = peer2endpoint[peer];
+
+  // printf("call get peer: %s\n", peer.c_str());
+
+  switch (grpc_check_iomgr_platform()) {
+    case IOMGR_RDMA_BP:
+      return grpc_rdma_bp_require_zerocopy_sendspace(ep, size);
+    case IOMGR_RDMA_EVENT:
+      return grpc_rdma_event_require_zerocopy_sendspace(ep, size);
+
   }
   return nullptr;
+
 }
 
 

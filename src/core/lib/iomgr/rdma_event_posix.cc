@@ -146,6 +146,7 @@ static void notify_on_write(grpc_rdma* rdma) {
 
 static void rdma_shutdown(grpc_endpoint* ep, grpc_error_handle why) {
   grpc_rdma* rdma = reinterpret_cast<grpc_rdma*>(ep);
+  rdma->rdmasr->Shutdown();
   grpc_fd_shutdown(rdma->em_fd, why);
   grpc_resource_user_shutdown(rdma->resource_user);
 }
@@ -321,6 +322,7 @@ static void rdma_handle_read(void* arg /* grpc_rdma */,
             rdma,
             rdma_annotate_error(
                 GRPC_ERROR_CREATE_FROM_STATIC_STRING("Socket closed"), rdma));
+        // printf("remote %s exit, local: %s\n", rdma->peer_string.c_str(), rdma->local_address.c_str());
         RDMA_UNREF(rdma, "read");
       } else if (ret == -1 && errno == EAGAIN) {
         if (GRPC_TRACE_FLAG_ENABLED(grpc_trace_transport_event)) {
@@ -443,6 +445,10 @@ static bool rdma_flush(grpc_rdma* rdma, grpc_error_handle* error) {
       grpc_stats_time_add_custom(GRPC_STATS_TIME_SEND_SIZE, sending_length);
     }
     if (!send_ok) {
+      if (rdma->rdmasr->IfRemoteExit()) {
+        grpc_slice_buffer_reset_and_unref_internal(rdma->outgoing_buffer);
+        return true;
+      }
       // not enough space in remote
       rdma->outgoing_byte_idx = unwind_byte_idx;
       for (size_t idx = 0; idx < unwind_slice_idx; idx++) {
@@ -673,10 +679,10 @@ void grpc_rdma_event_destroy_and_release_fd(grpc_endpoint* ep, int* fd,
   RDMA_UNREF(rdma, "destroy");
 }
 
-RDMASenderReceiver* grpc_rdma_event_get_rdmasr(grpc_endpoint* ep) {
-   grpc_rdma* rdma = reinterpret_cast<grpc_rdma*>(ep);
-   GPR_ASSERT(ep->vtable == &vtable);
-   return rdma->rdmasr;
+void* grpc_rdma_event_require_zerocopy_sendspace(grpc_endpoint* ep, size_t size) {
+  grpc_rdma* rdma = reinterpret_cast<grpc_rdma*>(ep);
+  GPR_ASSERT(ep->vtable == &vtable);
+  return rdma->rdmasr->require_zerocopy_sendspace(size); 
 }
 
 #endif /* GRPC_POSIX_SOCKET_TCP */

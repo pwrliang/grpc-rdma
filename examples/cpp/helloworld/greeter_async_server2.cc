@@ -24,6 +24,7 @@
 #include <memory>
 #include <string>
 #include <thread>
+#include <set>
 
 #ifdef BAZEL_BUILD
 #include "examples/protos/helloworld.grpc.pb.h"
@@ -95,12 +96,13 @@ class ServerImpl final {
         grpc::MakeChannelArgumentOption(GRPC_ARG_ALLOW_REUSEPORT, 0));
     builder.AddListeningPort(server_address, grpc::InsecureServerCredentials());
     builder.RegisterService(&service_);
-    for (int i = 0; i < FLAGS_threads; i++) {
+    for (int i = 0; i < FLAGS_cqs; i++) {
       cqs_.emplace_back(builder.AddCompletionQueue());
     }
     server_ = builder.BuildAndStart();
     std::cout << "Server listening on " << server_address
-              << ", thread: " << FLAGS_threads << std::endl;
+              << ", thread: " << FLAGS_threads 
+              << ", cq: " << FLAGS_cqs << std::endl;
 
     HandleRpcs();
   }
@@ -148,10 +150,10 @@ class ServerImpl final {
     std::vector<std::thread> ths;
     std::atomic_int32_t rest_rpc(FLAGS_batch);
 
-    for (int i = 0; i < cqs_.size(); i++) {
+    for (int i = 0; i < FLAGS_threads; i++) {
       ths.emplace_back(
           [this, &ths, &rest_rpc](int idx) {
-            auto& cq = cqs_[idx];
+            auto& cq = cqs_[idx % cqs_.size()];
             new CallData(&service_, cq.get());
             void* tag;
             bool ok;

@@ -95,9 +95,9 @@ void RDMANode::open(const char* name) {
     exit(-1);
   }
 
-//  gpr_log(GPR_INFO,
-//          "device %s attribute: max_cqe = %d, max_qp_wr = %d, max_sge = %d",
-//          name, dev_attr.max_cqe, dev_attr.max_qp_wr, dev_attr.max_sge);
+  //  gpr_log(GPR_INFO,
+  //          "device %s attribute: max_cqe = %d, max_qp_wr = %d, max_sge = %d",
+  //          name, dev_attr.max_cqe, dev_attr.max_qp_wr, dev_attr.max_sge);
 
   ib_pd = std::shared_ptr<ibv_pd>(ibv_alloc_pd(ib_ctx.get()),
                                   [](ibv_pd* p) { ibv_dealloc_pd(p); });

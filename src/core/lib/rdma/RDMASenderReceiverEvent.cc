@@ -31,13 +31,26 @@ RDMASenderReceiverEvent::RDMASenderReceiverEvent()
   connected_ = false;
 }
 
+void RDMASenderReceiverEvent::Shutdown() {
+  update_local_metadata();
+  if (remote_exit_ == 1) return;
+  reinterpret_cast<size_t*>(metadata_sendbuf_)[0] = ringbuf_->get_head();
+  reinterpret_cast<size_t*>(metadata_sendbuf_)[1] = conn_->get_rr_tail();
+  reinterpret_cast<size_t*>(metadata_sendbuf_)[2] = 1;
+  int n_entries = conn_metadata_->post_send(
+      remote_metadata_recvbuf_mr_, 0, metadata_sendbuf_mr_, 0,
+      metadata_sendbuf_sz_, IBV_WR_RDMA_WRITE);
+  conn_metadata_->poll_send_completion(n_entries);
+}
+
 RDMASenderReceiverEvent::~RDMASenderReceiverEvent() {
-  conn_->poll_send_completion(last_n_post_send_);
+  // conn_->poll_send_completion(last_n_post_send_);
   delete conn_metadata_;
   delete ringbuf_;
 }
 
 void RDMASenderReceiverEvent::connect(int fd) {
+  fd_ = fd;
   conn_th_ = std::thread([this, fd] {
     conn_->SyncQP(fd);
     conn_->SyncMR(fd, local_ringbuf_mr_, remote_ringbuf_mr_);
@@ -58,6 +71,7 @@ void RDMASenderReceiverEvent::connect(int fd) {
 void RDMASenderReceiverEvent::update_remote_metadata() {
   reinterpret_cast<size_t*>(metadata_sendbuf_)[0] = ringbuf_->get_head();
   reinterpret_cast<size_t*>(metadata_sendbuf_)[1] = conn_->get_rr_tail();
+  reinterpret_cast<size_t*>(metadata_sendbuf_)[2] = 0;
   int n_entries = conn_metadata_->post_send(
       remote_metadata_recvbuf_mr_, 0, metadata_sendbuf_mr_, 0,
       metadata_sendbuf_sz_, IBV_WR_RDMA_WRITE_WITH_IMM);
@@ -74,6 +88,7 @@ void RDMASenderReceiverEvent::update_local_metadata() {
   size_t old_remote_rr_tail_ = remote_rr_tail_;
   remote_ringbuf_head_ = reinterpret_cast<size_t*>(metadata_recvbuf_)[0];
   remote_rr_tail_ = reinterpret_cast<size_t*>(metadata_recvbuf_)[1];
+  remote_exit_ = reinterpret_cast<size_t*>(metadata_recvbuf_)[2];
 }
 
 size_t RDMASenderReceiverEvent::check_and_ack_incomings_locked() {
@@ -236,7 +251,13 @@ bool RDMASenderReceiverEvent::send(msghdr* msg, size_t mlen) {
   }
   total_send_size += mlen;
   {
-    conn_->poll_send_completion(last_n_post_send_);
+    int ret = conn_->poll_send_completion(last_n_post_send_);
+    if (ret != IBV_WC_SUCCESS) {
+      gpr_log(GPR_ERROR, "RDMASenderReceiverEvent::send, poll_send_completion failed, "
+        "fd = %d, zerocopy_flag = %d, mlen = %lld, remote_ringbuf_tail = %lld, ringbuf_sz = %lld, post_num = %d",
+        fd_, zerocopy_flag, mlen, remote_ringbuf_tail_, remote_ringbuf_sz, last_n_post_send_);
+      abort();
+    }
   }
   remote_rr_head_ =
       (remote_rr_head_ + last_n_post_send_) % DEFAULT_MAX_POST_RECV;

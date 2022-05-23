@@ -151,6 +151,7 @@ static void notify_on_write(grpc_rdma* rdma) {
 static void rdma_shutdown(grpc_endpoint* ep, grpc_error_handle why) {
   grpc_rdma* rdma = reinterpret_cast<grpc_rdma*>(ep);
   // printf("rdma shutdown, shutdown fd %d\n", grpc_fd_wrapped_fd(rdma->em_fd));
+  rdma->rdmasr->Shutdown();
   grpc_fd_shutdown(rdma->em_fd, why);
   grpc_resource_user_shutdown(rdma->resource_user);
 }
@@ -159,8 +160,6 @@ static void rdma_free(grpc_rdma* rdma) {
   // printf("rdma free, orphan fd %d\n", grpc_fd_wrapped_fd(rdma->em_fd));
   grpc_fd_orphan(rdma->em_fd, rdma->release_fd_cb, rdma->release_fd,
                  "rdma_unref_orphan");
-  //  printf("rdma free: fd = %d, global_endpoint_count = %d\n", rdma->fd,
-  //         global_endpoint_count.fetch_sub(1) - 1);
   grpc_slice_buffer_destroy_internal(&rdma->last_read_buffer);
   grpc_resource_user_unref(rdma->resource_user);
   delete rdma->rdmasr;
@@ -444,6 +443,10 @@ static bool rdma_flush(grpc_rdma* rdma, grpc_error_handle* error) {
       grpc_stats_time_add_custom(GRPC_STATS_TIME_SEND_SIZE, sending_length);
     }
     if (!send_ok) {
+      if (rdma->rdmasr->IfRemoteExit()) {
+        grpc_slice_buffer_reset_and_unref_internal(rdma->outgoing_buffer);
+        return true;
+      }
       // not enough space in remote
       rdma->outgoing_byte_idx = unwind_byte_idx;
       for (size_t idx = 0; idx < unwind_slice_idx; idx++) {
@@ -631,9 +634,6 @@ grpc_endpoint* grpc_rdma_bp_create(grpc_fd* em_fd,
   rdma->final_read = false;
   rdma->preallocate = true;
   grpc_fd_set_rdmasr_bp(em_fd, rdma->rdmasr);
-  //  global_endpoint_count.fetch_add(1);
-  //  printf("rdmasr %p is created, attached to fd: %d, global count = %d\n",
-  //         rdma->rdmasr, rdma->fd, global_endpoint_count.fetch_add(1) + 1);
   return &rdma->base;
 }
 
@@ -657,6 +657,12 @@ RDMASenderReceiver* grpc_rdma_bp_get_rdmasr(grpc_endpoint* ep) {
    grpc_rdma* rdma = reinterpret_cast<grpc_rdma*>(ep);
    GPR_ASSERT(ep->vtable == &vtable);
    return rdma->rdmasr;
+}
+
+void* grpc_rdma_bp_require_zerocopy_sendspace(grpc_endpoint* ep, size_t size) {
+  grpc_rdma* rdma = reinterpret_cast<grpc_rdma*>(ep);
+  GPR_ASSERT(ep->vtable == &vtable);
+  return rdma->rdmasr->require_zerocopy_sendspace(size); 
 }
 
 #endif /* GRPC_POSIX_SOCKET_TCP */
