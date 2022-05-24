@@ -93,12 +93,17 @@ class GreeterClient {
     void* got_tag;
     bool ok = false;
 
-    while (batch_size-- > 0 && rest_resp_-- > 0 && cq_.Next(&got_tag, &ok)) {
-      AsyncClientCall* call = static_cast<AsyncClientCall*>(got_tag);
+    while (batch_size > 0 && rest_resp_-- > 0) {
+      if (cq_.Next(&got_tag, &ok)) {
+        AsyncClientCall* call = static_cast<AsyncClientCall*>(got_tag);
 
-      GPR_ASSERT(ok);
-      GPR_ASSERT(call->status.ok());
-      delete call;
+        GPR_ASSERT(ok);
+        GPR_ASSERT(call->status.ok());
+        delete call;
+        batch_size--;
+      } else {
+        rest_resp_++;
+      }
     }
   }
 
@@ -166,8 +171,8 @@ int main(int argc, char** argv) {
         int send_batch_size = FLAGS_poll_num;
         for (int j = 0; j < chunk_size; j++) {
           greeter.SayHello(user);
-          if (j >= send_batch_size && j % send_batch_size == 0) {
-            greeter.AsyncCompleteRpc(1);
+          if (j % send_batch_size == 0) {
+            greeter.AsyncCompleteRpc(send_batch_size);
           }
         }
         greeter.AsyncCompleteRpc(std::numeric_limits<int>::max());
