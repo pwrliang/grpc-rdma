@@ -16,10 +16,7 @@ GRPC_MODES=(RDMA_BP)
 function set_hostfile() {
   n_clients=$1
   name_prefix=$(basename "$hostfile_template")
-  hostfile="/tmp/$name_prefix.${RANDOM}"
-  while [[ -f "$hostfile" ]]; do
-    hostfile="/tmp/$name_prefix.${RANDOM}"
-  done
+  hostfile="/tmp/$name_prefix"
   ./gen_hostfile.py ./hosts "$n_clients" >"$hostfile"
   export HOSTS_PATH="$hostfile"
 }
@@ -77,6 +74,9 @@ function client_scalability() {
   RESPs=(64 1024 4096 65536 131072)
   REQs=(64)
   RESPs=(64)
+  N_CLIENTS=(2 4 8 16 32)
+  N_THREADS=(1 2 4 8 16)
+  N_CLIENTS=(1 2 4 8 16 28 30 32 44 56 64)
 #          req_batch_size=$(get_batch_size "$REQ")
 #          resp_batch_size=$(get_batch_size "$RESP")
 #          batch_size=$((req_batch_size > resp_batch_size ? req_batch_size : resp_batch_size))
@@ -86,16 +86,24 @@ function client_scalability() {
     for poll_num in "${POLL_NUMS[@]}"; do
       for grp_mode in "${GRPC_MODES[@]}"; do
         export GRPC_PLATFORM_TYPE=$grp_mode
-        for n_clients in 4 8; do
-#        for n_clients in $(seq 20 1 28); do
-          set_hostfile $n_clients
-          export LOG_SUFFIX="${grp_mode}_${REQ}_${RESP}_${poll_num}"
-          ./run.sh --server_thread=24 \
+        for j in "${!N_CLIENTS[@]}"; do
+          set_hostfile "${N_CLIENTS[j]}"
+#          export LOG_SUFFIX="${grp_mode}_${REQ}_${RESP}_${N_THREADS[j]}"
+#          ./run.sh --server_thread="${N_THREADS[j]}" \
+#                   --client_thread=1 \
+#                   --req="$REQ" \
+#                   --resp="$RESP" \
+#                   --poll-num="$poll_num" \
+#                   --profiling=milli \
+#                   --batch=500000
+          export LOG_SUFFIX="${grp_mode}_${REQ}_${RESP}_affinity"
+          ./run.sh --server_thread=28 \
                    --client_thread=1 \
                    --req="$REQ" \
                    --resp="$RESP" \
                    --poll-num="$poll_num" \
-                   --batch=200000
+                   --batch=500000 \
+                   --affinity
         done
       done
     done

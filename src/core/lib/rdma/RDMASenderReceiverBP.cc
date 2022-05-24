@@ -1,8 +1,8 @@
 #include <mutex>
 #include <sstream>
 #include <thread>
-#include "RDMASenderReceiver.h"
 #include "RDMAConn.h"
+#include "RDMASenderReceiver.h"
 #include "fcntl.h"
 #include "grpc/impl/codegen/log.h"
 
@@ -55,11 +55,11 @@ size_t RDMASenderReceiverBP::check_and_ack_incomings_locked(bool read_all) {
 size_t RDMASenderReceiverBP::recv(msghdr* msg) {
   WaitConnect();
 
-  if (last_recv_time_ != absl::Time()) {
-    grpc_stats_time_add(GRPC_STATS_TIME_RECV_LAG, absl::Now() - last_recv_time_,
-                        -1);
+  if (last_recv_time_ != 0) {
+    grpc_stats_time_add(GRPC_STATS_TIME_RECV_LAG,
+                        get_cycles() - last_recv_time_, -1);
   }
-  last_recv_time_ = absl::Now();
+  last_recv_time_ = get_cycles();
   // the actual read size is unread_data_size
   size_t mlens = unread_mlens_;
   GPR_ASSERT(mlens > 0);
@@ -84,7 +84,8 @@ size_t RDMASenderReceiverBP::recv(msghdr* msg) {
 //   size_t len = mlen + sizeof(size_t) + 1;
 
 //   if (last_send_time_ != absl::Time()) {
-//     grpc_stats_time_add(GRPC_STATS_TIME_SEND_LAG, absl::Now() - last_send_time_,
+//     grpc_stats_time_add(GRPC_STATS_TIME_SEND_LAG, absl::Now() -
+//     last_send_time_,
 //                         -1);
 //   }
 //   last_send_time_ = absl::Now();
@@ -146,18 +147,17 @@ bool RDMASenderReceiverBP::send(msghdr* msg, size_t mlen) {
   size_t remote_ringbuf_sz = remote_ringbuf_mr_.length();
   size_t len = mlen + sizeof(size_t) + 1;
 
-  if (last_send_time_ != absl::Time()) {
-    grpc_stats_time_add(GRPC_STATS_TIME_SEND_LAG, absl::Now() - last_send_time_,
-                        -1);
+  if (last_send_time_ != 0) {
+    grpc_stats_time_add(GRPC_STATS_TIME_SEND_LAG,
+                        get_cycles() - last_send_time_, -1);
   }
-  last_send_time_ = absl::Now();
+  last_send_time_ = get_cycles();
 
   update_local_metadata();
 
   if (!is_writable(mlen)) {
     return false;
   }
-
 
   size_t zerocopy_size = 0;
   bool zerocopy_flag = false;
@@ -167,25 +167,26 @@ bool RDMASenderReceiverBP::send(msghdr* msg, size_t mlen) {
     GRPCProfiler profiler(GRPC_STATS_TIME_SEND_MEMCPY);
 
     auto t0 = std::chrono::high_resolution_clock::now();
-    
+
     *(size_t*)sendbuf_ = mlen;
     init_sge(sges, sendbuf_, sizeof(size_t), sendbuf_mr_.lkey());
-    uint8_t *sendbuf_ptr = sendbuf_ + sizeof(size_t);
+    uint8_t* sendbuf_ptr = sendbuf_ + sizeof(size_t);
     size_t iov_idx = 0, nwritten = 0;
     while (iov_idx < msg->msg_iovlen && nwritten < mlen) {
       void* iov_base = msg->msg_iov[iov_idx].iov_base;
       size_t iov_len = msg->msg_iov[iov_idx].iov_len;
       if (zerocopy_sendbuf_contains(iov_base)) {
         zerocopy_flag = true;
-        init_sge(&sges[++sge_idx], iov_base, iov_len, zerocopy_sendbuf_mr_.lkey());
+        init_sge(&sges[++sge_idx], iov_base, iov_len,
+                 zerocopy_sendbuf_mr_.lkey());
         unfinished_zerocopy_send_size_.fetch_sub(iov_len);
         total_zerocopy_send_size += iov_len;
         zerocopy_size += iov_len;
       } else {
         memcpy(sendbuf_ptr, iov_base, iov_len);
-        if (sges[sge_idx].lkey == sendbuf_mr_.lkey()) { // last sge in sendbuf
-          sges[sge_idx].length += iov_len; // merge in last sge
-        } else { // last sge in zerocopy_sendbuf
+        if (sges[sge_idx].lkey == sendbuf_mr_.lkey()) {  // last sge in sendbuf
+          sges[sge_idx].length += iov_len;               // merge in last sge
+        } else {  // last sge in zerocopy_sendbuf
           init_sge(&sges[++sge_idx], sendbuf_ptr, iov_len, sendbuf_mr_.lkey());
         }
         sendbuf_ptr += iov_len;
@@ -201,19 +202,18 @@ bool RDMASenderReceiverBP::send(msghdr* msg, size_t mlen) {
     }
   }
 
-
   {
     //    GRPCProfiler profiler(GRPC_STATS_TIME_SEND_IBV);
     {
       GRPCProfiler profiler(GRPC_STATS_TIME_SEND_POST);
       if (!zerocopy_flag) {
         last_n_post_send_ =
-          conn_->post_send(remote_ringbuf_mr_, remote_ringbuf_tail_,
-                           sendbuf_mr_, 0, len, IBV_WR_RDMA_WRITE);
+            conn_->post_send(remote_ringbuf_mr_, remote_ringbuf_tail_,
+                             sendbuf_mr_, 0, len, IBV_WR_RDMA_WRITE);
       } else {
-        last_n_post_send_ = 
-          conn_->post_sends(remote_ringbuf_mr_, remote_ringbuf_tail_, 
-                            sges, sge_idx + 1, len, IBV_WR_RDMA_WRITE);
+        last_n_post_send_ =
+            conn_->post_sends(remote_ringbuf_mr_, remote_ringbuf_tail_, sges,
+                              sge_idx + 1, len, IBV_WR_RDMA_WRITE);
       }
     }
     {

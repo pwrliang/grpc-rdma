@@ -89,8 +89,8 @@ struct grpc_rdma {
   bool final_read;
 
   bool preallocate;
-  absl::Time last_read_time;
-  absl::Time last_write_time;
+  cycles_t last_read_time;
+  cycles_t last_write_time;
   // grpc_core::TracedBuffer* tb_head; /* List of traced buffers */
   // gpr_mu tb_mu; /* Lock for access to list of traced buffers */
 
@@ -206,11 +206,11 @@ static void call_read_cb(grpc_rdma* rdma, grpc_error_handle error) {
 
 static void rdma_do_read(grpc_rdma* rdma) {
   GRPCProfiler profiler(GRPC_STATS_TIME_TRANSPORT_DO_READ, 0);
-  if (rdma->last_read_time != absl::Time()) {
+  if (rdma->last_read_time != 0) {
     grpc_stats_time_add(GRPC_STATS_TIME_RECV_LAG,
-                        absl::Now() - rdma->last_read_time, -1);
+                        get_cycles() - rdma->last_read_time, -1);
   }
-  rdma->last_read_time = absl::Now();
+  rdma->last_read_time = get_cycles();
   struct msghdr msg;
   struct iovec iov[MAX_READ_IOVEC];
   size_t iov_len =
@@ -322,7 +322,8 @@ static void rdma_handle_read(void* arg /* grpc_rdma */,
             rdma,
             rdma_annotate_error(
                 GRPC_ERROR_CREATE_FROM_STATIC_STRING("Socket closed"), rdma));
-        // printf("remote %s exit, local: %s\n", rdma->peer_string.c_str(), rdma->local_address.c_str());
+        // printf("remote %s exit, local: %s\n", rdma->peer_string.c_str(),
+        // rdma->local_address.c_str());
         RDMA_UNREF(rdma, "read");
       } else if (ret == -1 && errno == EAGAIN) {
         if (GRPC_TRACE_FLAG_ENABLED(grpc_trace_transport_event)) {
@@ -388,11 +389,11 @@ static void rdma_read(grpc_endpoint* ep, grpc_slice_buffer* incoming_buffer,
 
 static bool rdma_flush(grpc_rdma* rdma, grpc_error_handle* error) {
   GRPCProfiler profiler(GRPC_STATS_TIME_TRANSPORT_FLUSH, 0);
-  if (rdma->last_write_time != absl::Time()) {
+  if (rdma->last_write_time != 0) {
     grpc_stats_time_add(GRPC_STATS_TIME_SEND_LAG,
-                        absl::Now() - rdma->last_write_time, -1);
+                        get_cycles() - rdma->last_write_time, -1);
   }
-  rdma->last_write_time = absl::Now();
+  rdma->last_write_time = get_cycles();
   struct msghdr msg;
   struct iovec iov[MAX_WRITE_IOVEC];
   size_t iov_size;
@@ -657,6 +658,8 @@ grpc_endpoint* grpc_rdma_event_create(grpc_fd* em_fd,
   rdma->rdmasr = new RDMASenderReceiverEvent();
   rdma->rdmasr->connect(rdma->fd);
   rdma->final_read = false;
+  rdma->last_read_time = 0;
+  rdma->last_write_time = 0;
   grpc_fd_set_rdmasr_event(em_fd, rdma->rdmasr);
   // printf("rdmasr %p is created, attached to fd: %p, %d\n", rdma->rdmasr,
   // rdma->em_fd, rdma->fd);
@@ -679,10 +682,11 @@ void grpc_rdma_event_destroy_and_release_fd(grpc_endpoint* ep, int* fd,
   RDMA_UNREF(rdma, "destroy");
 }
 
-void* grpc_rdma_event_require_zerocopy_sendspace(grpc_endpoint* ep, size_t size) {
+void* grpc_rdma_event_require_zerocopy_sendspace(grpc_endpoint* ep,
+                                                 size_t size) {
   grpc_rdma* rdma = reinterpret_cast<grpc_rdma*>(ep);
   GPR_ASSERT(ep->vtable == &vtable);
-  return rdma->rdmasr->require_zerocopy_sendspace(size); 
+  return rdma->rdmasr->require_zerocopy_sendspace(size);
 }
 
 #endif /* GRPC_POSIX_SOCKET_TCP */

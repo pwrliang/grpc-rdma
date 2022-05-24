@@ -145,25 +145,29 @@ int main(int argc, char** argv) {
 
     std::vector<std::thread> threads;
     int batch_size = FLAGS_batch;
-    Stopwatch sw;
+    Stopwatch sw, sw1;
 
     greeter.Warmup(comm_spec);
 
     grpc_stats_time_enable();
 
-    sw.start();
     MPI_Barrier(comm_spec.comm());
+    sw.start();
+    sw1.start();
+
     for (int i = 0; i < FLAGS_threads; i++) {
       threads.emplace_back([&]() {
         auto chunk_size = (batch_size + FLAGS_threads - 1) / FLAGS_threads;
         std::string user;
         user.resize(FLAGS_req);
 
+        grpc_stats_time_init(0);
+
         int send_batch_size = FLAGS_poll_num;
         for (int j = 0; j < chunk_size; j++) {
           greeter.SayHello(user);
           if (j >= send_batch_size && j % send_batch_size == 0) {
-            greeter.AsyncCompleteRpc(send_batch_size);
+            greeter.AsyncCompleteRpc(1);
           }
         }
         greeter.AsyncCompleteRpc(std::numeric_limits<int>::max());
@@ -173,12 +177,19 @@ int main(int argc, char** argv) {
     for (std::thread& th : threads) {
       th.join();
     }
+    sw1.stop();
+
     MPI_Barrier(comm_spec.comm());
     sw.stop();
     double throughput = batch_size / sw.s();
     double total_throughput;
+    double time_per_cli = sw1.ms();
+    std::vector<double> cli_time_vec(comm_spec.worker_num());
+
     MPI_Reduce(&throughput, &total_throughput, 1, MPI_DOUBLE, MPI_SUM, 0,
                comm_spec.comm());
+    MPI_Gather(&time_per_cli, 1, MPI_DOUBLE, cli_time_vec.data(), 1, MPI_DOUBLE,
+               0, comm_spec.comm());
 
     std::stringstream ss;
     grpc_stats_time_print(ss);
@@ -187,10 +198,14 @@ int main(int argc, char** argv) {
     Gather(comm_spec.comm(), ss.str(), gathered_stats);
 
     if (comm_spec.worker_id() == 0) {
-      for (int i = 0; i < gathered_stats.size(); i++) {
-        printf("Worker: %d\n%s", i, gathered_stats[i].c_str());
+      for (int i = 0; i < comm_spec.worker_num(); i++) {
+        //        printf("Worker: %d time: %lf lat: %lf us\n%s", i, sw1.ms(),
+        //               sw1.ms() / batch_size * 1000,
+        //               gathered_stats[i].c_str());
+        printf("Worker: %d time: %lf lat: %lf us\n%s", i, cli_time_vec[i],
+               cli_time_vec[i] / batch_size * 1000, gathered_stats[i].c_str());
       }
-      std::cout << "Throughput: " << total_throughput << " req/s" << std::endl;
+      printf("Throughput: %lf req/s\n", total_throughput);
     }
   }
   FinalizeMPIComm();

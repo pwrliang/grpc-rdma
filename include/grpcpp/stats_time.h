@@ -1,10 +1,11 @@
 #ifndef GRPCPP_STATS_TIME_H
 #define GRPCPP_STATS_TIME_H
 #include <grpc/support/sync.h>
+#include <grpcpp/get_clock.h>
 #include <atomic>
-#include <vector>
 #include <mutex>
-#include "absl/time/clock.h"
+#include <vector>
+
 typedef enum {
   GRPC_STATS_TIME_POLLABLE_EPOLL,
   GRPC_STATS_TIME_POLLSET_WORK,
@@ -35,33 +36,29 @@ typedef enum {
   GRPC_STATS_TIME_ADHOC_5,
   GRPC_STATS_TIME_MAX_OP_SIZE,
 } grpc_stats_time;
+
 typedef enum {
-  GRPC_STATS_TIME_NANO,
   GRPC_STATS_TIME_MICRO,
-  GRPC_STATS_TIME_MILLI
+  GRPC_STATS_TIME_MILLI,
+  GRPC_STATS_TIME_SEC,
 } grpc_stats_time_unit;
 
+
 struct grpc_stats_time_entry {
-  std::atomic_llong duration;
-  std::atomic_llong count;
-  std::atomic_llong max_time;
+  uint64_t duration;
+  uint64_t count;
+  cycles_t max_time;
   bool scale;
   int group;
   int thread_id;
-  
+
   grpc_stats_time_entry()
       : duration(0), count(0), max_time(0), scale(true), group(-1) {}
 
-  inline void add(long long time) {
+  inline void add(cycles_t time) {
     duration += time;
     count++;
-    bool ok = true;
-    do {
-      auto prev_max = max_time.load();
-      if (time > prev_max) {
-        ok = max_time.compare_exchange_weak(prev_max, time);
-      }
-    } while (!ok);
+    max_time = std::max(max_time, time);
   }
 };
 
@@ -85,22 +82,18 @@ std::string grpc_stats_time_op_to_str(int op);
 
 void grpc_stats_time_add_custom(grpc_stats_time op, long long data);
 
-void grpc_stats_time_add(grpc_stats_time op, const absl::Duration& time,
-                         int group = -1);
+void grpc_stats_time_add(grpc_stats_time op, cycles_t cycles, int group = -1);
 
 class GRPCProfiler {
  public:
-  explicit GRPCProfiler(grpc_stats_time op, int group = -1)
-      : op_(op), group_(group) {
-    begin_ = absl::Now();
-  }
+  explicit GRPCProfiler(grpc_stats_time op, int group = -1);
 
-  ~GRPCProfiler() { grpc_stats_time_add(op_, (absl::Now() - begin_), group_); }
+  ~GRPCProfiler();
 
  private:
   grpc_stats_time op_;
   int group_;
-  absl::Time begin_;
+  cycles_t begin_;
 };
 
 #endif  // GRPCPP_STATS_TIME_H

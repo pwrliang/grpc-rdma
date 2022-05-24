@@ -17,6 +17,7 @@ RESP_SIZE=4096
 N_REPEAT=5
 POLL_NUM=100
 PROFILING=""
+AFFINITY="false"
 
 if [[ ! -f "$HELLOWORLD_HOME/$SERVER_PROGRAM" ]]; then
   echo "Invalid HELLOWORLD_HOME"
@@ -65,6 +66,10 @@ for i in "$@"; do
     export GRPC_SLEEP=$SLEEP
     shift
     ;;
+  --affinity)
+    AFFINITY="true"
+    shift
+    ;;
   --* | -*)
     echo "Unknown option $i"
     exit 1
@@ -77,7 +82,7 @@ done
 LOG_PATH=$(realpath "$SCRIPT_DIR/logs/")
 
 if [[ -n $PROFILING ]]; then
-  LOG_PATH="$LOG_PATH/profile"
+  LOG_PATH="$LOG_PATH/profile_cli_$NP"
 else
   LOG_PATH="$LOG_PATH/bench_cli_$NP"
 fi
@@ -93,7 +98,8 @@ function start_server() {
     -n 1 -host "$SERVER" \
     "$HELLOWORLD_HOME"/$SERVER_PROGRAM \
     -threads="$SERVER_THREADS" \
-    -resp "$RESP_SIZE" >"$1" &
+    -cqs="$SERVER_THREADS" \
+    -resp "$RESP_SIZE" -affinity="$AFFINITY" >"$1" &
 }
 
 function kill_server() {
@@ -123,6 +129,7 @@ for workload in ${WORKLOADS}; do
         "$HELLOWORLD_HOME/$workload" \
         -host "$SERVER" \
         -threads "$CLIENT_THREADS" \
+        -cqs "$CLIENT_THREADS" \
         -batch "$BATCH_SIZE" \
         -poll_num "$POLL_NUM" \
         -req "$REQ_SIZE" | tee -a "${curr_log_path}.tmp" 2>&1

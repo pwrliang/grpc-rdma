@@ -22,9 +22,9 @@
 #include <signal.h>
 #include <iostream>
 #include <memory>
+#include <set>
 #include <string>
 #include <thread>
-#include <set>
 
 #ifdef BAZEL_BUILD
 #include "examples/protos/helloworld.grpc.pb.h"
@@ -101,8 +101,8 @@ class ServerImpl final {
     }
     server_ = builder.BuildAndStart();
     std::cout << "Server listening on " << server_address
-              << ", thread: " << FLAGS_threads 
-              << ", cq: " << FLAGS_cqs << std::endl;
+              << ", thread: " << FLAGS_threads << ", cq: " << FLAGS_cqs
+              << std::endl;
 
     HandleRpcs();
   }
@@ -171,9 +171,14 @@ class ServerImpl final {
             grpc_stats_time_init(idx);
 
             while (true) {
+              cycles_t c1 = get_cycles();
               GPR_ASSERT(cq->Next(&tag, &ok));
               GPR_ASSERT(ok);
+              cycles_t c2 = get_cycles();
               static_cast<CallData*>(tag)->Proceed();
+              cycles_t c3 = get_cycles();
+              grpc_stats_time_add(GRPC_STATS_TIME_SERVER_CQ_NEXT, c2 - c1);
+              grpc_stats_time_add(GRPC_STATS_TIME_ADHOC_1, c3 - c2);
             }
           },
           i);

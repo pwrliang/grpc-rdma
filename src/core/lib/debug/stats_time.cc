@@ -1,13 +1,20 @@
 #include "include/grpcpp/stats_time.h"
 #include <grpc/support/sync.h>
 #include <mutex>
-#include "absl/time/clock.h"
 #include "include/grpc/impl/codegen/log.h"
+#include "include/grpcpp/get_clock.h"
 #include "src/core/lib/debug/VariadicTable.h"
 thread_local grpc_stats_time_data* grpc_stats_time_storage = nullptr;
 bool grpc_stats_time_enabled = false;
 std::vector<grpc_stats_time_data*> grpc_stats_time_vec;
 std::mutex grpc_stats_time_mtx;
+
+GRPCProfiler::GRPCProfiler(grpc_stats_time op, int group)
+    : op_(op), group_(group), begin_(get_cycles()) {}
+
+GRPCProfiler::~GRPCProfiler() {
+  grpc_stats_time_add(op_, (get_cycles() - begin_), group_);
+}
 
 void grpc_stats_time_init(int thread_id) {
   auto* unit = getenv("GRPC_PROFILING");
@@ -25,12 +32,12 @@ void grpc_stats_time_init(int thread_id) {
     grpc_stats_time_storage = new grpc_stats_time_data();
     grpc_stats_time_storage->thread_id = thread_id;
 
-    if (s_unit == "nano") {
-      grpc_stats_time_storage->unit = GRPC_STATS_TIME_NANO;
-    } else if (s_unit == "micro") {
+    if (s_unit == "micro") {
       grpc_stats_time_storage->unit = GRPC_STATS_TIME_MICRO;
     } else if (s_unit == "milli") {
       grpc_stats_time_storage->unit = GRPC_STATS_TIME_MILLI;
+    } else if (s_unit == "s") {
+      grpc_stats_time_storage->unit = GRPC_STATS_TIME_SEC;
     } else {
       printf("Invalid profiling time unit: %s\n", unit);
       exit(1);
@@ -67,10 +74,9 @@ void grpc_stats_time_add_custom(grpc_stats_time op, long long time) {
   }
 }
 
-void grpc_stats_time_add(grpc_stats_time op, const absl::Duration& time,
-                         int group) {
+void grpc_stats_time_add(grpc_stats_time op, cycles_t cycles, int group) {
   if (grpc_stats_time_storage != nullptr && grpc_stats_time_enabled) {
-    grpc_stats_time_storage->stats_per_op[op]->add(ToInt64Nanoseconds(time));
+    grpc_stats_time_storage->stats_per_op[op]->add(cycles);
     grpc_stats_time_storage->stats_per_op[op]->group = group;
   }
 }
@@ -136,68 +142,74 @@ std::string grpc_stats_time_op_to_str(int op) {
   }
 }
 
-double median(std::vector<int64_t>& v) {
-  size_t n = v.size() / 2;
-  std::nth_element(v.begin(), v.begin() + n, v.end());
-  int vn = v[n];
-  if (v.size() % 2 == 1) {
-    return vn;
-  } else {
-    std::nth_element(v.begin(), v.begin() + n - 1, v.end());
-    return 0.5 * (vn + v[n - 1]);
-  }
-}
-
 void grpc_stats_time_print(std::ostream& os) {
+  int no_cpu_freq_fail = 0;
+  double mhz = get_cpu_mhz(no_cpu_freq_fail);
   std::lock_guard<std::mutex> lg(grpc_stats_time_mtx);
 
   for (auto time_storage : grpc_stats_time_vec) {
     int scale;
     std::string unit;
+    bool has_data = false;
+
     switch (time_storage->unit) {
-      case GRPC_STATS_TIME_NANO: {
-        unit = "nano";
+      case GRPC_STATS_TIME_MICRO: {
+        unit = "us";
         scale = 1;
         break;
       }
-      case GRPC_STATS_TIME_MICRO: {
-        unit = "micro";
+      case GRPC_STATS_TIME_MILLI: {
+        unit = "ms";
         scale = 1000;
         break;
       }
-      case GRPC_STATS_TIME_MILLI: {
-        unit = "milli";
+      case GRPC_STATS_TIME_SEC: {
+        unit = "s";
         scale = 1000 * 1000;
         break;
       }
     }
 
-    VariadicTable<std::string, size_t, int64_t, int64_t, int64_t> vt(
-        {"Name", "Count", "Time (" + unit + ")", "Time Avg", "Time Max"});
+    VariadicTable<std::string, size_t, int64_t, double, double> vt(
+        {"Name", "Count", "Time (" + unit + ")", "Time Avg (us)",
+         "Time Max (" + unit + ")"});
+    vt.setColumnPrecision({0, 0, 0, 2, 2});
+    vt.setColumnFormat(
+        {VariadicTableColumnFormat::AUTO, VariadicTableColumnFormat::AUTO,
+         VariadicTableColumnFormat::FIXED, VariadicTableColumnFormat::FIXED,
+         VariadicTableColumnFormat::FIXED});
     int max_group_id = -1;
     for (int op = 0; op < GRPC_STATS_TIME_MAX_OP_SIZE; op++) {
-      max_group_id = std::max(max_group_id,
-                              time_storage->stats_per_op[op]->group);
+      max_group_id =
+          std::max(max_group_id, time_storage->stats_per_op[op]->group);
     }
-    std::vector<int64_t> total_count, total_time, max_time;
+    std::vector<int64_t> total_count;
+    std::vector<double> total_time, max_time;
     total_count.resize(max_group_id + 1, 0);
     total_time.resize(max_group_id + 1, 0);
     max_time.resize(max_group_id + 1, 0);
 
     for (int op = 0; op < GRPC_STATS_TIME_MAX_OP_SIZE; op++) {
       auto& time_entry = *time_storage->stats_per_op[op];
-      auto curr_scale = scale;
       std::string suffix = "";
-      if (!time_entry.scale) {
-        curr_scale = 1;
-        suffix = " (not time)";
-      }
-      int64_t curr_max_time = time_entry.max_time / curr_scale;
-      auto count = time_entry.count.load();
-      auto time = time_entry.duration.load() / curr_scale;
+
+      auto count = time_entry.count;
+      int group = time_entry.group;
 
       if (count > 0) {
-        int group = time_entry.group;
+        double curr_max_time;
+        double time, time_in_micro;
+
+        if (time_entry.scale) {
+          curr_max_time = time_entry.max_time / mhz / scale;
+          time_in_micro = time_entry.duration / mhz;
+          time = time_in_micro / scale;
+        } else {
+          suffix = " (not time)";
+          curr_max_time = time_entry.max_time;
+          time_in_micro = time = time_entry.duration;
+        }
+
         if (group != -1) {
           suffix += " (group " + std::to_string(time_entry.group) + ")";
           total_count[group] += time_entry.count;
@@ -206,7 +218,8 @@ void grpc_stats_time_print(std::ostream& os) {
         }
 
         vt.addRow(grpc_stats_time_op_to_str(op) + suffix, time_entry.count,
-                  time, time / count, curr_max_time);
+                  time, time_in_micro / count, curr_max_time);
+        has_data = true;
       }
     }
 
@@ -217,8 +230,10 @@ void grpc_stats_time_print(std::ostream& os) {
                   max_time[group]);
       }
     }
-
-    vt.print(os);
+    if (has_data) {
+      os << "TID: " << time_storage->thread_id << std::endl;
+      vt.print(os);
+    }
   }
 }
 

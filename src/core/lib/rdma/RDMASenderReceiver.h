@@ -8,7 +8,7 @@
 #include <mutex>
 #include <vector>
 #include "RDMAConn.h"
-#include "absl/time/clock.h"
+#include "grpcpp/get_clock.h"
 #include "ringbuffer.h"
 
 const size_t DEFAULT_RINGBUF_SZ = 1024ull * 1024;
@@ -24,7 +24,9 @@ class RDMASenderReceiver {
         unread_mlens_(0),
         metadata_recvbuf_sz_(DEFAULT_HEADBUF_SZ),
         metadata_sendbuf_sz_(DEFAULT_HEADBUF_SZ),
-        connected_(false) {
+        connected_(false),
+        last_send_time_(0),
+        last_recv_time_(0) {
     auto& node = RDMANode::GetInstance();
     auto pd = node.get_pd();
     size_t sendbuf_size = ringbuf->get_sendbuf_size();
@@ -100,9 +102,7 @@ class RDMASenderReceiver {
     }
   }
 
-  bool IfRemoteExit() {
-    return remote_exit_ == 1;
-  }
+  bool IfRemoteExit() { return remote_exit_ == 1; }
 
   void* require_zerocopy_sendspace(size_t size) {
     if (!zerocopy_flag_ || size >= ringbuf_->get_sendbuf_size() - 64) {
@@ -123,7 +123,8 @@ class RDMASenderReceiver {
   bool zerocopy_sendbuf_contains(void* bytes) {
     if (!zerocopy_flag_) return false;
     uint8_t* ptr = (uint8_t*)bytes;
-    return (ptr >= zerocopy_sendbuf_ && ptr < (zerocopy_sendbuf_ + ringbuf_->get_sendbuf_size()));
+    return (ptr >= zerocopy_sendbuf_ &&
+            ptr < (zerocopy_sendbuf_ + ringbuf_->get_sendbuf_size()));
   }
 
  protected:
@@ -169,8 +170,8 @@ class RDMASenderReceiver {
   MemRegion metadata_sendbuf_mr_;
 
   // Profiling
-  absl::Time last_send_time_;
-  absl::Time last_recv_time_;
+  cycles_t last_send_time_;
+  cycles_t last_recv_time_;
 
   bool connected_;
   int remote_exit_ = 0;

@@ -1515,6 +1515,7 @@ config("grpc_config") {
         "src/cpp/client/credentials_cc.cc",
         "src/cpp/client/insecure_credentials.cc",
         "include/grpcpp/stats_time.h",
+        "include/grpcpp/get_clock.h",
         "src/core/lib/debug/stats_time.cc",
         "src/core/lib/debug/get_clock.cc",
         "src/cpp/client/secure_credentials.cc",
