@@ -7,6 +7,7 @@
 #include "grpc/impl/codegen/log.h"
 
 #include "include/grpcpp/stats_time.h"
+
 RDMASenderReceiverBP::RDMASenderReceiverBP()
     : RDMASenderReceiver(new RDMAConn(&RDMANode::GetInstance()),
                          new RingBufferBP(DEFAULT_RINGBUF_SZ)),

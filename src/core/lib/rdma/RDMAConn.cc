@@ -39,7 +39,7 @@ RDMAConn::RDMAConn(RDMANode* node, bool event_mode) : node_(node) {
 //    ibv_modify_cq_attr attr;
 //    memset(&attr, 0, sizeof(attr));
 //    attr.attr_mask = IBV_CQ_ATTR_MODERATE;
-//    attr.moderate.cq_count = 32767;
+//    attr.moderate.cq_count = 5;
 //    attr.moderate.cq_period = 40;
 //    int err = ibv_modify_cq(rcq_.get(), &attr);
 //    if (err != 0) {

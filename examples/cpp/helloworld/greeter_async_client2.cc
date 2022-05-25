@@ -165,12 +165,16 @@ int main(int argc, char** argv) {
         auto chunk_size = (batch_size + FLAGS_threads - 1) / FLAGS_threads;
         std::string user;
         user.resize(FLAGS_req);
+        const std::string& s_cli =
+            std::to_string(comm_spec.worker_id()) + "_" + std::to_string(i);
+        user.copy(const_cast<char*>(s_cli.c_str()), s_cli.length());
 
         grpc_stats_time_init(0);
 
         int send_batch_size = FLAGS_poll_num;
         for (int j = 0; j < chunk_size; j++) {
           greeter.SayHello(user);
+
           if (j % send_batch_size == 0) {
             greeter.AsyncCompleteRpc(send_batch_size);
           }

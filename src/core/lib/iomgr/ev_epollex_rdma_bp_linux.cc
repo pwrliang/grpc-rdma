@@ -728,7 +728,6 @@ static grpc_error_handle pollable_add_fd(pollable* p, grpc_fd* fd) {
   if (fd->rdmasr != nullptr) {
     gpr_mu_lock(&fd->rdma_mu);
     size_t pollable_size = fd->polling_by->size();
-    gpr_mu_unlock(&fd->rdma_mu);
 
     if (fd->client || pollable_size == 0) {
       gpr_mu_lock(&p->rdma_mu);
@@ -738,10 +737,9 @@ static grpc_error_handle pollable_add_fd(pollable* p, grpc_fd* fd) {
       }
       gpr_mu_unlock(&p->rdma_mu);
 
-      gpr_mu_lock(&fd->rdma_mu);
       fd->polling_by->push_back(p);
-      gpr_mu_unlock(&fd->rdma_mu);
     }
+    gpr_mu_unlock(&fd->rdma_mu);
   }
 
   return error;
@@ -1086,13 +1084,14 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
       r = epoll_wait(p->epfd, p->events, MAX_EPOLL_EVENTS, 0);
 
       if (r < MAX_EPOLL_EVENTS) {
-        //        gpr_mu_lock(&p->rdma_mu);
+        gpr_mu_lock(&p->rdma_mu);
         auto& fds = *p->rdma_fds;
         auto last_poll_idx = p->last_poll_idx;
         auto curr_poll_idx = last_poll_idx;
         for (size_t i = 0; i < fds.size() && r < MAX_EPOLL_EVENTS; i++) {
-          curr_poll_idx = (i + last_poll_idx) % fds.size();
-          auto* fd = fds[curr_poll_idx];
+          //          curr_poll_idx = (i + last_poll_idx) % fds.size();
+          //          auto* fd = fds[curr_poll_idx];
+          auto* fd = fds[i];
 
           GPR_ASSERT(fd->rdmasr != nullptr);
           // if (fd->rdmasr->IfRemoteExit()) {
@@ -1120,7 +1119,7 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
           }
         }
         p->last_poll_idx = curr_poll_idx;
-        //        gpr_mu_unlock(&p->rdma_mu);
+        gpr_mu_unlock(&p->rdma_mu);
       }
       if (r == 0) {
         /* N.B. this is crucial for performance: we spin 1 microsecond to
