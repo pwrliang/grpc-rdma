@@ -7,6 +7,7 @@
 #include <unistd.h>
 #include <queue>
 #include "SockUtils.h"
+#include "absl/time/clock.h"
 #include "absl/time/time.h"
 #include "get_clock.h"
 #include "gflags/gflags.h"
@@ -389,6 +390,244 @@ class RDMAClient {
             }
           }
 
+          cycles_t c2 = get_cycles();
+          iter_cycles += c2 - c1;
+          n_iter++;
+          if (config_.send_interval_us > 0) {
+            gpr_sleep_until(gpr_time_add(
+                gpr_now(GPR_CLOCK_REALTIME),
+                gpr_time_from_micros(config_.send_interval_us, GPR_TIMESPAN)));
+          }
+        }
+        // Notify server to exit
+        data_out = -1;
+        send_msg();
+        break;
+      }
+    }
+
+    auto t_end = absl::Now();
+
+    rusage rusage;
+    getrusage(RUSAGE_THREAD, &rusage);
+    int no_cpu_freq_fail = 0;
+    double mhz = get_cpu_mhz(no_cpu_freq_fail);
+
+    std::stringstream ss;
+    ss << "Rank: " << comm_spec_.worker_id()
+       << " Runtime: " << ToDoubleSeconds((t_end - t_begin)) << " s"
+       << " Iter: " << n_iter << " Avg Iter: " << iter_cycles / mhz / n_iter
+       << " us";
+    ss << " nvcsw: " << rusage.ru_nvcsw << " nivscw: " << rusage.ru_nivcsw;
+    gpr_log(GPR_INFO, "%s", ss.str().c_str());
+
+    MPI_Request request;
+    MPI_Ibarrier(comm_spec_.client_comm(), &request);
+
+    int flag = 0;
+    do {
+      MPI_Test(&request, &flag, MPI_STATUS_IGNORE);
+      std::this_thread::yield();
+    } while (flag == 0);
+  }
+
+  void RunAdaptive() {
+    RDMASenderReceiverAdaptive rdmasr;
+    rdmasr.connect(sockfd_);
+    rdmasr.WaitConnect();
+    // Waiting for all clients connected
+    if (config_.mpi_server) {
+      MPI_Barrier(comm_spec_.comm());
+    }
+
+    if (config_.affinity) {
+      int num_cores = sysconf(_SC_NPROCESSORS_ONLN);
+      bind_thread_to_core(comm_spec_.local_id() % num_cores);
+    }
+
+    int epfd = epoll_create1(EPOLL_CLOEXEC);
+
+    int wakeup_fd = rdmasr.get_wakeup_fd();
+    struct epoll_event wakeup_ep_ev;
+    wakeup_ep_ev.events =
+        static_cast<uint32_t>(EPOLLIN | EPOLLET | EPOLLEXCLUSIVE);
+    wakeup_ep_ev.data.ptr =
+        reinterpret_cast<void*>(reinterpret_cast<intptr_t>(&rdmasr) | 1);
+    if (epoll_ctl(epfd, EPOLL_CTL_ADD, wakeup_fd, &wakeup_ep_ev) != 0) {
+      switch (errno) {
+        case EEXIST:
+          break;
+        default:
+          gpr_log(GPR_ERROR, "epoll_ctl error, errno: %d", errno);
+      }
+    }
+
+    int rdma_recv_channel_fd = rdmasr.get_recv_channel_fd();
+    struct epoll_event recv_ev_fd;
+    recv_ev_fd.events =
+        static_cast<uint32_t>(EPOLLIN | EPOLLET | EPOLLEXCLUSIVE);
+    recv_ev_fd.data.ptr =
+        reinterpret_cast<void*>(reinterpret_cast<intptr_t>(&rdmasr) | 2);
+    if (epoll_ctl(epfd, EPOLL_CTL_ADD, rdma_recv_channel_fd, &recv_ev_fd) !=
+        0) {
+      switch (errno) {
+        case EEXIST:
+          break;
+        default:
+          gpr_log(GPR_ERROR, "epoll_ctl error, errno: %d", errno);
+      }
+    }
+
+    int64_t data_out = 0, data_in = 0;
+    msghdr msghdr_out, msghdr_in;
+    iovec iov_out, iov_in;
+    iov_out.iov_base = &data_out;
+    iov_out.iov_len = sizeof(data_out);
+    iov_in.iov_base = &data_in;
+    iov_in.iov_len = sizeof(data_in);
+    msghdr_out.msg_iov = &iov_out;
+    msghdr_out.msg_iovlen = 1;
+    msghdr_in.msg_iov = &iov_in;
+    msghdr_in.msg_iovlen = 1;
+    int send_idx = 0;
+
+    auto batch_size = config_.n_batch;
+    epoll_event events[MAX_EVENTS];
+
+    auto send_msg = [&] {
+      if (data_out != -1) {
+        data_out = send_idx++;
+      }
+      while (!rdmasr.send(&msghdr_out, sizeof(data_out))) {
+        gpr_log(GPR_ERROR, "Failed to send");
+      }
+    };
+
+    cycles_t iter_cycles = 0;
+    size_t n_iter = 0;
+
+    MPI_Barrier(comm_spec_.client_comm());
+
+    auto t_begin = absl::Now();
+
+    switch (config_.dir) {
+      case Dir::kC2S: {
+        for (int i = 0; i < batch_size; ++i) {
+          cycles_t c1 = get_cycles();
+          if (i == batch_size - 1) {  // notify server to exit
+            data_out = -1;
+          }
+          send_msg();
+          cycles_t c2 = get_cycles();
+          iter_cycles += c2 - c1;
+          if (config_.send_interval_us > 0) {
+            gpr_sleep_until(gpr_time_add(
+                gpr_now(GPR_CLOCK_REALTIME),
+                gpr_time_from_micros(config_.send_interval_us, GPR_TIMESPAN)));
+          }
+        }
+        n_iter = batch_size;
+        break;
+      }
+      case Dir::kS2C: {
+        bool running = true;
+        auto process_event = [&](RDMASenderReceiverAdaptive* rdmasr) {
+          auto rest_mlen = rdmasr->check_and_ack_incomings_locked(true);
+
+          while (rest_mlen > 0) {
+            rest_mlen -= rdmasr->recv(&msghdr_in);
+
+            if (data_in == -1) {
+              running = false;
+              GPR_ASSERT(rest_mlen == 0);
+            }
+          }
+        };
+
+        cycles_t c1 = get_cycles();
+        while (running) {
+          int r;
+
+          do {
+            r = epoll_wait(epfd, events, MAX_EVENTS, config_.client_timeout);
+          } while ((r < 0 && errno == EINTR) || r == 0);
+
+          for (int j = 0; j < r; j++) {
+            epoll_event& ev = events[j];
+            void* data_ptr = ev.data.ptr;
+
+            if ((reinterpret_cast<intptr_t>(data_ptr) & 1) == 1) {
+              auto* rdmasr_ev = reinterpret_cast<RDMASenderReceiverAdaptive*>(
+                  ~static_cast<intptr_t>(1) &
+                  reinterpret_cast<intptr_t>(ev.data.ptr));
+              if ((ev.events & EPOLLIN) != 0) {
+                process_event(rdmasr_ev);
+              }
+            } else if ((reinterpret_cast<intptr_t>(data_ptr) & 2) == 2) {
+              auto* rdmasr_ev = reinterpret_cast<RDMASenderReceiverAdaptive*>(
+                  ~static_cast<intptr_t>(1) &
+                  reinterpret_cast<intptr_t>(ev.data.ptr));
+              if ((ev.events & EPOLLIN) != 0) {
+                rdmasr_ev->check_data();
+                process_event(rdmasr_ev);
+              }
+            }
+          }
+        }
+        cycles_t c2 = get_cycles();
+        iter_cycles += c2 - c1;
+        n_iter++;
+        break;
+      }
+      case Dir::kBi: {
+        auto process_event = [&](RDMASenderReceiverAdaptive* rdmasr) {
+          auto rest_mlen = rdmasr->check_and_ack_incomings_locked(false);
+
+          if (rest_mlen > 0) {
+            rest_mlen -= rdmasr->recv(&msghdr_in);
+            GPR_ASSERT(rest_mlen == 0);
+            send_msg();
+            //            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+          }
+        };
+
+        send_msg();
+
+        while (n_iter < batch_size) {
+          cycles_t c1 = get_cycles();
+          int r;
+          do {
+            r = epoll_wait(epfd, events, MAX_EVENTS, config_.client_timeout);
+          } while ((r < 0 && errno == EINTR) || r == 0);
+
+          for (int j = 0; j < r; j++) {
+            epoll_event& ev = events[j];
+            void* data_ptr = ev.data.ptr;
+
+            if ((reinterpret_cast<intptr_t>(data_ptr) & 1) == 1) {
+              auto* rdmasr_ev = reinterpret_cast<RDMASenderReceiverAdaptive*>(
+                  ~static_cast<intptr_t>(1) &
+                  reinterpret_cast<intptr_t>(ev.data.ptr));
+
+              if ((ev.events & EPOLLIN) != 0) {
+                ssize_t sz;
+                uint64_t val;
+                do {
+                  sz = read(rdmasr_ev->get_wakeup_fd(), &val, sizeof(val));
+                } while (sz < 0 && errno == EAGAIN);
+                process_event(rdmasr_ev);
+              }
+            } else if ((reinterpret_cast<intptr_t>(data_ptr) & 2) == 2) {
+              auto* rdmasr_ev = reinterpret_cast<RDMASenderReceiverAdaptive*>(
+                  ~static_cast<intptr_t>(2) &
+                  reinterpret_cast<intptr_t>(ev.data.ptr));
+
+              if ((ev.events & EPOLLIN) != 0) {
+                rdmasr_ev->check_data();
+                process_event(rdmasr_ev);
+              }
+            }
+          }
           cycles_t c2 = get_cycles();
           iter_cycles += c2 - c1;
           n_iter++;

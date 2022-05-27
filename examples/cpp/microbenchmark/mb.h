@@ -5,7 +5,7 @@
 #include "grpc/impl/codegen/log.h"
 #define MAX_EVENTS 100
 
-enum class Mode { kBusyPolling, kBusyPollingRR, kEvent, kTCP };
+enum class Mode { kBusyPolling, kBusyPollingRR, kEvent, kAdaptive, kTCP };
 enum class Dir { kS2C, kC2S, kBi };
 
 Mode parse_mode(const std::string& mode) {
@@ -15,6 +15,8 @@ Mode parse_mode(const std::string& mode) {
     return Mode::kBusyPollingRR;
   } else if (mode == "event") {
     return Mode::kEvent;
+  } else if (mode == "adaptive") {
+    return Mode::kAdaptive;
   } else if (mode == "tcp") {
     return Mode::kTCP;
   }
@@ -30,6 +32,8 @@ std::string mode_to_string(Mode mode) {
       return "Busy Poling (RR)";
     case Mode::kEvent:
       return "Event";
+    case Mode::kAdaptive:
+      return "Adaptive";
     case Mode::kTCP:
       return "TCP";
   }

@@ -7,7 +7,7 @@
 #ifndef EPOLLEXCLUSIVE
 #define EPOLLEXCLUSIVE (1 << 28)
 #endif
-grpc_core::TraceFlag grpc_trace_sender_receiver(false, "sender_receiver");
+grpc_core::TraceFlag grpc_trace_sender_receiver_event(false, "sender_receiver");
 
 RDMASenderReceiverEvent::RDMASenderReceiverEvent()
     : RDMASenderReceiver(new RDMAConn(&RDMANode::GetInstance(), true),
@@ -76,7 +76,7 @@ void RDMASenderReceiverEvent::update_remote_metadata() {
       remote_metadata_recvbuf_mr_, 0, metadata_sendbuf_mr_, 0,
       metadata_sendbuf_sz_, IBV_WR_RDMA_WRITE_WITH_IMM);
   conn_metadata_->poll_send_completion(n_entries);
-  if (GRPC_TRACE_FLAG_ENABLED(grpc_trace_sender_receiver)) {
+  if (GRPC_TRACE_FLAG_ENABLED(grpc_trace_sender_receiver_event)) {
     gpr_log(GPR_INFO, "RDMASenderReceiver::update_remote_metadata, %zu, %zu",
             reinterpret_cast<size_t*>(metadata_sendbuf_)[0],
             reinterpret_cast<size_t*>(metadata_sendbuf_)[1]);
@@ -85,7 +85,6 @@ void RDMASenderReceiverEvent::update_remote_metadata() {
 
 void RDMASenderReceiverEvent::update_local_metadata() {
   WaitConnect();
-  size_t old_remote_rr_tail_ = remote_rr_tail_;
   remote_ringbuf_head_ = reinterpret_cast<size_t*>(metadata_recvbuf_)[0];
   remote_rr_tail_ = reinterpret_cast<size_t*>(metadata_recvbuf_)[1];
   remote_exit_ = reinterpret_cast<size_t*>(metadata_recvbuf_)[2];
@@ -106,12 +105,7 @@ size_t RDMASenderReceiverEvent::check_and_ack_incomings_locked() {
     if (conn_->post_recvs_lazy()) {
       update_remote_metadata();
     }
-#ifdef SENDER_RECEIVER_NON_ATOMIC
-    unread_mlens_ += new_mlen;
-    ret = unread_mlens_;
-#else
     ret = unread_mlens_.fetch_add(new_mlen) + new_mlen;
-#endif
   }
 
 #ifdef SENDER_RECEIVER_NON_ATOMIC

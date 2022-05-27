@@ -77,6 +77,47 @@ struct Connections {
     }
   }
 
+  void CreateAdatpiveConnection(int fd) {
+    auto conn = std::make_shared<RDMASenderReceiverAdaptive>();
+    conn->connect(fd);
+    rdma_conns.push_back(conn);
+
+    int wakeup_fd = conn->get_wakeup_fd();
+    struct epoll_event wakeup_ep_ev;
+    wakeup_ep_ev.events =
+        static_cast<uint32_t>(EPOLLIN | EPOLLET | EPOLLEXCLUSIVE);
+    wakeup_ep_ev.data.ptr =
+        reinterpret_cast<void*>(reinterpret_cast<intptr_t>(conn.get()) | 1);
+    if (epoll_ctl(epfd, EPOLL_CTL_ADD, wakeup_fd, &wakeup_ep_ev) != 0) {
+      switch (errno) {
+        case EEXIST:
+          break;
+        default: {
+          gpr_log(GPR_ERROR, "epoll_ctl error, errno: %d", errno);
+          abort();
+        }
+      }
+    }
+
+    int rdma_recv_channel_fd = conn->get_recv_channel_fd();
+    struct epoll_event recv_ev_fd;
+    recv_ev_fd.events =
+        static_cast<uint32_t>(EPOLLIN | EPOLLET | EPOLLEXCLUSIVE);
+    recv_ev_fd.data.ptr =
+        reinterpret_cast<void*>(reinterpret_cast<intptr_t>(conn.get()) | 2);
+    if (epoll_ctl(epfd, EPOLL_CTL_ADD, rdma_recv_channel_fd, &recv_ev_fd) !=
+        0) {
+      switch (errno) {
+        case EEXIST:
+          break;
+        default: {
+          gpr_log(GPR_ERROR, "epoll_ctl error, errno: %d", errno);
+          abort();
+        }
+      }
+    }
+  }
+
   void CreateTCPConnection(int fd) {
     tcp_conns.push_back(fd);
 
@@ -227,17 +268,12 @@ void serve_event(Connections* conns, const BenchmarkConfig* config) {
   }
   auto t_begin = absl::Now();
 
-  int failed_cnt = 0;
-  int send_cnt = 0;
-
   auto send_msg = [&](RDMASenderReceiverEvent* rdmasr) {
     cycles_t c1 = get_cycles();
     while (!rdmasr->send(&msghdr_out, sizeof(data_out))) {
       rdmasr->check_metadata();
       rdmasr->check_and_ack_incomings_locked();
-      failed_cnt++;
     }
-    send_cnt++;
 
     cycles_t c2 = get_cycles();
     conns->send_cycles += c2 - c1;
@@ -328,6 +364,181 @@ void serve_event(Connections* conns, const BenchmarkConfig* config) {
         }
 
         send_msg(dynamic_cast<RDMASenderReceiverEvent*>(rdmasr.get()));
+      }
+    }
+  }
+
+  auto t_end = absl::Now();
+  getrusage(RUSAGE_THREAD, &conns->rusage);
+
+  int no_cpu_freq_fail = 0;
+  double mhz = get_cpu_mhz(no_cpu_freq_fail);
+
+  if (conns->send_count > 0 || conns->recv_count > 0) {
+    std::stringstream ss;
+
+    ss << "Server thread: " << conns->tid
+       << " Time: " << ToDoubleMilliseconds((t_end - t_begin)) << " ms";
+
+    if (conns->send_count > 0) {
+      ss << " Send Lat: " << conns->send_cycles / mhz / conns->send_count
+         << " us";
+    }
+    if (conns->recv_count > 0) {
+      ss << " Recv Lat: " << conns->recv_cycles / mhz / conns->recv_count
+         << " us";
+    }
+    if (conns->epoll_count > 0) {
+      ss << " Epoll Lat: " << conns->epoll_cycles / mhz / conns->epoll_count
+         << " us";
+    }
+    if (conns->check_count > 0) {
+      ss << " Check Lat: " << conns->check_cycles / mhz / conns->check_count
+         << " us";
+    }
+    ss << " nvcsw: " << conns->rusage.ru_nvcsw
+       << " nivcsw: " << conns->rusage.ru_nivcsw;
+    gpr_log(GPR_INFO, "%s", ss.str().c_str());
+  }
+}
+
+void serve_adaptive(Connections* conns, const BenchmarkConfig* config) {
+  int epfd = conns->epfd;
+  epoll_event events[MAX_EVENTS];
+
+  int64_t data_in = 0, data_out = 0;
+  iovec iov_in, iov_out;
+  msghdr msghdr_in, msghdr_out;
+
+  iov_in.iov_base = &data_in;
+  iov_in.iov_len = sizeof(data_in);
+  iov_out.iov_base = &data_out;
+  iov_out.iov_len = sizeof(data_out);
+
+  msghdr_in.msg_iov = &iov_in;
+  msghdr_in.msg_iovlen = 1;
+  msghdr_out.msg_iov = &iov_out;
+  msghdr_out.msg_iovlen = 1;
+
+  if (config->affinity) {
+    conns->BindCore();
+  }
+
+  {
+    std::unique_lock<std::mutex> lk(cv_m);
+    cv.wait(lk, [] { return all_connected; });
+  }
+  auto t_begin = absl::Now();
+
+  auto send_msg = [&](RDMASenderReceiverAdaptive* rdmasr) {
+    cycles_t c1 = get_cycles();
+    while (!rdmasr->send(&msghdr_out, sizeof(data_out))) {
+      rdmasr->check_and_ack_incomings_locked(true);
+      gpr_log(GPR_ERROR, "Send failed");
+    }
+    cycles_t c2 = get_cycles();
+
+    //    gpr_log(GPR_INFO, "Server sent as %s",
+    //            rdma_mode_to_string(rdmasr->get_peer_mode()));
+
+    conns->send_cycles += c2 - c1;
+    conns->send_count++;
+  };
+
+  if (config->dir == Dir::kBi || config->dir == Dir::kC2S) {
+    size_t n_alive_conn = conns->rdma_conns.size();
+
+    auto process_event = [&](RDMASenderReceiverAdaptive* rdmasr,
+                             RDMASenderReceiverMode mode) {
+      cycles_t c1 = get_cycles();
+      auto rest_mlen = rdmasr->check_and_ack_incomings_locked(true);
+      cycles_t c2 = get_cycles();
+      conns->check_cycles += c2 - c1;
+      conns->check_count++;
+
+      if (config->dir == Dir::kBi) {
+        GPR_ASSERT(rest_mlen == 0 || rest_mlen == sizeof(data_in) ||
+                   rest_mlen == 2 * sizeof(data_in));
+      }
+
+      while (rest_mlen > 0) {
+        cycles_t c1 = get_cycles();
+        rest_mlen -= rdmasr->recv(&msghdr_in);
+        cycles_t c2 = get_cycles();
+        conns->recv_cycles += c2 - c1;
+        conns->recv_count++;
+
+        if (data_in == -1) {  // Disconnect
+          for (int i = 0; i < conns->rdma_conns.size(); i++) {
+            if (conns->rdma_conns[i].get() == rdmasr) {
+              conns->rdma_conns[i] = nullptr;
+              n_alive_conn--;
+              GPR_ASSERT(rest_mlen == 0);
+              gpr_log(GPR_INFO, "Client exit");
+              break;
+            }
+          }
+          return;
+        }
+
+        if (config->dir == Dir::kBi) {
+          data_out = data_in + 1;
+          send_msg(rdmasr);
+        }
+      }
+    };
+
+    while (n_alive_conn > 0) {
+      int r;
+      cycles_t c1 = get_cycles();
+      do {
+        r = epoll_wait(epfd, events, MAX_EVENTS, config->server_timeout);
+      } while ((r < 0 && errno == EINTR) || r == 0);
+      cycles_t c2 = get_cycles();
+      conns->epoll_cycles += c2 - c1;
+      conns->epoll_count++;
+      if (r < 0) {
+        gpr_log(GPR_ERROR, "epoll_wait: %d", errno);
+        abort();
+      }
+
+      for (int i = 0; i < r && n_alive_conn > 0; i++) {
+        epoll_event& ev = events[i];
+        void* data_ptr = ev.data.ptr;
+
+        if ((reinterpret_cast<intptr_t>(data_ptr) & 1) == 1) {
+          auto* rdmasr = reinterpret_cast<RDMASenderReceiverAdaptive*>(
+              ~static_cast<intptr_t>(1) &
+              reinterpret_cast<intptr_t>(ev.data.ptr));
+          if ((ev.events & EPOLLIN) != 0) {
+            ssize_t sz;
+            uint64_t val;
+            do {
+              sz = read(rdmasr->get_wakeup_fd(), &val, sizeof(val));
+            } while (sz < 0 && errno == EAGAIN);
+            process_event(rdmasr, RDMASenderReceiverMode::kBP);
+          }
+        } else if ((reinterpret_cast<intptr_t>(data_ptr) & 2) == 2) {
+          auto* rdmasr = reinterpret_cast<RDMASenderReceiverAdaptive*>(
+              ~static_cast<intptr_t>(2) &
+              reinterpret_cast<intptr_t>(ev.data.ptr));
+          if ((ev.events & EPOLLIN) != 0) {
+            // This should only be masked when there's RDMA event
+            rdmasr->check_data();
+            process_event(rdmasr, RDMASenderReceiverMode::kEvent);
+          }
+        }
+      }
+    }
+  } else if (config->dir == Dir::kS2C) {
+    for (int i = 0; i < config->n_batch; i++) {
+      for (auto& rdmasr : conns->rdma_conns) {
+        data_out = data_in + 1;
+        if (i == config->n_batch - 1) {
+          data_out = -1;
+        }
+
+        send_msg(dynamic_cast<RDMASenderReceiverAdaptive*>(rdmasr.get()));
       }
     }
   }
@@ -555,6 +766,9 @@ class RDMAServer {
       } else if (config.mode == Mode::kEvent) {
         polling_threads_.emplace_back(&serve_event, &connections_per_thread_[i],
                                       &config);
+      } else if (config.mode == Mode::kAdaptive) {
+        polling_threads_.emplace_back(&serve_adaptive,
+                                      &connections_per_thread_[i], &config);
       } else if (config.mode == Mode::kTCP) {
         polling_threads_.emplace_back(&serve_tcp, &connections_per_thread_[i],
                                       &config);
@@ -680,6 +894,8 @@ class RDMAServer {
       connections_per_thread_[work_thread_id].CreateBPConnection(fd);
     } else if (config_.mode == Mode::kEvent) {
       connections_per_thread_[work_thread_id].CreateEventConnection(fd);
+    } else if (config_.mode == Mode::kAdaptive) {
+      connections_per_thread_[work_thread_id].CreateAdatpiveConnection(fd);
     } else if (config_.mode == Mode::kTCP) {
       connections_per_thread_[work_thread_id].CreateTCPConnection(fd);
     }

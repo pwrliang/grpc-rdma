@@ -1061,7 +1061,7 @@ config("grpc_config") {
         "src/core/lib/rdma/RDMAConn.h",
         "src/core/lib/rdma/RDMASenderReceiver.h",
         "src/core/lib/rdma/RDMASenderReceiverBP.cc",
-        "src/core/lib/rdma/RDMASenderReceiverEvent.cc",
+        "src/core/lib/rdma/RDMASenderReceiverAdaptive.cc",
         "src/core/lib/rdma/RDMAUtils.cc",
         "src/core/lib/rdma/RDMAUtils.h",
         "src/core/lib/rdma/ringbuffer.cc",

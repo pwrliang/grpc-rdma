@@ -112,4 +112,52 @@ class RingBufferEvent : public RingBuffer {
  private:
 };
 
+enum class RDMASenderReceiverMode { kNone, kBP, kEvent, kMigrating };
+
+inline const char* rdma_mode_to_string(RDMASenderReceiverMode mode) {
+  switch (mode) {
+    case RDMASenderReceiverMode::kNone:
+      return "none";
+    case RDMASenderReceiverMode::kBP:
+      return "busy polling";
+    case RDMASenderReceiverMode::kEvent:
+      return "event";
+    case RDMASenderReceiverMode::kMigrating:
+      return "migrating";
+  }
+  return "";
+}
+
+class RingBufferAdaptive : public RingBuffer {
+ public:
+  explicit RingBufferAdaptive(size_t capacity) : RingBuffer(capacity) {}
+
+  size_t check_mlens() const { return check_mlens(head_); }
+
+  size_t check_mlen(RDMASenderReceiverMode& mode) const {
+    return check_mlen(head_, mode);
+  }
+
+  bool read_to_msghdr(msghdr* msg, size_t& expected_lens) override;
+
+  size_t get_sendbuf_size() const override {
+    /*
+     * BP: garbage max R/2 - 1, minimum free size = R - 8 - (R/2 - 1)
+     */
+    return capacity_ / 2 - 7;
+  }
+
+  size_t get_max_send_size() const override {
+    return get_sendbuf_size() - sizeof(size_t) - 1;
+  }
+
+ protected:
+  uint8_t check_tail(size_t head, size_t mlen) const;
+  size_t check_mlen(size_t head, RDMASenderReceiverMode& mode) const;
+  size_t check_mlens(size_t head) const;
+
+  // reset buf first then update head. Otherswise new head may read the old data
+  // from unupdated space.
+  size_t reset_buf_and_update_head(size_t lens);
+};
 #endif

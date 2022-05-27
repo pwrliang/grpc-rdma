@@ -48,6 +48,8 @@ void StartClient(const BenchmarkConfig& config, const CommSpec& comm_spec) {
     client.RunBusyPolling();
   } else if (config.mode == Mode::kEvent) {
     client.RunEpoll();
+  } else if (config.mode == Mode::kAdaptive) {
+    client.RunAdaptive();
   } else if (config.mode == Mode::kTCP) {
     client.RunTCP();
   }

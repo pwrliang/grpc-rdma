@@ -23,9 +23,9 @@ add_executable(mb mb.cc get_clock.cc flags.cc)
 target_link_libraries(mb
         ${GFLAGS_LIBRARIES} ${MPI_CXX_LIBRARIES} ${_GRPC_GRPCPP} ibverbs)
 
-add_executable(epoll_bench epoll_bench.cc get_clock.cc flags.cc)
-target_link_libraries(epoll_bench
-        ${GFLAGS_LIBRARIES} ${MPI_CXX_LIBRARIES} ${_GRPC_GRPCPP})
-
-add_executable(grab_cpu grab_cpu.cc)
-target_link_libraries(grab_cpu ${_GRPC_GRPCPP})
+#add_executable(epoll_bench epoll_bench.cc get_clock.cc flags.cc)
+#target_link_libraries(epoll_bench
+#        ${GFLAGS_LIBRARIES} ${MPI_CXX_LIBRARIES} ${_GRPC_GRPCPP})
+#
+#add_executable(grab_cpu grab_cpu.cc)
+#target_link_libraries(grab_cpu ${_GRPC_GRPCPP})

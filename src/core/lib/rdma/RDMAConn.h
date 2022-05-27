@@ -39,7 +39,8 @@ class RDMAConn {
                 size_t local_offset, size_t sz, ibv_wr_opcode opcode);
 
   int post_sends(MemRegion& remote_mr, size_t remote_tail,
-                 struct ibv_sge* sg_list, size_t num_sge, size_t sz, ibv_wr_opcode opcode);
+                 struct ibv_sge* sg_list, size_t num_sge, size_t sz,
+                 ibv_wr_opcode opcode);
 
   size_t get_recv_events_locked();
 
@@ -75,6 +76,16 @@ class RDMAConn {
     post_recvs(rr_garbage_);
     rr_garbage_ = 0;
     return true;
+  }
+
+  void require_event() {
+    GPR_ASSERT(recv_channel_ != nullptr);
+    if (ibv_req_notify_cq(rcq_.get(), 0)) {
+      gpr_log(GPR_ERROR,
+              "RDMAConnEvent::get_recv_events_locked, require notifcation on "
+              "rcq failed");
+      exit(-1);
+    }
   }
 
  private:

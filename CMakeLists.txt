@@ -1901,6 +1901,7 @@ add_library(grpc
   src/core/lib/rdma/RDMAConn.cc
   src/core/lib/rdma/RDMASenderReceiverBP.cc
   src/core/lib/rdma/RDMASenderReceiverEvent.cc
+  src/core/lib/rdma/RDMASenderReceiverAdaptive.cc
   src/core/lib/iomgr/tcp_server.cc
   src/core/lib/iomgr/tcp_server_custom.cc
   src/core/lib/iomgr/tcp_server_posix.cc
@@ -2532,6 +2533,7 @@ add_library(grpc_unsecure
   src/core/lib/rdma/RDMAConn.cc
   src/core/lib/rdma/RDMASenderReceiverBP.cc
   src/core/lib/rdma/RDMASenderReceiverEvent.cc
+  src/core/lib/rdma/RDMASenderReceiverAdaptive.cc
   src/core/lib/iomgr/tcp_server.cc
   src/core/lib/iomgr/tcp_server_custom.cc
   src/core/lib/iomgr/tcp_server_posix.cc

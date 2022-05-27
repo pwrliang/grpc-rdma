@@ -35,17 +35,17 @@ RDMAConn::RDMAConn(RDMANode* node, bool event_mode) : node_(node) {
   rcq_ = std::shared_ptr<ibv_cq>(
       ibv_create_cq(ctx, DEFAULT_CQE, nullptr, recv_channel_.get(), 0),
       [](ibv_cq* p) { ibv_destroy_cq(p); });
-//  if (event_mode && is_server) {
-//    ibv_modify_cq_attr attr;
-//    memset(&attr, 0, sizeof(attr));
-//    attr.attr_mask = IBV_CQ_ATTR_MODERATE;
-//    attr.moderate.cq_count = 5;
-//    attr.moderate.cq_period = 40;
-//    int err = ibv_modify_cq(rcq_.get(), &attr);
-//    if (err != 0) {
-//      gpr_log(GPR_ERROR, "Err modify cq: %d", err);
-//    }
-//  }
+  //  if (event_mode && is_server) {
+  //    ibv_modify_cq_attr attr;
+  //    memset(&attr, 0, sizeof(attr));
+  //    attr.attr_mask = IBV_CQ_ATTR_MODERATE;
+  //    attr.moderate.cq_count = 5;
+  //    attr.moderate.cq_period = 40;
+  //    int err = ibv_modify_cq(rcq_.get(), &attr);
+  //    if (err != 0) {
+  //      gpr_log(GPR_ERROR, "Err modify cq: %d", err);
+  //    }
+  //  }
 
   if (!rcq_) {
     gpr_log(GPR_ERROR, "Failed to create CQ for a connection");
@@ -159,6 +159,7 @@ int RDMAConn::post_send(MemRegion& remote_mr, size_t remote_tail,
     ibv_send_wr sr;
     init_sge(&sge, static_cast<uint8_t*>(local_mr.addr()) + local_offset, sz,
              local_mr.lkey());
+    // FIXME: sz - 8 - 1 but write whole data
     init_sr(&sr, &sge, opcode,
             static_cast<uint8_t*>(remote_mr.addr()) + remote_tail,
             remote_mr.rkey(), 1, sz, 0, nullptr);
@@ -348,7 +349,9 @@ size_t RDMAConn::poll_recv_completion() {
 size_t RDMAConn::get_recv_events_locked() {
   ibv_cq* cq = nullptr;
   void* ev_ctx = nullptr;
-  if (ibv_get_cq_event(recv_channel_.get(), &cq, &ev_ctx) == -1) return 0;
+  if (ibv_get_cq_event(recv_channel_.get(), &cq, &ev_ctx) == -1) {
+    return 0;
+  }
   if (cq != rcq_.get()) {
     gpr_log(GPR_ERROR,
             "RDMAConnEvent::get_recv_events_locked, unknown CQ got event");

@@ -7,7 +7,7 @@ DEFINE_int32(port, 12345, "");
 DEFINE_int32(warmup, 10000, "");
 DEFINE_int32(polling_thread, 8, "");
 DEFINE_bool(affinity, false, "");
-DEFINE_string(mode, "", "bp,event,bprr");
+DEFINE_string(mode, "", "bp,event,adatpive,bprr");
 DEFINE_int32(computing_thread, 0, "");
 DEFINE_int32(client_timeout, 0, "epoll timeout");
 DEFINE_int32(server_timeout, 0, "epoll timeout");

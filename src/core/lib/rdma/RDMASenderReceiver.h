@@ -147,11 +147,7 @@ class RDMASenderReceiver {
 
   size_t remote_ringbuf_head_, remote_ringbuf_tail_;
   MemRegion local_ringbuf_mr_, remote_ringbuf_mr_;
-#ifdef SENDER_RECEIVER_NON_ATOMIC
-  uint32_t unread_mlens_;
-#else
   std::atomic_uint32_t unread_mlens_;
-#endif
 
   uint8_t *sendbuf_, *zerocopy_sendbuf_;
   MemRegion sendbuf_mr_, zerocopy_sendbuf_mr_;
@@ -300,4 +296,131 @@ class RDMASenderReceiverEvent : public RDMASenderReceiver {
   std::thread conn_th_;
 };
 
+class RDMASenderReceiverAdaptive : public RDMASenderReceiver {
+ public:
+  RDMASenderReceiverAdaptive();
+  ~RDMASenderReceiverAdaptive();
+
+  // create channel for each rdmasr.
+  void connect(int fd) override;
+  void update_remote_metadata() override;
+  void update_local_metadata() override;
+  void Shutdown() override;
+  bool connected() { return connected_; }
+
+  bool send(msghdr* msg, size_t) override;
+
+  virtual size_t recv(msghdr* msg);
+
+  void check_data() { check_data_ = true; }
+
+  bool is_writable(size_t mlen) override {
+    update_local_metadata();  // update remote_ringbuf_head_ and remote_rr_tail
+    size_t remote_ringbuf_sz = remote_ringbuf_mr_.length();
+    size_t used =
+        (remote_ringbuf_sz + remote_ringbuf_tail_ - remote_ringbuf_head_) %
+        remote_ringbuf_sz;
+    size_t avail_rr_num =
+        (remote_rr_tail_ - remote_rr_head_ + DEFAULT_MAX_POST_RECV) %
+        DEFAULT_MAX_POST_RECV;
+    if (peer_mode_ == RDMASenderReceiverMode::kEvent && avail_rr_num == 0) {
+      return false;
+    }
+
+    if (used + mlen > remote_ringbuf_sz - 8) {
+      return false;
+    }
+    if (remote_exit_) {
+      // printf("fd = %d, remote exit\n", fd_);
+      return false;
+    }
+    return true;
+  }
+
+  bool is_writable() {
+    return last_failed_send_size_ > 0 && is_writable(last_failed_send_size_);
+  }
+
+  size_t check_and_ack_incomings_locked(bool enable_switch);
+
+  int get_recv_channel_fd() const { return conn_->get_recv_channel_fd(); }
+
+  int get_wakeup_fd() const { return wakeup_fd_; }
+
+  bool check_incoming() const;
+
+  void switch_mode(RDMASenderReceiverMode mode) {
+    WaitConnect();
+    GPR_ASSERT(mode_ != RDMASenderReceiverMode::kNone &&
+               mode_ != RDMASenderReceiverMode::kMigrating);
+    GPR_ASSERT(mode == RDMASenderReceiverMode::kBP ||
+               mode == RDMASenderReceiverMode::kEvent);
+
+    if (mode == mode_) {
+      gpr_log(GPR_ERROR, "Trying to switch from %d to %d, ignored", mode_, mode);
+      return;
+    }
+
+    switch (mode) {
+      case RDMASenderReceiverMode::kBP: {
+        last_mode_ = mode_;
+        mode_ = RDMASenderReceiverMode::kMigrating;
+        update_remote_metadata();
+        break;
+      }
+      case RDMASenderReceiverMode::kEvent: {
+        last_mode_ = mode_;
+        mode_ = RDMASenderReceiverMode::kMigrating;
+        // prepost recv
+        conn_->require_event();
+        update_remote_metadata();
+        break;
+      }
+      default:
+        GPR_ASSERT(false);
+    }
+  }
+
+  RDMASenderReceiverMode get_recv_mode() const {
+    switch (mode_) {
+      case RDMASenderReceiverMode::kBP:
+      case RDMASenderReceiverMode::kEvent:
+        return mode_;
+      case RDMASenderReceiverMode::kMigrating: {
+        // as we are migrating, we are still using last mode until sender
+        // confirms the new mode
+        return last_mode_;
+      }
+      default: {
+        GPR_ASSERT(false);
+      }
+    }
+  }
+
+  bool is_migrating() const {
+    return mode_ == RDMASenderReceiverMode::kMigrating;
+  }
+
+  RDMASenderReceiverMode get_peer_mode() const { return peer_mode_; }
+
+ protected:
+  RDMAConn* conn_metadata_ = nullptr;
+
+  int last_n_post_send_;
+  // this need to sync in initialization
+  size_t remote_rr_tail_ = 0, remote_rr_head_ = 0;
+  size_t last_failed_send_size_;
+
+#ifdef SENDER_RECEIVER_NON_ATOMIC
+  bool check_data_;
+#else
+  std::atomic_bool check_data_;
+#endif
+  int wakeup_fd_;
+
+  std::thread conn_th_;
+  RDMASenderReceiverMode last_mode_;
+  RDMASenderReceiverMode mode_;
+  RDMASenderReceiverMode peer_mode_;
+};
 #endif
