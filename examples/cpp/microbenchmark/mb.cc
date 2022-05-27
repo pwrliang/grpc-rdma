@@ -13,6 +13,7 @@
 #include "mb_client.h"
 #include "mb_server.h"
 
+bool mb_is_server = false;
 void StartServer(const BenchmarkConfig& config, const CommSpec& comm_spec) {
   RDMAServer server(config, comm_spec);
   int fd;
@@ -23,7 +24,7 @@ void StartServer(const BenchmarkConfig& config, const CommSpec& comm_spec) {
   strncpy(ifr.ifr_name, "ib0", IFNAMSIZ - 1);
   ioctl(fd, SIOCGIFADDR, &ifr);
   close(fd);
-
+  mb_is_server = true;
   if (config.mpi_server) {
     char* ip =
         inet_ntoa((reinterpret_cast<sockaddr_in*>(&ifr.ifr_addr))->sin_addr);
@@ -48,7 +49,7 @@ void StartClient(const BenchmarkConfig& config, const CommSpec& comm_spec) {
     client.RunBusyPolling();
   } else if (config.mode == Mode::kEvent) {
     client.RunEpoll();
-  } else if (config.mode == Mode::kAdaptive) {
+  } else if (config.mode == Mode::kBPEV) {
     client.RunAdaptive();
   } else if (config.mode == Mode::kTCP) {
     client.RunTCP();

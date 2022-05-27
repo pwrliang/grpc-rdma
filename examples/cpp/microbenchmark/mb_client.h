@@ -432,7 +432,7 @@ class RDMAClient {
   }
 
   void RunAdaptive() {
-    RDMASenderReceiverAdaptive rdmasr;
+    RDMASenderReceiverBPEV rdmasr;
     rdmasr.connect(sockfd_);
     rdmasr.WaitConnect();
     // Waiting for all clients connected
@@ -454,22 +454,6 @@ class RDMAClient {
     wakeup_ep_ev.data.ptr =
         reinterpret_cast<void*>(reinterpret_cast<intptr_t>(&rdmasr) | 1);
     if (epoll_ctl(epfd, EPOLL_CTL_ADD, wakeup_fd, &wakeup_ep_ev) != 0) {
-      switch (errno) {
-        case EEXIST:
-          break;
-        default:
-          gpr_log(GPR_ERROR, "epoll_ctl error, errno: %d", errno);
-      }
-    }
-
-    int rdma_recv_channel_fd = rdmasr.get_recv_channel_fd();
-    struct epoll_event recv_ev_fd;
-    recv_ev_fd.events =
-        static_cast<uint32_t>(EPOLLIN | EPOLLET | EPOLLEXCLUSIVE);
-    recv_ev_fd.data.ptr =
-        reinterpret_cast<void*>(reinterpret_cast<intptr_t>(&rdmasr) | 2);
-    if (epoll_ctl(epfd, EPOLL_CTL_ADD, rdma_recv_channel_fd, &recv_ev_fd) !=
-        0) {
       switch (errno) {
         case EEXIST:
           break;
@@ -501,6 +485,7 @@ class RDMAClient {
       while (!rdmasr.send(&msghdr_out, sizeof(data_out))) {
         gpr_log(GPR_ERROR, "Failed to send");
       }
+//      gpr_log(GPR_INFO, "Sent %lu", data_out);
     };
 
     cycles_t iter_cycles = 0;
@@ -515,6 +500,7 @@ class RDMAClient {
         for (int i = 0; i < batch_size; ++i) {
           cycles_t c1 = get_cycles();
           if (i == batch_size - 1) {  // notify server to exit
+            gpr_log(GPR_INFO, "Notify to exit");
             data_out = -1;
           }
           send_msg();
@@ -531,8 +517,8 @@ class RDMAClient {
       }
       case Dir::kS2C: {
         bool running = true;
-        auto process_event = [&](RDMASenderReceiverAdaptive* rdmasr) {
-          auto rest_mlen = rdmasr->check_and_ack_incomings_locked(true);
+        auto process_event = [&](RDMASenderReceiverBPEV* rdmasr) {
+          auto rest_mlen = rdmasr->check_and_ack_incomings_locked();
 
           while (rest_mlen > 0) {
             rest_mlen -= rdmasr->recv(&msghdr_in);
@@ -557,18 +543,15 @@ class RDMAClient {
             void* data_ptr = ev.data.ptr;
 
             if ((reinterpret_cast<intptr_t>(data_ptr) & 1) == 1) {
-              auto* rdmasr_ev = reinterpret_cast<RDMASenderReceiverAdaptive*>(
+              auto* rdmasr_ev = reinterpret_cast<RDMASenderReceiverBPEV*>(
                   ~static_cast<intptr_t>(1) &
                   reinterpret_cast<intptr_t>(ev.data.ptr));
               if ((ev.events & EPOLLIN) != 0) {
-                process_event(rdmasr_ev);
-              }
-            } else if ((reinterpret_cast<intptr_t>(data_ptr) & 2) == 2) {
-              auto* rdmasr_ev = reinterpret_cast<RDMASenderReceiverAdaptive*>(
-                  ~static_cast<intptr_t>(1) &
-                  reinterpret_cast<intptr_t>(ev.data.ptr));
-              if ((ev.events & EPOLLIN) != 0) {
-                rdmasr_ev->check_data();
+                ssize_t sz;
+                uint64_t val;
+                do {
+                  sz = read(rdmasr_ev->get_wakeup_fd(), &val, sizeof(val));
+                } while (sz < 0 && errno == EAGAIN);
                 process_event(rdmasr_ev);
               }
             }
@@ -580,8 +563,8 @@ class RDMAClient {
         break;
       }
       case Dir::kBi: {
-        auto process_event = [&](RDMASenderReceiverAdaptive* rdmasr) {
-          auto rest_mlen = rdmasr->check_and_ack_incomings_locked(false);
+        auto process_event = [&](RDMASenderReceiverBPEV* rdmasr) {
+          auto rest_mlen = rdmasr->check_and_ack_incomings_locked();
 
           if (rest_mlen > 0) {
             rest_mlen -= rdmasr->recv(&msghdr_in);
@@ -605,7 +588,7 @@ class RDMAClient {
             void* data_ptr = ev.data.ptr;
 
             if ((reinterpret_cast<intptr_t>(data_ptr) & 1) == 1) {
-              auto* rdmasr_ev = reinterpret_cast<RDMASenderReceiverAdaptive*>(
+              auto* rdmasr_ev = reinterpret_cast<RDMASenderReceiverBPEV*>(
                   ~static_cast<intptr_t>(1) &
                   reinterpret_cast<intptr_t>(ev.data.ptr));
 
@@ -615,15 +598,6 @@ class RDMAClient {
                 do {
                   sz = read(rdmasr_ev->get_wakeup_fd(), &val, sizeof(val));
                 } while (sz < 0 && errno == EAGAIN);
-                process_event(rdmasr_ev);
-              }
-            } else if ((reinterpret_cast<intptr_t>(data_ptr) & 2) == 2) {
-              auto* rdmasr_ev = reinterpret_cast<RDMASenderReceiverAdaptive*>(
-                  ~static_cast<intptr_t>(2) &
-                  reinterpret_cast<intptr_t>(ev.data.ptr));
-
-              if ((ev.events & EPOLLIN) != 0) {
-                rdmasr_ev->check_data();
                 process_event(rdmasr_ev);
               }
             }

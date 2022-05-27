@@ -8,7 +8,7 @@
 #include "include/grpc/support/sync.h"
 #include "src/core/lib/rdma/RDMASenderReceiver.h"
 #define MAX_EVENTS 100
-
+extern bool mb_is_server;
 class RDMAMonitor {
  public:
   ~RDMAMonitor() { gpr_mu_destroy(&mu); }
@@ -18,20 +18,23 @@ class RDMAMonitor {
     return monitor;
   }
 
-  void Register(RDMASenderReceiverAdaptive* rdmasr) {
+  void Register(RDMASenderReceiverBPEV* rdmasr) {
     gpr_mu_lock(&mu);
     GPR_ASSERT(std::find(rdmasr_vec.begin(), rdmasr_vec.end(), rdmasr) ==
                rdmasr_vec.end());
 
     rdmasr_vec.push_back(rdmasr);
     stats[rdmasr] = StatEntry();
+    int epfd = epfds_[reg_idx % n_monitors_];
+    epfd_map[rdmasr] = epfd;
+    reg_idx++;
     gpr_mu_unlock(&mu);
 
     epoll_event ev_fd;
     ev_fd.events = static_cast<uint32_t>(EPOLLOUT);
     ev_fd.data.ptr = reinterpret_cast<void*>(rdmasr);
 
-    if (epoll_ctl(epfd_, EPOLL_CTL_ADD, rdmasr->get_wakeup_fd(), &ev_fd) != 0) {
+    if (epoll_ctl(epfd, EPOLL_CTL_ADD, rdmasr->get_wakeup_fd(), &ev_fd) != 0) {
       switch (errno) {
         case EEXIST:
           break;
@@ -43,7 +46,7 @@ class RDMAMonitor {
     }
   }
 
-  void Unregister(RDMASenderReceiverAdaptive* rdmasr) {
+  void Unregister(RDMASenderReceiverBPEV* rdmasr) {
     gpr_mu_lock(&mu);
     auto it = std::find(rdmasr_vec.begin(), rdmasr_vec.end(), rdmasr);
 
@@ -52,99 +55,62 @@ class RDMAMonitor {
 
       epoll_event ev_fd;
       memset(&ev_fd, 0, sizeof(ev_fd));
-
-      epoll_ctl(epfd_, EPOLL_CTL_ADD, rdmasr->get_wakeup_fd(), &ev_fd);
+      int epfd = epfd_map[rdmasr];
+      epoll_ctl(epfd, EPOLL_CTL_DEL, rdmasr->get_wakeup_fd(), &ev_fd);
       stats.erase(rdmasr);
     }
 
     gpr_mu_unlock(&mu);
   }
 
-  void Report(RDMASenderReceiverAdaptive* rdmasr) {
-    gpr_mu_lock(&mu);
-    StatEntry& entry = stats.at(rdmasr);
-    gpr_mu_unlock(&mu);
-
-    double period_ms = ToDoubleMilliseconds((absl::Now() - entry.last_time));
-
-    entry.Inc();
-
-    if (entry.count % 10 == 0) {
-      if (!rdmasr->is_migrating()) {
-        if (rdmasr->get_recv_mode() == RDMASenderReceiverMode::kBP) {
-          rdmasr->switch_mode(RDMASenderReceiverMode::kEvent);
-        } else {
-          rdmasr->switch_mode(RDMASenderReceiverMode::kBP);
-        }
-      }
-    }
-    //    if (period_ms > 100) {
-    //      double wait_time = entry.AvgWaitMicro(absl::Now());
-    //
-    //      gpr_log(GPR_INFO, "Wait time: %lf us", wait_time);
-    //
-    ////      if (!rdmasr->is_migrating()) {
-    ////        if (wait_time > 500) {
-    ////          rdmasr->switch_mode(RDMASenderReceiverMode::kEvent);
-    ////        } else {
-    ////          rdmasr->switch_mode(RDMASenderReceiverMode::kBP);
-    ////        }
-    ////      }
-    //
-    //      entry.Reset();
-    //    }
-  }
-
  private:
   RDMAMonitor() {
     gpr_mu_init(&mu);
-    epfd_ = epoll_create1(EPOLL_CLOEXEC);
-    monitor_th_ = std::thread([this]() {
-      while (true) {
-        notifyWaiter();
 
-        //        gpr_mu_lock(&mu);
-        //        if (!rdmasr_vec.empty()) {
-        //          switchMode();
-        //        } else {
-        //          std::this_thread::yield();
-        //        }
-        //        gpr_mu_unlock(&mu);
-      }
-    });
-    monitor_th_.detach();
+    if (mb_is_server) {
+      n_monitors_ = 4;
+    } else {
+      n_monitors_ = 1;
+    }
+
+    for (int i = 0; i < n_monitors_; i++) {
+      epfds_.push_back(epoll_create1(EPOLL_CLOEXEC));
+      monitor_ths_.emplace_back(
+          [&, this](int monitor_idx) {
+            while (true) {
+              notifyWaiter(epfds_[monitor_idx]);
+            }
+          },
+          i);
+      monitor_ths_[i].detach();
+    }
   }
 
-  void notifyWaiter() {
+  void notifyWaiter(int epfd) {
     uint64_t val = 1;
     ssize_t sz;
     int r;
     epoll_event events[MAX_EVENTS];
 
     do {
-      r = epoll_wait(epfd_, events, MAX_EVENTS, 0);
+      r = epoll_wait(epfd, events, MAX_EVENTS, 0);
     } while ((r < 0 && errno == EINTR));
 
     for (int i = 0; i < r; i++) {
       epoll_event& ev = events[i];
 
       if ((ev.events & EPOLLOUT) != 0) {
-        auto* rdmasr =
-            reinterpret_cast<RDMASenderReceiverAdaptive*>(ev.data.ptr);
+        auto* rdmasr = reinterpret_cast<RDMASenderReceiverBPEV*>(ev.data.ptr);
 
         // Notify when
         // 1. BP
         // 2. Migrating from BP to Event
         // 2. Migrating from Event to BP
-        if (rdmasr->get_recv_mode() == RDMASenderReceiverMode::kBP ||
-            (rdmasr->is_migrating() &&
-             rdmasr->get_recv_mode() == RDMASenderReceiverMode::kEvent)) {
-          if (rdmasr->get_unread_data_size() == 0 &&
-              rdmasr->check_incoming() > 0) {
-            do {
-              sz = write(rdmasr->get_wakeup_fd(), &val, sizeof(val));
-            } while (sz < 0 && errno == EAGAIN);
-          }
+        if (rdmasr->get_unread_data_size() == 0 &&
+            rdmasr->check_incoming() > 0) {
+          do {
+            sz = write(rdmasr->get_wakeup_fd(), &val, sizeof(val));
+          } while (sz < 0 && errno == EAGAIN);
         }
       }
     }
@@ -172,11 +138,14 @@ class RDMAMonitor {
     }
   };
 
-  std::vector<RDMASenderReceiverAdaptive*> rdmasr_vec;
-  std::unordered_map<RDMASenderReceiverAdaptive*, StatEntry> stats;
+  std::vector<RDMASenderReceiverBPEV*> rdmasr_vec;
+  std::unordered_map<RDMASenderReceiverBPEV*, StatEntry> stats;
+  std::unordered_map<RDMASenderReceiverBPEV*, int> epfd_map;
+  int reg_idx = 0;
   gpr_mu mu;
-  std::thread monitor_th_;
-  int epfd_;
+  int n_monitors_;
+  std::vector<std::thread> monitor_ths_;
+  std::vector<int> epfds_;
 };
 
 #endif  // GRPC_CORE_LIB_RDMA_RDMAMONITOR_H

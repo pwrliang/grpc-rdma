@@ -159,7 +159,6 @@ int RDMAConn::post_send(MemRegion& remote_mr, size_t remote_tail,
     ibv_send_wr sr;
     init_sge(&sge, static_cast<uint8_t*>(local_mr.addr()) + local_offset, sz,
              local_mr.lkey());
-    // FIXME: sz - 8 - 1 but write whole data
     init_sr(&sr, &sge, opcode,
             static_cast<uint8_t*>(remote_mr.addr()) + remote_tail,
             remote_mr.rkey(), 1, sz, 0, nullptr);
@@ -305,9 +304,12 @@ void RDMAConn::post_recvs(size_t n) {
   }
 }
 
-size_t RDMAConn::poll_recv_completion() {
+size_t RDMAConn::poll_recv_completion(int& n_comp) {
   int recv_bytes = 0;
   ibv_wc wc[DEFAULT_MAX_POST_RECV];
+
+  n_comp = 0;
+poll:
   int completed = ibv_poll_cq(rcq_.get(), DEFAULT_MAX_POST_RECV, wc);
 
   if (completed < 0) {
@@ -332,6 +334,7 @@ size_t RDMAConn::poll_recv_completion() {
     recv_bytes += wc[i].byte_len;
   }
 
+  n_comp += completed;
   rr_garbage_ += completed;
   if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_conn_trace)) {
     gpr_log(GPR_INFO,
@@ -341,15 +344,16 @@ size_t RDMAConn::poll_recv_completion() {
   }
 
   if (completed == DEFAULT_MAX_POST_RECV) {
-    return recv_bytes + poll_recv_completion();
+    goto poll;
   }
   return recv_bytes;
 }
 
-size_t RDMAConn::get_recv_events_locked() {
+size_t RDMAConn::get_recv_events_locked(int& n_comp) {
   ibv_cq* cq = nullptr;
   void* ev_ctx = nullptr;
   if (ibv_get_cq_event(recv_channel_.get(), &cq, &ev_ctx) == -1) {
+    gpr_log(GPR_INFO, "Got empty event");
     return 0;
   }
   if (cq != rcq_.get()) {
@@ -367,5 +371,5 @@ size_t RDMAConn::get_recv_events_locked() {
     ibv_ack_cq_events(rcq_.get(), unacked_recv_events_num_);
     unacked_recv_events_num_ = 0;
   }
-  return poll_recv_completion();
+  return poll_recv_completion(n_comp);
 }

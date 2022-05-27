@@ -42,7 +42,13 @@ class RDMAConn {
                  struct ibv_sge* sg_list, size_t num_sge, size_t sz,
                  ibv_wr_opcode opcode);
 
-  size_t get_recv_events_locked();
+  size_t get_recv_events_locked(int& n_comp);
+
+  size_t get_recv_events_locked() {
+    int n_comp;
+
+    return get_recv_events_locked(n_comp);
+  }
 
   /**
    * Post n receive requests
@@ -70,12 +76,16 @@ class RDMAConn {
    * @return return true if post receive happened
    */
   bool post_recvs_lazy() {
-    if (rr_garbage_ < DEFAULT_MAX_POST_RECV / 2) {
-      return false;
+    gpr_log(GPR_INFO, "rr gargabe: %zu", rr_garbage_);
+    if (rr_garbage_ >= DEFAULT_MAX_POST_RECV / 2) {
+      auto old_rr_tail = rr_tail_;
+      post_recvs(rr_garbage_);
+      gpr_log(GPR_INFO, "change rr tail from %zu to %zu", old_rr_tail,
+              rr_tail_);
+      rr_garbage_ = 0;
+      return true;
     }
-    post_recvs(rr_garbage_);
-    rr_garbage_ = 0;
-    return true;
+    return false;
   }
 
   void require_event() {
@@ -128,7 +138,14 @@ class RDMAConn {
 
     return ret;
   }
-  size_t poll_recv_completion();
+
+  size_t poll_recv_completion(int& n_comp);
+
+  size_t poll_recv_completion() {
+    int n_comp;
+
+    return poll_recv_completion(n_comp);
+  }
 };
 
 #endif

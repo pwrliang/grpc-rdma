@@ -889,7 +889,7 @@ grpc_cc_library(
         "src/core/lib/rdma/RDMAConn.cc",
         "src/core/lib/rdma/RDMASenderReceiverBP.cc",
         "src/core/lib/rdma/RDMASenderReceiverEvent.cc",
-        "src/core/lib/rdma/RDMASenderReceiverAdaptive.cc",
+        "src/core/lib/rdma/RDMASenderReceiverBPEV.cc",
         "src/core/lib/rdma/RDMAUtils.cc",
         "src/core/lib/rdma/ringbuffer.cc",
         "src/core/lib/slice/b64.cc",

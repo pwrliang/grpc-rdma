@@ -77,8 +77,8 @@ struct Connections {
     }
   }
 
-  void CreateAdatpiveConnection(int fd) {
-    auto conn = std::make_shared<RDMASenderReceiverAdaptive>();
+  void CreateBPEVConnection(int fd) {
+    auto conn = std::make_shared<RDMASenderReceiverBPEV>();
     conn->connect(fd);
     rdma_conns.push_back(conn);
 
@@ -89,24 +89,6 @@ struct Connections {
     wakeup_ep_ev.data.ptr =
         reinterpret_cast<void*>(reinterpret_cast<intptr_t>(conn.get()) | 1);
     if (epoll_ctl(epfd, EPOLL_CTL_ADD, wakeup_fd, &wakeup_ep_ev) != 0) {
-      switch (errno) {
-        case EEXIST:
-          break;
-        default: {
-          gpr_log(GPR_ERROR, "epoll_ctl error, errno: %d", errno);
-          abort();
-        }
-      }
-    }
-
-    int rdma_recv_channel_fd = conn->get_recv_channel_fd();
-    struct epoll_event recv_ev_fd;
-    recv_ev_fd.events =
-        static_cast<uint32_t>(EPOLLIN | EPOLLET | EPOLLEXCLUSIVE);
-    recv_ev_fd.data.ptr =
-        reinterpret_cast<void*>(reinterpret_cast<intptr_t>(conn.get()) | 2);
-    if (epoll_ctl(epfd, EPOLL_CTL_ADD, rdma_recv_channel_fd, &recv_ev_fd) !=
-        0) {
       switch (errno) {
         case EEXIST:
           break;
@@ -430,10 +412,10 @@ void serve_adaptive(Connections* conns, const BenchmarkConfig* config) {
   }
   auto t_begin = absl::Now();
 
-  auto send_msg = [&](RDMASenderReceiverAdaptive* rdmasr) {
+  auto send_msg = [&](RDMASenderReceiverBPEV* rdmasr) {
     cycles_t c1 = get_cycles();
     while (!rdmasr->send(&msghdr_out, sizeof(data_out))) {
-      rdmasr->check_and_ack_incomings_locked(true);
+      rdmasr->check_and_ack_incomings_locked();
       gpr_log(GPR_ERROR, "Send failed");
     }
     cycles_t c2 = get_cycles();
@@ -448,10 +430,9 @@ void serve_adaptive(Connections* conns, const BenchmarkConfig* config) {
   if (config->dir == Dir::kBi || config->dir == Dir::kC2S) {
     size_t n_alive_conn = conns->rdma_conns.size();
 
-    auto process_event = [&](RDMASenderReceiverAdaptive* rdmasr,
-                             RDMASenderReceiverMode mode) {
+    auto process_event = [&](RDMASenderReceiverBPEV* rdmasr) {
       cycles_t c1 = get_cycles();
-      auto rest_mlen = rdmasr->check_and_ack_incomings_locked(true);
+      auto rest_mlen = rdmasr->check_and_ack_incomings_locked();
       cycles_t c2 = get_cycles();
       conns->check_cycles += c2 - c1;
       conns->check_count++;
@@ -467,6 +448,8 @@ void serve_adaptive(Connections* conns, const BenchmarkConfig* config) {
         cycles_t c2 = get_cycles();
         conns->recv_cycles += c2 - c1;
         conns->recv_count++;
+
+//        gpr_log(GPR_INFO, "Server got %lu", data_in);
 
         if (data_in == -1) {  // Disconnect
           for (int i = 0; i < conns->rdma_conns.size(); i++) {
@@ -507,7 +490,7 @@ void serve_adaptive(Connections* conns, const BenchmarkConfig* config) {
         void* data_ptr = ev.data.ptr;
 
         if ((reinterpret_cast<intptr_t>(data_ptr) & 1) == 1) {
-          auto* rdmasr = reinterpret_cast<RDMASenderReceiverAdaptive*>(
+          auto* rdmasr = reinterpret_cast<RDMASenderReceiverBPEV*>(
               ~static_cast<intptr_t>(1) &
               reinterpret_cast<intptr_t>(ev.data.ptr));
           if ((ev.events & EPOLLIN) != 0) {
@@ -516,16 +499,7 @@ void serve_adaptive(Connections* conns, const BenchmarkConfig* config) {
             do {
               sz = read(rdmasr->get_wakeup_fd(), &val, sizeof(val));
             } while (sz < 0 && errno == EAGAIN);
-            process_event(rdmasr, RDMASenderReceiverMode::kBP);
-          }
-        } else if ((reinterpret_cast<intptr_t>(data_ptr) & 2) == 2) {
-          auto* rdmasr = reinterpret_cast<RDMASenderReceiverAdaptive*>(
-              ~static_cast<intptr_t>(2) &
-              reinterpret_cast<intptr_t>(ev.data.ptr));
-          if ((ev.events & EPOLLIN) != 0) {
-            // This should only be masked when there's RDMA event
-            rdmasr->check_data();
-            process_event(rdmasr, RDMASenderReceiverMode::kEvent);
+            process_event(rdmasr);
           }
         }
       }
@@ -538,7 +512,7 @@ void serve_adaptive(Connections* conns, const BenchmarkConfig* config) {
           data_out = -1;
         }
 
-        send_msg(dynamic_cast<RDMASenderReceiverAdaptive*>(rdmasr.get()));
+        send_msg(dynamic_cast<RDMASenderReceiverBPEV*>(rdmasr.get()));
       }
     }
   }
@@ -766,7 +740,7 @@ class RDMAServer {
       } else if (config.mode == Mode::kEvent) {
         polling_threads_.emplace_back(&serve_event, &connections_per_thread_[i],
                                       &config);
-      } else if (config.mode == Mode::kAdaptive) {
+      } else if (config.mode == Mode::kBPEV) {
         polling_threads_.emplace_back(&serve_adaptive,
                                       &connections_per_thread_[i], &config);
       } else if (config.mode == Mode::kTCP) {
@@ -894,8 +868,8 @@ class RDMAServer {
       connections_per_thread_[work_thread_id].CreateBPConnection(fd);
     } else if (config_.mode == Mode::kEvent) {
       connections_per_thread_[work_thread_id].CreateEventConnection(fd);
-    } else if (config_.mode == Mode::kAdaptive) {
-      connections_per_thread_[work_thread_id].CreateAdatpiveConnection(fd);
+    } else if (config_.mode == Mode::kBPEV) {
+      connections_per_thread_[work_thread_id].CreateBPEVConnection(fd);
     } else if (config_.mode == Mode::kTCP) {
       connections_per_thread_[work_thread_id].CreateTCPConnection(fd);
     }
