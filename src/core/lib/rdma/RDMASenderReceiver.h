@@ -339,11 +339,16 @@ class RDMASenderReceiverBPEV : public RDMASenderReceiver {
 
   bool check_incoming() const;
 
+  void set_index(int index) { this->index_ = index; }
+
+  int get_index() const { return index_; }
+
  protected:
   int last_n_post_send_;
   // this need to sync in initialization
   size_t last_failed_send_size_;
   int wakeup_fd_;
+  int index_;
 
   std::thread conn_th_;
 };

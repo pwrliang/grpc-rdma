@@ -33,7 +33,7 @@ std::string mode_to_string(Mode mode) {
     case Mode::kEvent:
       return "Event";
     case Mode::kBPEV:
-      return "Adaptive";
+      return "Busy Polling (Event)";
     case Mode::kTCP:
       return "TCP";
   }

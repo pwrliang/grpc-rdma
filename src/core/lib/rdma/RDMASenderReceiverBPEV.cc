@@ -31,6 +31,7 @@ RDMASenderReceiverBPEV::RDMASenderReceiverBPEV()
   last_n_post_send_ = 0;
   connected_ = false;
   wakeup_fd_ = eventfd(0, EFD_NONBLOCK);
+  index_ = 0;
 }
 
 void RDMASenderReceiverBPEV::Shutdown() {}
