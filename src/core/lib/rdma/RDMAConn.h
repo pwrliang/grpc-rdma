@@ -76,26 +76,12 @@ class RDMAConn {
    * @return return true if post receive happened
    */
   bool post_recvs_lazy() {
-    gpr_log(GPR_INFO, "rr gargabe: %zu", rr_garbage_);
     if (rr_garbage_ >= DEFAULT_MAX_POST_RECV / 2) {
-      auto old_rr_tail = rr_tail_;
       post_recvs(rr_garbage_);
-      gpr_log(GPR_INFO, "change rr tail from %zu to %zu", old_rr_tail,
-              rr_tail_);
       rr_garbage_ = 0;
       return true;
     }
     return false;
-  }
-
-  void require_event() {
-    GPR_ASSERT(recv_channel_ != nullptr);
-    if (ibv_req_notify_cq(rcq_.get(), 0)) {
-      gpr_log(GPR_ERROR,
-              "RDMAConnEvent::get_recv_events_locked, require notifcation on "
-              "rcq failed");
-      exit(-1);
-    }
   }
 
  private:

@@ -353,7 +353,6 @@ size_t RDMAConn::get_recv_events_locked(int& n_comp) {
   ibv_cq* cq = nullptr;
   void* ev_ctx = nullptr;
   if (ibv_get_cq_event(recv_channel_.get(), &cq, &ev_ctx) == -1) {
-    gpr_log(GPR_INFO, "Got empty event");
     return 0;
   }
   if (cq != rcq_.get()) {
