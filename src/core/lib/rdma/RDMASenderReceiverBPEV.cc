@@ -21,7 +21,7 @@ RDMASenderReceiverBPEV::RDMASenderReceiverBPEV()
   if (local_ringbuf_mr_.local_reg(pd, ringbuf_->get_buf(),
                                   ringbuf_->get_capacity())) {
     gpr_log(GPR_ERROR,
-            "RDMASenderReceiverAdaptive::RDMASenderReceiverAdaptive, failed to "
+            "RDMASenderReceiverBPEV::RDMASenderReceiverBPEV, failed to "
             "local_reg "
             "local_ringbuf_mr");
     exit(-1);
@@ -110,7 +110,7 @@ bool RDMASenderReceiverBPEV::send(msghdr* msg, size_t mlen) {
   WaitConnect();
 
   if (mlen > ringbuf_->get_max_send_size()) {
-    gpr_log(GPR_ERROR, "RDMASenderReceiverAdaptive::send, mlen > sendbuf size");
+    gpr_log(GPR_ERROR, "RDMASenderReceiverBPEV::send, mlen > sendbuf size");
     return false;
   }
 
