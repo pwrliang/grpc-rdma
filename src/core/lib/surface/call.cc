@@ -65,6 +65,7 @@
 #include "src/core/lib/transport/transport.h"
 #include "src/core/lib/iomgr/rdma_bp_posix.h"
 #include "src/core/lib/iomgr/rdma_event_posix.h"
+#include "src/core/lib/iomgr/rdma_bpev_posix.h"
 
 /** The maximum number of concurrent batches possible.
     Based upon the maximum number of individually queueable ops in the batch
@@ -292,7 +293,8 @@ void* grpc_call_require_zerocopy_sendspace(grpc_call* call, size_t size) {
       return grpc_rdma_bp_require_zerocopy_sendspace(ep, size);
     case IOMGR_RDMA_EVENT:
       return grpc_rdma_event_require_zerocopy_sendspace(ep, size);
-
+    case IOMGR_RDMA_BPEV:
+      return grpc_rdma_bpev_require_zerocopy_sendspace(ep, size);
   }
   return nullptr;
 

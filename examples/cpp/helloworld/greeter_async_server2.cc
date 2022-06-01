@@ -159,7 +159,8 @@ class ServerImpl final {
             bool ok;
 
             if (FLAGS_affinity) {
-              int num_cores = sysconf(_SC_NPROCESSORS_ONLN);
+              // int num_cores = sysconf(_SC_NPROCESSORS_ONLN) - 4;
+              int num_cores = FLAGS_cpu;
               int rc = bind_thread_to_core(idx % num_cores);
               printf("Bind thread %d to core %d\n", idx, idx % num_cores);
               if (rc != 0) {

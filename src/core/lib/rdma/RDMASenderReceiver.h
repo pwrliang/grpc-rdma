@@ -37,8 +37,8 @@ class RDMASenderReceiver {
       exit(-1);
     }
 
-    char* flag = getenv("GRPC_RDMA_ZEROCOPY_ENABLE");
-    if (flag && strcmp(flag, "true") == 0) {
+    // char* flag = getenv("GRPC_RDMA_ZEROCOPY_ENABLE");
+    // if (flag && strcmp(flag, "true") == 0) {
       zerocopy_flag_ = true;
       last_zerocopy_send_finished_.store(true);
       zerocopy_sendbuf_ = new uint8_t[sendbuf_size];
@@ -46,10 +46,10 @@ class RDMASenderReceiver {
         gpr_log(GPR_ERROR, "failed to local_reg zerocopy_sendbuf_mr");
         exit(-1);
       }
-    } else {
-      zerocopy_flag_ = false;
-      last_zerocopy_send_finished_.store(false);
-    }
+    // } else {
+    //   zerocopy_flag_ = false;
+    //   last_zerocopy_send_finished_.store(false);
+    // }
     unfinished_zerocopy_send_size_.store(0);
 
     posix_memalign(&metadata_recvbuf_, 64, metadata_recvbuf_sz_);
@@ -84,6 +84,8 @@ class RDMASenderReceiver {
     delete[] sendbuf_;
     free(metadata_recvbuf_);
     free(metadata_sendbuf_);
+    printf("total_send_size = %lld bytes, total_zerocopy_send_size = %lld bytes (%f)\n", 
+      total_send_size, total_zerocopy_send_size, (double)total_zerocopy_send_size / total_send_size);
   }
 
   size_t get_unread_data_size() const { return unread_mlens_; }

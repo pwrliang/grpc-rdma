@@ -137,6 +137,7 @@ class ClientAsyncResponseReaderHelper {
         break;
       case IOMGR_RDMA_BP:
       case IOMGR_RDMA_EVENT:
+      case IOMGR_RDMA_BPEV:
         GPR_CODEGEN_ASSERT(single_buf->SendMessage(request, call).ok());
     }
     single_buf->ClientSendClose();
@@ -362,6 +363,7 @@ class ServerAsyncResponseWriter final
           break;
         case IOMGR_RDMA_BP:
         case IOMGR_RDMA_EVENT:
+        case IOMGR_RDMA_BPEV:
           finish_buf_.ServerSendStatus(&ctx_->trailing_metadata_,
                                    finish_buf_.SendMessage(msg, call_.call()));
           break;

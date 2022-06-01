@@ -7,6 +7,22 @@
 #include "grpc/support/log.h"
 #include "include/grpc/support/sync.h"
 #include "src/core/lib/rdma/RDMASenderReceiver.h"
+int _bind_thread_to_core_(int core_id) {
+  int num_cores = sysconf(_SC_NPROCESSORS_ONLN);
+  if (core_id < 0 || core_id >= num_cores) {
+    return EINVAL;
+  }
+
+  cpu_set_t cpuset;
+  CPU_ZERO(&cpuset);
+  CPU_SET(core_id, &cpuset);
+
+  pthread_t current_thread = pthread_self();
+  return pthread_setaffinity_np(current_thread, sizeof(cpu_set_t), &cpuset);
+}
+
+extern bool rdmasr_is_server;
+extern int mpirank, num_node;
 class RDMAMonitor {
   using rdmasr_seq_t = std::vector<RDMASenderReceiverBPEV*>;
 
@@ -98,6 +114,23 @@ class RDMAMonitor {
     for (int i = 0; i < nslots; i++) {
       rdmasr_slots_[i].reserve(4096);
       gpr_mu_init(&rdmasr_locks_[i]);
+
+      monitor_ths_.emplace_back(
+          [&, this](int slot_id) {
+            int num_cores = sysconf(_SC_NPROCESSORS_ONLN);
+            if (rdmasr_is_server) {
+              _bind_thread_to_core_(num_cores - slot_id - 1);
+              printf("server: bind monitor %d to core %d\n", slot_id, num_cores - slot_id - 1);
+            } else {
+              int id_in_node = mpirank / num_node;
+              _bind_thread_to_core_(num_cores - slot_id - id_in_node - 1);
+              printf("client: mpirank= %ld, bind monitor %d to core %d\n", mpirank, slot_id, num_cores - slot_id - id_in_node - 1);
+            }
+            while (running_) {
+              notifyWaiter(slot_id);
+            }
+          },
+          i);
     }
   }
 
@@ -111,6 +144,7 @@ class RDMAMonitor {
       if (rdmasr->get_unread_data_size() == 0 && rdmasr->check_incoming() > 0) {
         do {
           sz = write(rdmasr->get_wakeup_fd(), &val, sizeof(val));
+          // printf("notify wakeup_fd %ld\n", rdmasr->get_wakeup_fd());
         } while (sz < 0 && errno == EAGAIN);
       }
     }

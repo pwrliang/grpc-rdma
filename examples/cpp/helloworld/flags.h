@@ -17,4 +17,6 @@ DECLARE_bool(grab_mem);
 DECLARE_string(mode);
 DECLARE_int32(sleep);
 DECLARE_int32(executor);
+DECLARE_int32(node);
+DECLARE_int32(cpu);
 #endif  // HELLOWORLD_FLAGS_H
