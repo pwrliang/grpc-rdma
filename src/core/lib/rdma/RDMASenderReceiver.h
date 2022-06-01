@@ -84,8 +84,6 @@ class RDMASenderReceiver {
     delete[] sendbuf_;
     free(metadata_recvbuf_);
     free(metadata_sendbuf_);
-    printf("total_send_size = %lld bytes, total_zerocopy_send_size = %lld bytes (%f)\n", 
-      total_send_size, total_zerocopy_send_size, (double)total_zerocopy_send_size / total_send_size);
   }
 
   size_t get_unread_data_size() const { return unread_mlens_; }

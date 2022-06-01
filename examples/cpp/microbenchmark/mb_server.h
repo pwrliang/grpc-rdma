@@ -8,7 +8,7 @@
 #include <thread>
 #include "SockUtils.h"
 #include "flags.h"
-#include "get_clock.h"
+#include "grpcpp/get_clock.h"
 #include "mb.h"
 #include "src/core/lib/rdma/RDMAConn.h"
 #include "src/core/lib/rdma/RDMASenderReceiver.h"

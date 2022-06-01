@@ -47,7 +47,7 @@ RDMASenderReceiverBPEV::~RDMASenderReceiverBPEV() {
 
 void RDMASenderReceiverBPEV::connect(int fd) {
   fd_ = fd;
-  printf("RDMASenderReceiverBPEV, fd = %ld, wakeup_fd = %ld, is server: %d\n", fd, wakeup_fd_, rdmasr_is_server);
+//  printf("RDMASenderReceiverBPEV, fd = %ld, wakeup_fd = %ld, is server: %d\n", fd, wakeup_fd_, rdmasr_is_server);
   conn_th_ = std::thread([this, fd] {
     conn_->SyncQP(fd);
     conn_->SyncMR(fd, local_ringbuf_mr_, remote_ringbuf_mr_);

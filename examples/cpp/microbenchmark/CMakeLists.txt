@@ -19,7 +19,7 @@ include_directories(${PROJECT_SOURCE_DIR}/../../../third_party/abseil-cpp)
 #set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fsanitize=address")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -pthread")
 
-add_executable(mb mb.cc get_clock.cc flags.cc)
+add_executable(mb mb.cc flags.cc)
 target_link_libraries(mb
         ${GFLAGS_LIBRARIES} ${MPI_CXX_LIBRARIES} ${_GRPC_GRPCPP} ibverbs)
 

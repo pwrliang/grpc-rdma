@@ -9,10 +9,10 @@
 #include "SockUtils.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
-#include "get_clock.h"
 #include "gflags/gflags.h"
 #include "grpc/support/log.h"
 #include "grpc/support/time.h"
+#include "grpcpp/get_clock.h"
 #include "netinet/tcp.h"
 #include "src/core/lib/rdma/RDMASenderReceiver.h"
 
