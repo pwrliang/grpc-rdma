@@ -34,6 +34,52 @@ class RDMAMonitor {
     rdmasr->set_index(reg_id);
     rdmasr_slots_[slot_id].push_back(rdmasr);
     gpr_mu_unlock(&rdmasr_locks_[slot_id]);
+
+    gpr_mu_lock(&rdmasr_locks_[0]);
+    size_t n_rdmasr = 0;
+    size_t max_thread;
+
+    for (auto& vec : rdmasr_slots_) {
+      n_rdmasr += vec.size();
+    }
+    if (n_rdmasr <= 4) {
+      max_thread = 1;
+    } else if (n_rdmasr <= 16) {
+      max_thread = 3;
+    } else if (n_rdmasr <= 64) {
+      max_thread = 4;
+    } else {
+      max_thread = 4;
+    }
+    max_thread = std::min(max_thread, rdmasr_slots_.size());
+
+    while (monitor_ths_.size() < max_thread) {
+      monitor_ths_.emplace_back(
+          [&, this](int thread_id) {
+            size_t n_slots = rdmasr_slots_.size();
+            if (rdmasr_is_server) {
+              int num_cores = sysconf(_SC_NPROCESSORS_ONLN);
+
+              bind_thread_to_core(thread_id % num_cores);
+            }
+
+            while (running_) {
+              auto n_threads = n_threads_.load();
+              size_t avg_n_slots = (n_slots + n_threads - 1) / n_threads;
+              size_t begin_slot = std::min(n_slots, thread_id * avg_n_slots);
+              size_t end_slot =
+                  std::min(n_slots, (thread_id + 1) * avg_n_slots);
+
+              for (int i = begin_slot; i < end_slot; i++) {
+                notifyWaiter(i);
+              }
+            }
+          },
+          monitor_ths_.size());
+    }
+    n_threads_ = monitor_ths_.size();
+
+    gpr_mu_unlock(&rdmasr_locks_[0]);
   }
 
   void Unregister(RDMASenderReceiverBPEV* rdmasr) {
@@ -52,38 +98,16 @@ class RDMAMonitor {
 
  private:
   RDMAMonitor() {
-    int n_monitor_threads;
+    int n_slots = 8;
 
-    if (rdmasr_is_server) {
-      n_monitor_threads = 4;
-    } else {
-      n_monitor_threads = 1;
-    }
-
-    rdmasr_slots_.resize(n_monitor_threads);
-    rdmasr_locks_.resize(n_monitor_threads);
+    n_threads_ = 0;
+    rdmasr_slots_.resize(n_slots);
+    rdmasr_locks_.resize(n_slots);
     running_ = true;
 
-    for (int i = 0; i < n_monitor_threads; i++) {
+    for (int i = 0; i < n_slots; i++) {
       rdmasr_slots_[i].reserve(4096);
       gpr_mu_init(&rdmasr_locks_[i]);
-    }
-
-    for (int i = 0; i < n_monitor_threads; i++) {
-      monitor_ths_.emplace_back(
-          [&, this](int slot_id) {
-
-            if (rdmasr_is_server) {
-              int num_cores = sysconf(_SC_NPROCESSORS_ONLN);
-
-              bind_thread_to_core(slot_id % num_cores);
-            }
-
-            while (running_) {
-              notifyWaiter(slot_id);
-            }
-          },
-          i);
     }
   }
 
@@ -121,6 +145,7 @@ class RDMAMonitor {
   std::vector<gpr_mu> rdmasr_locks_;
   std::vector<std::vector<RDMASenderReceiverBPEV*>> rdmasr_slots_;
   std::atomic_int32_t reg_id_;
+  std::atomic_uint32_t n_threads_;
   std::vector<std::thread> monitor_ths_;
   bool running_;
 };
