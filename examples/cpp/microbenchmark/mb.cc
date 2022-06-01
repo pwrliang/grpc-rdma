@@ -1,19 +1,18 @@
 #define SENDER_RECEIVER_NON_ATOMIC
-#include <string.h>
-#include <unistd.h>
-
+#include "mb.h"
 #include <arpa/inet.h>
 #include <net/if.h>
 #include <netinet/in.h>
+#include <string.h>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
+#include <unistd.h>
 #include "comm_spec.h"
 #include "flags.h"
-#include "mb.h"
 #include "mb_client.h"
 #include "mb_server.h"
+#include "proc_parser.h"
 
-bool mb_is_server = false;
 void StartServer(const BenchmarkConfig& config, const CommSpec& comm_spec) {
   RDMAServer server(config, comm_spec);
   int fd;
@@ -24,7 +23,6 @@ void StartServer(const BenchmarkConfig& config, const CommSpec& comm_spec) {
   strncpy(ifr.ifr_name, "ib0", IFNAMSIZ - 1);
   ioctl(fd, SIOCGIFADDR, &ifr);
   close(fd);
-  mb_is_server = true;
   if (config.mpi_server) {
     char* ip =
         inet_ntoa((reinterpret_cast<sockaddr_in*>(&ifr.ifr_addr))->sin_addr);
@@ -50,7 +48,7 @@ void StartClient(const BenchmarkConfig& config, const CommSpec& comm_spec) {
   } else if (config.mode == Mode::kEvent) {
     client.RunEpoll();
   } else if (config.mode == Mode::kBPEV) {
-    client.RunAdaptive();
+    client.RunBPEV();
   } else if (config.mode == Mode::kTCP) {
     client.RunTCP();
   }
@@ -74,27 +72,34 @@ int main(int argc, char* argv[]) {
     config.dir = parse_dir(FLAGS_dir);
     config.mpi_server = FLAGS_mpiserver;
     config.n_max_polling_thread = FLAGS_polling_thread;
-    config.n_client = FLAGS_nclient;
     config.n_batch = FLAGS_batch;
     config.affinity = FLAGS_affinity;
     config.server_timeout = FLAGS_server_timeout;
     config.client_timeout = FLAGS_client_timeout;
     config.send_interval_us = FLAGS_send_interval;
+    config.n_cpu_limit = FLAGS_cpu_limit;
+    config.n_work_thread = FLAGS_work_thread;
+    config.work_stealing = FLAGS_work_stealing;
+    if (config.mpi_server) {
+      config.n_client = comm_spec.worker_num() - 1;
+    } else {
+      config.n_client = FLAGS_nclient;
+    }
 
-    GPR_ASSERT(config.mpi_server && config.n_client == 0 ||
-               !config.mpi_server && config.n_client > 0);
+    GPR_ASSERT(config.n_client > 0);
     GPR_ASSERT(config.n_batch > 0);
     GPR_ASSERT(config.n_max_polling_thread > 0);
-
-    if (FLAGS_mpiserver) {
+    GPR_ASSERT(!config.affinity || config.affinity && config.n_cpu_limit == -1);
+    
+    if (config.mpi_server) {
       if (comm_spec.worker_id() == 0) {
         if (comm_spec.local_num() > 1) {
           char hn[255];
           int hn_len;
           MPI_Get_processor_name(hn, &hn_len);
           gpr_log(GPR_ERROR,
-                  "Trying to launch multiple server on the same node %s", hn);
-          exit(1);
+                  "Trying to launch server and client on the same node %s", hn);
+          abort();
         }
         StartServer(config, comm_spec);
       } else {

@@ -1,7 +1,12 @@
 #ifndef MICROBENCHMARK_MB_H
 #define MICROBENCHMARK_MB_H
+#include <sys/socket.h>
+#include <sys/types.h>
 #include <unistd.h>
+#include <cstring>
 #include <string>
+#include <vector>
+
 #include "grpc/impl/codegen/log.h"
 #define MAX_EVENTS 100
 
@@ -72,25 +77,33 @@ struct BenchmarkConfig {
   int n_max_polling_thread{};
   int n_client{};
   int n_batch{};
+  int n_cpu_limit{};
   // for event mode
   int server_timeout{};
   int client_timeout{};
   int send_interval_us{};
+  double n_work_thread{};
+  bool should_work{};
+  bool work_stealing{};
 };
 
-int bind_thread_to_core(int core_id) {
+int bind_thread_to_cores(const std::vector<int>& core_ids) {
   int num_cores = sysconf(_SC_NPROCESSORS_ONLN);
-  if (core_id < 0 || core_id >= num_cores) {
-    return EINVAL;
-  }
-
   cpu_set_t cpuset;
   CPU_ZERO(&cpuset);
-  CPU_SET(core_id, &cpuset);
+
+  for (int core_id : core_ids) {
+    if (core_id < 0 || core_id >= num_cores) {
+      return EINVAL;
+    }
+    CPU_SET(core_id, &cpuset);
+  }
 
   pthread_t current_thread = pthread_self();
   return pthread_setaffinity_np(current_thread, sizeof(cpu_set_t), &cpuset);
 }
+
+int bind_thread_to_core(int core_id) { return bind_thread_to_cores({core_id}); }
 
 ssize_t tcp_send1(int fd, const struct msghdr* msg, int additional_flags = 0) {
   ssize_t sent_length;
@@ -100,4 +113,44 @@ ssize_t tcp_send1(int fd, const struct msghdr* msg, int additional_flags = 0) {
   return sent_length;
 }
 
+bool write_data(int fd, const char* local, const size_t sz) {
+  size_t remain = sz;
+  ssize_t done;
+
+  while (remain) {
+    done = ::write(fd, local + (sz - remain), remain);
+    if (done < 0) {
+      if (errno == EINTR || errno == EAGAIN) {
+      } else {
+        gpr_log(GPR_ERROR, "write failure, errno %d: %s", errno,
+                strerror(errno));
+        return false;
+      }
+    } else {
+      remain -= done;
+    }
+  }
+  return true;
+}
+
+bool read_data(int fd, char* remote, const size_t sz) {
+  size_t remain = sz;
+  ssize_t done;
+
+  while (remain) {
+    done = ::read(fd, remote + (sz - remain), remain);
+    if (done < 0) {
+      if (errno == EINTR || errno == EAGAIN) {
+      } else {
+        gpr_log(GPR_ERROR, "read failure, read errno %d: %s", errno,
+                strerror(errno));
+        return false;
+      }
+    } else {
+      remain -= done;
+    }
+  }
+
+  return true;
+}
 #endif  // MICROBENCHMARK_MB_H

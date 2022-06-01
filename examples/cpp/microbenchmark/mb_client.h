@@ -62,6 +62,15 @@ class RDMAClient {
     } while (r < 0);
   }
 
+  void set_should_work() {
+    char should_work[1];
+
+    memset(should_work, 0, 1);
+
+    GPR_ASSERT(read_data(sockfd_, should_work, 1));
+    config_.should_work = should_work[0] == '1';
+  }
+
   void RunBusyPolling() {
     int64_t data_out = 0, data_in = 0;
     msghdr msghdr_out, msghdr_in;
@@ -78,6 +87,7 @@ class RDMAClient {
     RDMASenderReceiverBP rdmasr;
     rdmasr.connect(sockfd_);
     rdmasr.WaitConnect();
+    set_should_work();
 
     if (config_.mpi_server) {
       MPI_Barrier(comm_spec_.comm());
@@ -144,7 +154,7 @@ class RDMAClient {
         break;
       }
       case Dir::kBi: {
-        while (n_iter < batch_size) {
+        while (n_iter < batch_size && config_.should_work) {
           cycles_t c1 = get_cycles();
           send_msg();
           while (!rdmasr.check_incoming()) {
@@ -199,6 +209,7 @@ class RDMAClient {
     RDMASenderReceiverEvent rdmasr;
     rdmasr.connect(sockfd_);
     rdmasr.WaitConnect();
+    set_should_work();
     // Waiting for all clients connected
     if (config_.mpi_server) {
       MPI_Barrier(comm_spec_.comm());
@@ -267,7 +278,13 @@ class RDMAClient {
     };
 
     cycles_t iter_cycles = 0;
+    cycles_t send_cycles = 0;
+    cycles_t epoll_cycles = 0;
+    cycles_t check_cycles = 0;
     size_t n_iter = 0;
+    size_t epoll_count = 0;
+    size_t check_count = 0;
+    size_t send_count = 0;
 
     MPI_Barrier(comm_spec_.client_comm());
 
@@ -357,13 +374,15 @@ class RDMAClient {
 
         send_msg();
 
-        while (n_iter < batch_size) {
+        while (n_iter < batch_size && config_.should_work) {
           cycles_t c1 = get_cycles();
-
           int r;
           do {
             r = epoll_wait(epfd, events, MAX_EVENTS, config_.client_timeout);
           } while ((r < 0 && errno == EINTR) || r == 0);
+          cycles_t c2 = get_cycles();
+          epoll_cycles += c2 - c1;
+          epoll_count++;
 
           for (int j = 0; j < r; j++) {
             epoll_event& ev = events[j];
@@ -390,8 +409,8 @@ class RDMAClient {
             }
           }
 
-          cycles_t c2 = get_cycles();
-          iter_cycles += c2 - c1;
+          cycles_t c3 = get_cycles();
+          iter_cycles += c3 - c1;
           n_iter++;
           if (config_.send_interval_us > 0) {
             gpr_sleep_until(gpr_time_add(
@@ -418,6 +437,9 @@ class RDMAClient {
        << " Runtime: " << ToDoubleSeconds((t_end - t_begin)) << " s"
        << " Iter: " << n_iter << " Avg Iter: " << iter_cycles / mhz / n_iter
        << " us";
+    if (epoll_count > 0) {
+      ss << " Epoll Lat: " << epoll_cycles / mhz / epoll_count << " us";
+    }
     ss << " nvcsw: " << rusage.ru_nvcsw << " nivscw: " << rusage.ru_nivcsw;
     gpr_log(GPR_INFO, "%s", ss.str().c_str());
 
@@ -431,10 +453,11 @@ class RDMAClient {
     } while (flag == 0);
   }
 
-  void RunAdaptive() {
+  void RunBPEV() {
     RDMASenderReceiverBPEV rdmasr;
     rdmasr.connect(sockfd_);
     rdmasr.WaitConnect();
+    set_should_work();
     // Waiting for all clients connected
     if (config_.mpi_server) {
       MPI_Barrier(comm_spec_.comm());
@@ -485,7 +508,7 @@ class RDMAClient {
       while (!rdmasr.send(&msghdr_out, sizeof(data_out))) {
         gpr_log(GPR_ERROR, "Failed to send");
       }
-//      gpr_log(GPR_INFO, "Sent %lu", data_out);
+      //      gpr_log(GPR_INFO, "Sent %lu", data_out);
     };
 
     cycles_t iter_cycles = 0;
@@ -576,7 +599,7 @@ class RDMAClient {
 
         send_msg();
 
-        while (n_iter < batch_size) {
+        while (n_iter < batch_size && config_.should_work) {
           cycles_t c1 = get_cycles();
           int r;
           do {

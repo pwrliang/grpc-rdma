@@ -16,9 +16,9 @@
 #define MAX_CONN_NUM 1024
 std::condition_variable cv;
 std::mutex cv_m;
+std::atomic_int global_n_active_client(0);  // for work stealing
 bool all_connected = false;
-std::atomic_int rest_n_client;
-extern bool is_server;
+#include "proc_parser.h"
 
 struct Connections {
   Connections()
@@ -33,16 +33,21 @@ struct Connections {
         check_cycles(0),
         check_count(0) {}
 
+  ~Connections() { close(epfd); }
+
   void CreateBPConnection(int fd) {
     auto conn = std::make_shared<RDMASenderReceiverBP>();
     conn->connect(fd);
     rdma_conns.push_back(conn);
+    tcp_conns.push_back(fd);
   }
 
   void CreateEventConnection(int fd) {
     auto conn = std::make_shared<RDMASenderReceiverEvent>();
+
     conn->connect(fd);
     rdma_conns.push_back(conn);
+    tcp_conns.push_back(fd);
 
     int rdma_meta_recv_channel_fd = conn->get_metadata_recv_channel_fd();
     struct epoll_event meta_recv_ev_fd;
@@ -79,25 +84,32 @@ struct Connections {
 
   void CreateBPEVConnection(int fd) {
     auto conn = std::make_shared<RDMASenderReceiverBPEV>();
+
     conn->connect(fd);
     rdma_conns.push_back(conn);
+    tcp_conns.push_back(fd);
 
-    int wakeup_fd = conn->get_wakeup_fd();
-    struct epoll_event wakeup_ep_ev;
-    wakeup_ep_ev.events =
-        static_cast<uint32_t>(EPOLLIN | EPOLLET | EPOLLEXCLUSIVE);
-    wakeup_ep_ev.data.ptr =
-        reinterpret_cast<void*>(reinterpret_cast<intptr_t>(conn.get()) | 1);
-    if (epoll_ctl(epfd, EPOLL_CTL_ADD, wakeup_fd, &wakeup_ep_ev) != 0) {
-      switch (errno) {
-        case EEXIST:
-          break;
-        default: {
-          gpr_log(GPR_ERROR, "epoll_ctl error, errno: %d", errno);
-          abort();
+    auto add_fd = [&](int epfd) {
+      int wakeup_fd = conn->get_wakeup_fd();
+      struct epoll_event wakeup_ep_ev;
+      wakeup_ep_ev.events =
+          static_cast<uint32_t>(EPOLLIN | EPOLLET | EPOLLEXCLUSIVE);
+      wakeup_ep_ev.data.ptr =
+          reinterpret_cast<void*>(reinterpret_cast<intptr_t>(conn.get()) | 1);
+
+      if (epoll_ctl(epfd, EPOLL_CTL_ADD, wakeup_fd, &wakeup_ep_ev) != 0) {
+        switch (errno) {
+          case EEXIST:
+            break;
+          default: {
+            gpr_log(GPR_ERROR, "epoll_ctl error, errno: %d", errno);
+            abort();
+          }
         }
       }
-    }
+    };
+
+    add_fd(epfd);
   }
 
   void CreateTCPConnection(int fd) {
@@ -107,6 +119,7 @@ struct Connections {
     ep_event.events =
         static_cast<uint32_t>(EPOLLIN | EPOLLOUT | EPOLLEXCLUSIVE);
     ep_event.data.fd = fd;
+
     if (epoll_ctl(epfd, EPOLL_CTL_ADD, fd, &ep_event) != 0) {
       switch (errno) {
         case EEXIST:
@@ -117,9 +130,18 @@ struct Connections {
     }
   }
 
-  void BindCore() {
-    int num_cores = sysconf(_SC_NPROCESSORS_ONLN);
-    bind_thread_to_core((tid + FLAGS_start_cpu) % num_cores);
+  void BindCore(const BenchmarkConfig* config) {
+    if (config->affinity) {
+      int num_cores = sysconf(_SC_NPROCESSORS_ONLN);
+      bind_thread_to_core((tid + FLAGS_start_cpu) % num_cores);
+    } else if (config->n_cpu_limit != -1) {
+      std::vector<int> cpu_ids;
+
+      for (int cpu_id = 0; cpu_id < config->n_cpu_limit; cpu_id++) {
+        cpu_ids.push_back(cpu_id);
+      }
+      bind_thread_to_cores(cpu_ids);
+    }
   }
 
   CommSpec comm_spec;
@@ -127,6 +149,7 @@ struct Connections {
   std::vector<int> tcp_conns;
   int epfd;
   int tid;
+  std::vector<int> epfds;
   cycles_t epoll_cycles;
   size_t epoll_count;
   cycles_t send_cycles;
@@ -153,9 +176,7 @@ void serve_bp(Connections* conns, const BenchmarkConfig* config) {
   msghdr_out.msg_iov = &iov_out;
   msghdr_out.msg_iovlen = 1;
 
-  if (config->affinity) {
-    conns->BindCore();
-  }
+  conns->BindCore(config);
 
   {
     std::unique_lock<std::mutex> lk(cv_m);
@@ -214,11 +235,22 @@ void serve_bp(Connections* conns, const BenchmarkConfig* config) {
   getrusage(RUSAGE_THREAD, &conns->rusage);
 
   if (nops > 1) {
-    gpr_log(GPR_INFO,
-            "Server thread: %d, Served Reqs: %u Avg Time: %lf nvcsw: %ld "
-            "nivcsw: %ld",
+    std::stringstream ss;
+
+    ss << " nvcsw: " << conns->rusage.ru_nvcsw
+       << " nivcsw: " << conns->rusage.ru_nivcsw;
+    ss << " user: "
+       << conns->rusage.ru_utime.tv_sec * 1000 * 1000 +
+              conns->rusage.ru_utime.tv_usec
+       << " us";
+    ss << " sys: "
+       << conns->rusage.ru_stime.tv_sec * 1000 * 1000 +
+              conns->rusage.ru_stime.tv_usec
+       << " us";
+
+    gpr_log(GPR_INFO, "Server thread: %d, Served Reqs: %u Avg Time: %lf %s",
             conns->tid, nops, ToDoubleMicroseconds((t_end - t_begin)) / nops,
-            conns->rusage.ru_nvcsw, conns->rusage.ru_nivcsw);
+            ss.str().c_str());
   }
 }
 
@@ -240,9 +272,9 @@ void serve_event(Connections* conns, const BenchmarkConfig* config) {
   msghdr_out.msg_iov = &iov_out;
   msghdr_out.msg_iovlen = 1;
 
-  if (config->affinity) {
-    conns->BindCore();
-  }
+  conns->BindCore(config);
+
+  auto before_tasklet = get_tasklet_count();
 
   {
     std::unique_lock<std::mutex> lk(cv_m);
@@ -380,11 +412,30 @@ void serve_event(Connections* conns, const BenchmarkConfig* config) {
     }
     ss << " nvcsw: " << conns->rusage.ru_nvcsw
        << " nivcsw: " << conns->rusage.ru_nivcsw;
+    ss << " user: "
+       << conns->rusage.ru_utime.tv_sec * 1000 * 1000 +
+              conns->rusage.ru_utime.tv_usec
+       << " us";
+    ss << " sys: "
+       << conns->rusage.ru_stime.tv_sec * 1000 * 1000 +
+              conns->rusage.ru_stime.tv_usec
+       << " us";
+
+    if (conns->tid == 0) {
+      auto after_tasklet = get_tasklet_count();
+      int max_inc = 0;
+      for (int i = 0; i < before_tasklet.size(); i++) {
+        int inc = after_tasklet[i] - before_tasklet[i];
+        max_inc = std::max(max_inc, inc);
+      }
+      ss << " Tasklet: " << max_inc;
+    }
+
     gpr_log(GPR_INFO, "%s", ss.str().c_str());
   }
 }
 
-void serve_adaptive(Connections* conns, const BenchmarkConfig* config) {
+void serve_bpev(Connections* conns, const BenchmarkConfig* config) {
   int epfd = conns->epfd;
   epoll_event events[MAX_EVENTS];
 
@@ -402,9 +453,8 @@ void serve_adaptive(Connections* conns, const BenchmarkConfig* config) {
   msghdr_out.msg_iov = &iov_out;
   msghdr_out.msg_iovlen = 1;
 
-  if (config->affinity) {
-    conns->BindCore();
-  }
+  conns->BindCore(config);
+  global_n_active_client++;
 
   {
     std::unique_lock<std::mutex> lk(cv_m);
@@ -419,9 +469,6 @@ void serve_adaptive(Connections* conns, const BenchmarkConfig* config) {
       gpr_log(GPR_ERROR, "Send failed");
     }
     cycles_t c2 = get_cycles();
-
-    //    gpr_log(GPR_INFO, "Server sent as %s",
-    //            rdma_mode_to_string(rdmasr->get_peer_mode()));
 
     conns->send_cycles += c2 - c1;
     conns->send_count++;
@@ -449,15 +496,13 @@ void serve_adaptive(Connections* conns, const BenchmarkConfig* config) {
         conns->recv_cycles += c2 - c1;
         conns->recv_count++;
 
-//        gpr_log(GPR_INFO, "Server got %lu", data_in);
-
         if (data_in == -1) {  // Disconnect
           for (int i = 0; i < conns->rdma_conns.size(); i++) {
             if (conns->rdma_conns[i].get() == rdmasr) {
               conns->rdma_conns[i] = nullptr;
               n_alive_conn--;
+              global_n_active_client--;
               GPR_ASSERT(rest_mlen == 0);
-              gpr_log(GPR_INFO, "Client exit");
               break;
             }
           }
@@ -480,12 +525,13 @@ void serve_adaptive(Connections* conns, const BenchmarkConfig* config) {
       cycles_t c2 = get_cycles();
       conns->epoll_cycles += c2 - c1;
       conns->epoll_count++;
+
       if (r < 0) {
         gpr_log(GPR_ERROR, "epoll_wait: %d", errno);
         abort();
       }
 
-      for (int i = 0; i < r && n_alive_conn > 0; i++) {
+      for (int i = 0; i < r; i++) {
         epoll_event& ev = events[i];
         void* data_ptr = ev.data.ptr;
 
@@ -570,9 +616,7 @@ void serve_tcp(Connections* conns, const BenchmarkConfig* config) {
   msghdr_out.msg_iov = &iov_out;
   msghdr_out.msg_iovlen = 1;
 
-  if (config->affinity) {
-    conns->BindCore();
-  }
+  conns->BindCore(config);
 
   {
     std::unique_lock<std::mutex> lk(cv_m);
@@ -703,21 +747,33 @@ void serve_tcp(Connections* conns, const BenchmarkConfig* config) {
   }
 }
 
+double pi(int n) {
+  double sum = 0.0;
+  int sign = 1;
+  for (int i = 0; i < n; ++i) {
+    sum += sign / (2.0 * i + 1.0);
+    sign *= -1;
+  }
+  return 4.0 * sum;
+}
+
 void compute(std::atomic_bool* running) {
   {
     std::unique_lock<std::mutex> lk(cv_m);
     cv.wait(lk, [] { return all_connected; });
   }
-
-  while (running->load())
-    ;
+  double curr_pi;
+  while (running->load()) {
+    int n = rand() % 100000;
+    curr_pi = pi(n);
+  }
+  GPR_ASSERT(curr_pi > 0);  // fool compiler
 }
 
 class RDMAServer {
  public:
   explicit RDMAServer(const BenchmarkConfig& config, const CommSpec& comm_spec)
       : config_(config), comm_spec_(comm_spec) {
-    is_server = true;
     sockfd_ = SocketUtils::socket(AF_INET, SOCK_STREAM, 0);
     int n_polling_thread = config_.n_max_polling_thread;
 
@@ -729,24 +785,28 @@ class RDMAServer {
       }
     }
     connections_per_thread_.resize(n_polling_thread);
+    std::vector<int> epfds;
 
     for (int i = 0; i < n_polling_thread; i++) {
-      connections_per_thread_[i].tid = i;
-      connections_per_thread_[i].comm_spec = comm_spec_;
+      auto& conns = connections_per_thread_[i];
+      conns.tid = i;
+      conns.comm_spec = comm_spec_;
+      epfds.push_back(conns.epfd);
+
       if (config.mode == Mode::kBusyPolling ||
           config.mode == Mode::kBusyPollingRR) {
-        polling_threads_.emplace_back(&serve_bp, &connections_per_thread_[i],
-                                      &config);
+        polling_threads_.emplace_back(&serve_bp, &conns, &config);
       } else if (config.mode == Mode::kEvent) {
-        polling_threads_.emplace_back(&serve_event, &connections_per_thread_[i],
-                                      &config);
+        polling_threads_.emplace_back(&serve_event, &conns, &config);
       } else if (config.mode == Mode::kBPEV) {
-        polling_threads_.emplace_back(&serve_adaptive,
-                                      &connections_per_thread_[i], &config);
+        polling_threads_.emplace_back(&serve_bpev, &conns, &config);
       } else if (config.mode == Mode::kTCP) {
-        polling_threads_.emplace_back(&serve_tcp, &connections_per_thread_[i],
-                                      &config);
+        polling_threads_.emplace_back(&serve_tcp, &conns, &config);
       }
+    }
+
+    for (int i = 0; i < n_polling_thread; i++) {
+      connections_per_thread_[i].epfds = epfds;
     }
 
     computing_ = true;
@@ -759,7 +819,7 @@ class RDMAServer {
                    sizeof(opt))) {
       gpr_log(GPR_ERROR,
               "RDMAServer::RDMAServer, error on setsockopt (SO_REUSEADDR)");
-      exit(-1);
+      abort();
     }
   }
 
@@ -816,7 +876,6 @@ class RDMAServer {
       setsockopt(newsd, SOL_TCP, TCP_NODELAY, &flag, sizeof(flag));
       dispatch(newsd, client_id);
       client_id++;
-      rest_n_client++;
       if (client_id % 10 == 0) {
         gpr_log(GPR_INFO, "There are %d clients are connected", client_id);
       }
@@ -828,12 +887,33 @@ class RDMAServer {
       }
     }
 
-    gpr_log(GPR_INFO, "%d clients are connected", n_client);
+    int n_working_clients = 0;
+
+    for (int tid = 0; tid < connections_per_thread_.size(); tid++) {
+      char should_work[1];
+      auto& tcp_fds = connections_per_thread_[tid].tcp_conns;
+
+      if (config_.n_work_thread == -1 || tid < config_.n_work_thread) {
+        n_working_clients += tcp_fds.size();
+        should_work[0] = '1';
+      } else {
+        should_work[0] = '0';
+      }
+
+      for (int fd : tcp_fds) {
+        GPR_ASSERT(write_data(fd, should_work, 1));
+      }
+    }
+
+    gpr_log(GPR_INFO, "%d clients are connected, working client: %d", n_client,
+            n_working_clients);
 
     // Waiting for all clients connected
     if (config_.mpi_server) {
       MPI_Barrier(comm_spec_.comm());
     }
+
+    cpu_time_t cpu_time_before = get_cpu_time();
     {
       // notify serving threads
       std::lock_guard<std::mutex> lk(cv_m);
@@ -844,6 +924,13 @@ class RDMAServer {
     for (auto& th : polling_threads_) {
       th.join();
     }
+    cpu_time_t cpu_time_after = get_cpu_time();
+    cpu_time_t diff = cpu_time_after - cpu_time_before;
+    gpr_log(GPR_INFO,
+            "CPU-TIME (s) user: %lf nice: %lf sys: %lf iowait: %lf irq: %lf "
+            "softirq: %f",
+            diff.t_user, diff.t_nice, diff.t_system, diff.t_iowait, diff.t_irq,
+            diff.t_softirq);
 
     computing_ = false;
     for (auto& th : computing_threads_) {
@@ -861,7 +948,7 @@ class RDMAServer {
   std::atomic_bool computing_;
 
   void dispatch(int fd, int conn_id) {
-    int work_thread_id = conn_id % polling_threads_.size();
+    int work_thread_id = conn_id % connections_per_thread_.size();
 
     if (config_.mode == Mode::kBusyPolling ||
         config_.mode == Mode::kBusyPollingRR) {
