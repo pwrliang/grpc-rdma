@@ -11,7 +11,7 @@ fi
 
 POLL_NUMS=(1)
 GRPC_MODES=(TCP RDMA_BP RDMA_EVENT)
-GRPC_MODES=(RDMA_BP)
+GRPC_MODES=(RDMA_EVENT)
 
 function set_hostfile() {
   n_clients=$1
@@ -76,7 +76,7 @@ function client_scalability() {
   RESPs=(64)
   N_CLIENTS=(2 4 8 16 32)
   N_THREADS=(1 2 4 8 16)
-  N_CLIENTS=(1 2 4 8 16 28 30 32 44 56 64)
+  N_CLIENTS=(64)
 #          req_batch_size=$(get_batch_size "$REQ")
 #          resp_batch_size=$(get_batch_size "$RESP")
 #          batch_size=$((req_batch_size > resp_batch_size ? req_batch_size : resp_batch_size))
@@ -96,14 +96,13 @@ function client_scalability() {
 #                   --poll-num="$poll_num" \
 #                   --profiling=milli \
 #                   --batch=500000
-          export LOG_SUFFIX="${grp_mode}_${REQ}_${RESP}_affinity"
+          export LOG_SUFFIX="${grp_mode}_${REQ}_${RESP}"
           ./run.sh --server_thread=28 \
                    --client_thread=1 \
                    --req="$REQ" \
                    --resp="$RESP" \
                    --poll-num="$poll_num" \
-                   --batch=500000 \
-                   --affinity
+                   --batch=500000
         done
       done
     done
