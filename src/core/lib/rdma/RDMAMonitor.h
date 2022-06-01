@@ -8,10 +8,7 @@
 #include "include/grpc/support/sync.h"
 #include "src/core/lib/rdma/RDMASenderReceiver.h"
 extern bool rdmasr_is_server;
-
 class RDMAMonitor {
-  using rdmasr_seq_t = std::vector<RDMASenderReceiverBPEV*>;
-
  public:
   ~RDMAMonitor() {
     running_ = false;
@@ -30,56 +27,13 @@ class RDMAMonitor {
   }
 
   void Register(RDMASenderReceiverBPEV* rdmasr) {
-    int curr_rdmasr_id = registry_counter_++;
-    int slot_id = curr_rdmasr_id % rdmasr_slots_.size();
+    int reg_id = reg_id_++;
+    int slot_id = reg_id % rdmasr_slots_.size();
 
     gpr_mu_lock(&rdmasr_locks_[slot_id]);
-    rdmasr->set_index(curr_rdmasr_id);
+    rdmasr->set_index(reg_id);
     rdmasr_slots_[slot_id].push_back(rdmasr);
     gpr_mu_unlock(&rdmasr_locks_[slot_id]);
-
-    gpr_mu_lock(&rdmasr_locks_[0]);
-    int n_threads = monitor_ths_.size();
-    int n_rdmasr = 0;
-    for (auto& vec : rdmasr_slots_) {
-      n_rdmasr += vec.size();
-    }
-
-    if (n_rdmasr == 1) {
-      max_n_threads_ = 1;
-    } else if (n_rdmasr <= 8) {
-      max_n_threads_ = 2;
-    } else if (n_rdmasr <= 16) {
-      max_n_threads_ = 3;
-    } else if (n_rdmasr <= 28) {
-      max_n_threads_ = 4;
-    } else {
-      max_n_threads_ = 8;
-    }
-
-    //    max_n_threads_ = std::min(num_cores, std::max(1, n_rdmasr / 4));
-
-    if (n_threads < max_n_threads_) {
-      monitor_ths_.emplace_back(
-          [&, this](int thread_id) {
-            auto n_slots = rdmasr_slots_.size();
-            int num_cores = sysconf(_SC_NPROCESSORS_ONLN);
-
-            if (rdmasr_is_server) {
-              bind_thread_to_core(thread_id % num_cores);
-            }
-
-            while (running_) {
-              int slot_id = curr_slot_++ % rdmasr_slots_.size();
-
-              for (int i = 0; i < n_slots; i++) {
-                notifyWaiter(slot_id);
-              }
-            }
-          },
-          n_threads);
-    }
-    gpr_mu_unlock(&rdmasr_locks_[0]);
   }
 
   void Unregister(RDMASenderReceiverBPEV* rdmasr) {
@@ -97,15 +51,39 @@ class RDMAMonitor {
   }
 
  private:
-  RDMAMonitor() : curr_slot_(0), registry_counter_(0) {
-    int nslots = 8;
-    rdmasr_slots_.resize(nslots);
-    rdmasr_locks_.resize(nslots);
+  RDMAMonitor() {
+    int n_monitor_threads;
+
+    if (rdmasr_is_server) {
+      n_monitor_threads = 4;
+    } else {
+      n_monitor_threads = 1;
+    }
+
+    rdmasr_slots_.resize(n_monitor_threads);
+    rdmasr_locks_.resize(n_monitor_threads);
     running_ = true;
 
-    for (int i = 0; i < nslots; i++) {
+    for (int i = 0; i < n_monitor_threads; i++) {
       rdmasr_slots_[i].reserve(4096);
       gpr_mu_init(&rdmasr_locks_[i]);
+    }
+
+    for (int i = 0; i < n_monitor_threads; i++) {
+      monitor_ths_.emplace_back(
+          [&, this](int slot_id) {
+
+            if (rdmasr_is_server) {
+              int num_cores = sysconf(_SC_NPROCESSORS_ONLN);
+
+              bind_thread_to_core(slot_id % num_cores);
+            }
+
+            while (running_) {
+              notifyWaiter(slot_id);
+            }
+          },
+          i);
     }
   }
 
@@ -122,6 +100,7 @@ class RDMAMonitor {
         } while (sz < 0 && errno == EAGAIN);
       }
     }
+
     gpr_mu_unlock(&rdmasr_locks_[slot_id]);
   }
 
@@ -139,11 +118,9 @@ class RDMAMonitor {
     return pthread_setaffinity_np(current_thread, sizeof(cpu_set_t), &cpuset);
   }
 
-  int max_n_threads_ = 1;
   std::vector<gpr_mu> rdmasr_locks_;
-  std::vector<rdmasr_seq_t> rdmasr_slots_;
-  std::atomic_uint32_t curr_slot_;
-  std::atomic_int32_t registry_counter_;
+  std::vector<std::vector<RDMASenderReceiverBPEV*>> rdmasr_slots_;
+  std::atomic_int32_t reg_id_;
   std::vector<std::thread> monitor_ths_;
   bool running_;
 };
