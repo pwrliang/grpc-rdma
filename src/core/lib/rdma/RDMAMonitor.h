@@ -70,7 +70,7 @@ class RDMAMonitor {
     int n_monitor_threads;
 
     if (rdmasr_is_server) {
-      n_monitor_threads = 4;
+      n_monitor_threads = 8;
     } else {
       n_monitor_threads = 1;
     }
