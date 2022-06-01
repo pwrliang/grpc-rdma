@@ -7,6 +7,8 @@
 #include "grpc/support/log.h"
 #include "include/grpc/support/sync.h"
 #include "src/core/lib/rdma/RDMASenderReceiver.h"
+extern bool rdmasr_is_server;
+
 class RDMAMonitor {
   using rdmasr_seq_t = std::vector<RDMASenderReceiverBPEV*>;
 
@@ -38,7 +40,6 @@ class RDMAMonitor {
 
     gpr_mu_lock(&rdmasr_locks_[0]);
     int n_threads = monitor_ths_.size();
-    int num_cores = sysconf(_SC_NPROCESSORS_ONLN);
     int n_rdmasr = 0;
     for (auto& vec : rdmasr_slots_) {
       n_rdmasr += vec.size();
@@ -50,8 +51,10 @@ class RDMAMonitor {
       max_n_threads_ = 2;
     } else if (n_rdmasr <= 16) {
       max_n_threads_ = 3;
+    } else if (n_rdmasr <= 28) {
+      max_n_threads_ = 4;
     } else {
-      max_n_threads_ = 5;
+      max_n_threads_ = 8;
     }
 
     //    max_n_threads_ = std::min(num_cores, std::max(1, n_rdmasr / 4));
@@ -60,6 +63,11 @@ class RDMAMonitor {
       monitor_ths_.emplace_back(
           [&, this](int thread_id) {
             auto n_slots = rdmasr_slots_.size();
+            int num_cores = sysconf(_SC_NPROCESSORS_ONLN);
+
+            if (rdmasr_is_server) {
+              bind_thread_to_core(thread_id % num_cores);
+            }
 
             while (running_) {
               int slot_id = curr_slot_++ % rdmasr_slots_.size();
@@ -115,6 +123,20 @@ class RDMAMonitor {
       }
     }
     gpr_mu_unlock(&rdmasr_locks_[slot_id]);
+  }
+
+  int bind_thread_to_core(int core_id) {
+    int num_cores = sysconf(_SC_NPROCESSORS_ONLN);
+    if (core_id < 0 || core_id >= num_cores) {
+      return EINVAL;
+    }
+
+    cpu_set_t cpuset;
+    CPU_ZERO(&cpuset);
+    CPU_SET(core_id, &cpuset);
+
+    pthread_t current_thread = pthread_self();
+    return pthread_setaffinity_np(current_thread, sizeof(cpu_set_t), &cpuset);
   }
 
   int max_n_threads_ = 1;
