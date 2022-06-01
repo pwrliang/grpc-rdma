@@ -13,8 +13,9 @@
 #include "mb_client.h"
 #include "mb_server.h"
 
-bool mb_is_server = false;
+extern bool rdmasr_is_server;
 void StartServer(const BenchmarkConfig& config, const CommSpec& comm_spec) {
+  rdmasr_is_server = true;
   RDMAServer server(config, comm_spec);
   int fd;
   ifreq ifr;
@@ -24,7 +25,6 @@ void StartServer(const BenchmarkConfig& config, const CommSpec& comm_spec) {
   strncpy(ifr.ifr_name, "ib0", IFNAMSIZ - 1);
   ioctl(fd, SIOCGIFADDR, &ifr);
   close(fd);
-  mb_is_server = true;
   if (config.mpi_server) {
     char* ip =
         inet_ntoa((reinterpret_cast<sockaddr_in*>(&ifr.ifr_addr))->sin_addr);
@@ -34,6 +34,7 @@ void StartServer(const BenchmarkConfig& config, const CommSpec& comm_spec) {
 }
 
 void StartClient(const BenchmarkConfig& config, const CommSpec& comm_spec) {
+  rdmasr_is_server = false;
   RDMAClient client(config, comm_spec);
 
   if (config.mpi_server) {

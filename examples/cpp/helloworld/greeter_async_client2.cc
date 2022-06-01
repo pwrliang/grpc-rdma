@@ -43,6 +43,20 @@ using helloworld::Greeter;
 using helloworld::HelloReply;
 using helloworld::HelloRequest;
 
+int bind_thread_to_core(int core_id) {
+  int num_cores = sysconf(_SC_NPROCESSORS_ONLN);
+  if (core_id < 0 || core_id >= num_cores) {
+    return EINVAL;
+  }
+
+  cpu_set_t cpuset;
+  CPU_ZERO(&cpuset);
+  CPU_SET(core_id, &cpuset);
+
+  pthread_t current_thread = pthread_self();
+  return pthread_setaffinity_np(current_thread, sizeof(cpu_set_t), &cpuset);
+}
+
 class GreeterClient {
  public:
   explicit GreeterClient(std::shared_ptr<Channel> channel)
@@ -122,6 +136,8 @@ class GreeterClient {
   CompletionQueue cq_;
 };
 
+extern int mpirank, num_node;
+
 int main(int argc, char** argv) {
   InitMPIComm();
 
@@ -144,6 +160,9 @@ int main(int argc, char** argv) {
   {
     CommSpec comm_spec;
     comm_spec.Init(MPI_COMM_WORLD);
+
+    mpirank = comm_spec.worker_id();
+    num_node = FLAGS_node;
 
     GreeterClient greeter(grpc::CreateChannel(
         FLAGS_host + ":50051", grpc::InsecureChannelCredentials()));
@@ -207,14 +226,21 @@ int main(int argc, char** argv) {
     Gather(comm_spec.comm(), ss.str(), gathered_stats);
 
     if (comm_spec.worker_id() == 0) {
+      double avg_lat_ms = 0, min_lat_ms = time_per_cli / batch_size, max_lat_ms = time_per_cli / batch_size, lat_per_cli;
       for (int i = 0; i < comm_spec.worker_num(); i++) {
         //        printf("Worker: %d time: %lf lat: %lf us\n%s", i, sw1.ms(),
         //               sw1.ms() / batch_size * 1000,
         //               gathered_stats[i].c_str());
+        lat_per_cli = cli_time_vec[i] / batch_size;
+        avg_lat_ms += lat_per_cli;
+        min_lat_ms = (lat_per_cli < min_lat_ms) ? lat_per_cli : min_lat_ms;
+        max_lat_ms = (lat_per_cli > max_lat_ms) ? lat_per_cli : max_lat_ms;
         printf("Worker: %d time: %lf lat: %lf us\n%s", i, cli_time_vec[i],
-               cli_time_vec[i] / batch_size * 1000, gathered_stats[i].c_str());
+               lat_per_cli * 1000, gathered_stats[i].c_str());
       }
-      printf("Throughput: %lf req/s\n", total_throughput);
+      avg_lat_ms /= comm_spec.worker_num();
+      printf("Throughput: %lf req/s, avg latency: %f us, [%f, %f]\n", 
+        total_throughput, avg_lat_ms * 1000, min_lat_ms * 1000, max_lat_ms * 1000);
     }
   }
   FinalizeMPIComm();

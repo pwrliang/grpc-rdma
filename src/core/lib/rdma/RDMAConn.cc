@@ -7,7 +7,12 @@
 #include "grpc/impl/codegen/log.h"
 #include "src/core/lib/debug/trace.h"
 grpc_core::TraceFlag grpc_rdma_conn_trace(false, "rdma_conn");
-extern bool is_server;
+
+bool rdmasr_is_server = false;
+
+int mpirank = -1;
+int num_node = -1;
+
 RDMAConn::RDMAConn(RDMANode* node, bool event_mode) : node_(node) {
   ibv_context* ctx = node_->get_ctx().get();
   ibv_pd* pd = node_->get_pd().get();

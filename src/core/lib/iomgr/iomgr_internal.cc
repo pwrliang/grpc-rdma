@@ -48,6 +48,9 @@ void grpc_determine_iomgr_platform() {
     } else if (strcmp(type, "RDMA_EVENT") == 0) {
       pt = IOMGR_RDMA_EVENT;
       printf("Select RDMA Event mode\n");
+    } else if (strcmp(type, "RDMA_BPEV") == 0) {
+      pt = IOMGR_RDMA_BPEV;
+      printf("Select RDMA BPEV mode\n");
     } else if (strcmp(type, "TCP") == 0) {
       pt = IOMGR_TCP;
       printf("Select TCP mode\n");

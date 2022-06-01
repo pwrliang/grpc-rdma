@@ -24,6 +24,7 @@
 #include "src/core/lib/iomgr/iomgr_internal.h"
 #include "src/core/lib/iomgr/rdma_bp_posix.h"
 #include "src/core/lib/iomgr/rdma_event_posix.h"
+#include "src/core/lib/iomgr/rdma_bpev_posix.h"
 #include "src/core/lib/iomgr/tcp_posix.h"
 
 grpc_core::TraceFlag grpc_tcp_trace(false, "tcp");
@@ -40,6 +41,8 @@ std::string grpc_trim_peer(const std::string peer) {
   return ret;
 }
 
+extern int mpirank, num_node;
+
 grpc_endpoint* grpc_endpoint_create(grpc_fd* fd, const grpc_channel_args* args,
                                     const char* peer_string) {
   grpc_endpoint* ep = nullptr;
@@ -50,6 +53,9 @@ grpc_endpoint* grpc_endpoint_create(grpc_fd* fd, const grpc_channel_args* args,
     case IOMGR_RDMA_BP:
       ep = grpc_rdma_bp_create(fd, args, peer_string);
       break;
+    case IOMGR_RDMA_BPEV:
+      ep = grpc_rdma_bpev_create(fd, args, peer_string);
+      break;
     case IOMGR_TCP:
       ep = grpc_tcp_create(fd, args, peer_string);
       break;
@@ -59,6 +65,9 @@ grpc_endpoint* grpc_endpoint_create(grpc_fd* fd, const grpc_channel_args* args,
   }
   std::string peer = grpc_trim_peer(peer_string);
   std::string local = (std::string)grpc_endpoint_get_local_address(ep);
+  // if (mpirank != -1 && num_node != -1) {
+  //   printf("rank %ld, node %ld, peer: %s, local: %s\n", mpirank, mpirank % num_node, peer.c_str(), local.c_str());
+  // }
   {
     std::unique_lock<std::mutex> lck(peer2endpoint_mtx);
     peer2endpoint.insert(std::pair<std::string, grpc_endpoint*>(peer, ep));

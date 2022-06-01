@@ -15,3 +15,5 @@ DEFINE_bool(grab_mem, false, "");
 DEFINE_string(mode, "", "");
 DEFINE_int32(sleep, 0, "");
 DEFINE_int32(executor, 0, "");
+DEFINE_int32(node, 1, "");
+DEFINE_int32(cpu, 28, "");

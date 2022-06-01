@@ -38,6 +38,7 @@
 #include "src/core/lib/iomgr/ev_poll_posix.h"
 #include "src/core/lib/iomgr/ev_epollex_rdma_event_linux.h"
 #include "src/core/lib/iomgr/ev_epollex_rdma_bp_linux.h"
+#include "src/core/lib/iomgr/ev_epollex_rdma_bpev_linux.h"
 #include "src/core/lib/iomgr/internal_errqueue.h"
 #include "src/core/lib/iomgr/iomgr_internal.h"
 
@@ -136,7 +137,8 @@ static event_engine_factory g_factories[] = {
     {"poll", grpc_init_poll_posix},       {"none", init_non_polling},
     {"epollex_rdma_event", grpc_init_epollex_rdma_event_linux},        
     {"epollex_rdma_bp", grpc_init_epollex_rdma_bp_linux},
-    {ENGINE_TAIL_CUSTOM, nullptr},        {ENGINE_TAIL_CUSTOM, nullptr},
+    {"epollex_rdma_bpev", grpc_init_epollex_rdma_bpev_linux},        
+    {ENGINE_TAIL_CUSTOM, nullptr},
 };
 
 static void add(const char* beg, const char* end, char*** ss, size_t* ns) {
@@ -219,6 +221,8 @@ void grpc_event_engine_init(void) {
     GPR_GLOBAL_CONFIG_SET(grpc_poll_strategy, "epollex_rdma_bp");
   } else if (type == IOMGR_RDMA_EVENT) {
     GPR_GLOBAL_CONFIG_SET(grpc_poll_strategy, "epollex_rdma_event");
+  } else if (type == IOMGR_RDMA_BPEV) {
+    GPR_GLOBAL_CONFIG_SET(grpc_poll_strategy, "epollex_rdma_bpev");
   }
   grpc_core::UniquePtr<char> value = GPR_GLOBAL_CONFIG_GET(grpc_poll_strategy);
 
