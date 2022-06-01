@@ -525,17 +525,14 @@ static void fd_orphan(grpc_fd* fd, grpc_closure* on_done, int* release_fd,
     }
     for (size_t i = 0; i < fd->pollset_fds.size(); ++i) {  // For PO_MULTI.
       const int epfd = fd->pollset_fds[i];
-      // printf("fd %d orphan from epfd %d\n", fd->fd, epfd);
       epoll_ctl(epfd, EPOLL_CTL_DEL, fd->fd, &ev_fd);
       if (fd->rdmasr) {  // never reach here before, bugs may happen if you
                          // reach here
-        epoll_ctl(epfd, EPOLL_CTL_DEL, fd->rdmasr->get_wakeup_fd(),
-                  &ev_fd);
+        epoll_ctl(epfd, EPOLL_CTL_DEL, fd->rdmasr->get_wakeup_fd(), &ev_fd);
       }
     }
     *release_fd = fd->fd;
   } else {
-    // printf("fd %d orphan B\n", fd->fd);
     close(fd->fd);
     if (fd->rdmasr != nullptr) {
       gpr_mu_lock(&fd->rdma_mu);
@@ -549,8 +546,6 @@ static void fd_orphan(grpc_fd* fd, grpc_closure* on_done, int* release_fd,
             p->rdma_fds->end());
         gpr_mu_unlock(&p->rdma_mu);
       }
-      // close(fd->rdmasr->get_recv_channel_fd());
-      // close(fd->rdmasr->get_metadata_recv_channel_fd());
     }
     is_fd_closed = true;
   }
@@ -694,50 +689,6 @@ static grpc_error_handle pollable_create(pollable_type type, pollable** p) {
   return GRPC_ERROR_NONE;
 }
 
-// caller should avoid fd->rdmasr == nullptr
-// static grpc_error_handle pollable_add_rdma_channel_fd(pollable* p,
-//                                                       grpc_fd* fd) {
-//   grpc_error_handle error = GRPC_ERROR_NONE;
-//   static const char* err_desc = "pollable_add_fd";
-//   const int epfd = p->epfd;
-
-//   int rdma_meta_recv_channel_fd = fd->rdmasr->get_metadata_recv_channel_fd();
-//   struct epoll_event meta_recv_ev_fd;
-//   meta_recv_ev_fd.events =
-//       static_cast<uint32_t>(EPOLLIN | EPOLLET | EPOLLEXCLUSIVE);
-//   meta_recv_ev_fd.data.ptr =
-//       reinterpret_cast<void*>(reinterpret_cast<intptr_t>(fd) | 3);
-//   if (epoll_ctl(epfd, EPOLL_CTL_ADD, rdma_meta_recv_channel_fd,
-//                 &meta_recv_ev_fd) != 0) {
-//     switch (errno) {
-//       case EEXIST:
-//         break;
-//       default:
-//         append_error(&error, GRPC_OS_ERROR(errno, "epoll_ctl"), err_desc);
-//     }
-//   }
-//   // printf("pollable_add_rdma_channel_fd 1 %d to epfd %d\n",
-//   // rdma_meta_recv_channel_fd, epfd);
-
-//   int rdma_recv_channel_fd = fd->rdmasr->get_recv_channel_fd();
-//   struct epoll_event recv_ev_fd;
-//   recv_ev_fd.events = static_cast<uint32_t>(EPOLLIN | EPOLLET | EPOLLEXCLUSIVE);
-//   recv_ev_fd.data.ptr =
-//       reinterpret_cast<void*>(reinterpret_cast<intptr_t>(fd) | 4);
-//   if (epoll_ctl(epfd, EPOLL_CTL_ADD, rdma_recv_channel_fd, &recv_ev_fd) != 0) {
-//     switch (errno) {
-//       case EEXIST:
-//         break;
-//       default:
-//         append_error(&error, GRPC_OS_ERROR(errno, "epoll_ctl"), err_desc);
-//     }
-//   }
-//   // printf("pollable_add_rdma_channel_fd 2 %d to epfd %d\n",
-//   // rdma_recv_channel_fd, epfd);
-
-//   return error;
-// }
-
 static grpc_error_handle pollable_add_fd(pollable* p, grpc_fd* fd) {
   grpc_error_handle error = GRPC_ERROR_NONE;
   static const char* err_desc = "pollable_add_fd";
@@ -766,7 +717,6 @@ static grpc_error_handle pollable_add_fd(pollable* p, grpc_fd* fd) {
   }
 
   if (error == GRPC_ERROR_NONE && fd->rdmasr) {
-
     int wakeup_fd = fd->rdmasr->get_wakeup_fd();
 
     gpr_mu_lock(&fd->rdma_mu);
@@ -785,12 +735,11 @@ static grpc_error_handle pollable_add_fd(pollable* p, grpc_fd* fd) {
       fd->polling_by->push_back(p);
       gpr_mu_unlock(&fd->rdma_mu);
 
-      // printf("pollable %p add rdmasr: fd = %ld, wakeup_fd = %ld\n", p, fd->fd, wakeup_fd);
       struct epoll_event wakeup_ep_ev;
       wakeup_ep_ev.events =
           static_cast<uint32_t>(EPOLLIN | EPOLLET | EPOLLEXCLUSIVE);
-      wakeup_ep_ev.data.ptr =
-          reinterpret_cast<void*>(reinterpret_cast<intptr_t>(reinterpret_cast<intptr_t>(fd) | 3));
+      wakeup_ep_ev.data.ptr = reinterpret_cast<void*>(
+          reinterpret_cast<intptr_t>(reinterpret_cast<intptr_t>(fd) | 3));
       if (epoll_ctl(epfd, EPOLL_CTL_ADD, wakeup_fd, &wakeup_ep_ev) != 0) {
         switch (errno) {
           case EEXIST:
@@ -802,7 +751,6 @@ static grpc_error_handle pollable_add_fd(pollable* p, grpc_fd* fd) {
         }
       }
     }
-
   }
 
   return error;
@@ -1057,17 +1005,19 @@ static grpc_error_handle pollable_process_events(grpc_pollset* pollset,
     if ((reinterpret_cast<intptr_t>(data_ptr) & 3) == 3) {
       grpc_fd* fd = reinterpret_cast<grpc_fd*>(
           ~static_cast<intptr_t>(3) & reinterpret_cast<intptr_t>(ev->data.ptr));
-      // printf("pollable %d process_events, %p, %p, %lld, %lld, %lld\n",
-      // pollable_obj->epfd, data_ptr, fd, ev->data.fd, ev->data.u32,
-      // ev->data.u64);
-      if (fd->rdmasr == nullptr) { // this fd may have been shutdown
+      if (fd->rdmasr == nullptr) {  // this fd may have been shutdown
         printf("fd = %lld\n", grpc_fd_wrapped_fd(fd));
         continue;
       }
-      // printf("process event for fd %ld\n", fd->fd);
+
       GPR_ASSERT(fd->rdmasr);
       if ((ev->events & EPOLLIN) != 0) {
-        // printf("fd %d become readable, data\n", fd->fd);
+        // consume wakeup
+        ssize_t sz;
+        uint64_t val;
+        do {
+          sz = read(fd->rdmasr->get_wakeup_fd(), &val, sizeof(val));
+        } while (sz < 0 && errno == EAGAIN);
         fd_become_readable(fd);
       }
     } else if (1 & reinterpret_cast<intptr_t>(data_ptr)) {
@@ -1149,20 +1099,43 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
   if (timeout != 0) {
     GRPC_SCHEDULING_START_BLOCKING_REGION;
   }
-  int r;
+  int r = 0;
   if (GRPC_TRACE_FLAG_ENABLED(grpc_polling_trace)) {
     gpr_log(GPR_INFO, "pollable_epoll, epfd = %d, timeout = %d", p->epfd,
             timeout);
   }
-  do {
-    GRPC_STATS_INC_SYSCALL_POLL();
-    r = epoll_wait(p->epfd, p->events, MAX_EPOLL_EVENTS, timeout);
-  } while (r < 0 && errno == EINTR);
-  if (timeout != 0) {
-    GRPC_SCHEDULING_END_BLOCKING_REGION;
+
+  if (timeout == -1 || timeout > 0) {
+    int polling_limit_ms = 1000;
+    absl::Time t_begin = absl::Now();
+    int t_spend_ms;
+
+    if (timeout >= 0) {
+      polling_limit_ms = std::min(timeout, polling_limit_ms);
+    }
+
+    do {
+      GRPC_STATS_INC_SYSCALL_POLL();
+      r = epoll_wait(p->epfd, p->events, MAX_EPOLL_EVENTS, 0);
+      t_spend_ms = ToInt64Milliseconds((absl::Now() - t_begin));
+    } while ((r < 0 && errno == EINTR || r == 0) &&
+             t_spend_ms < polling_limit_ms);
+
+    if (timeout > 0) {
+      timeout = std::max(0, timeout - t_spend_ms);
+    }
   }
 
-  // printf("epoll_wait return %ld\n", r);
+  if (r <= 0) {
+    do {
+      GRPC_STATS_INC_SYSCALL_POLL();
+      r = epoll_wait(p->epfd, p->events, MAX_EPOLL_EVENTS, timeout);
+    } while (r < 0 && errno == EINTR);
+
+    if (timeout != 0) {
+      GRPC_SCHEDULING_END_BLOCKING_REGION;
+    }
+  }
 
   if (GRPC_TRACE_FLAG_ENABLED(grpc_polling_trace)) {
     gpr_log(GPR_INFO, "pollable_epoll, epfd = %d, r = %d", p->epfd, r);

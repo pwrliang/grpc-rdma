@@ -226,21 +226,20 @@ int main(int argc, char** argv) {
     Gather(comm_spec.comm(), ss.str(), gathered_stats);
 
     if (comm_spec.worker_id() == 0) {
-      double avg_lat_ms = 0, min_lat_ms = time_per_cli / batch_size, max_lat_ms = time_per_cli / batch_size, lat_per_cli;
+      double avg_lat_ms = 0, min_lat_ms = std::numeric_limits<double>::max(),
+             max_lat_ms = 0;
       for (int i = 0; i < comm_spec.worker_num(); i++) {
-        //        printf("Worker: %d time: %lf lat: %lf us\n%s", i, sw1.ms(),
-        //               sw1.ms() / batch_size * 1000,
-        //               gathered_stats[i].c_str());
-        lat_per_cli = cli_time_vec[i] / batch_size;
+        auto lat_per_cli = cli_time_vec[i] / batch_size;
         avg_lat_ms += lat_per_cli;
-        min_lat_ms = (lat_per_cli < min_lat_ms) ? lat_per_cli : min_lat_ms;
-        max_lat_ms = (lat_per_cli > max_lat_ms) ? lat_per_cli : max_lat_ms;
+        min_lat_ms = std::min(min_lat_ms, lat_per_cli);
+        max_lat_ms = std::max(max_lat_ms, lat_per_cli);
         printf("Worker: %d time: %lf lat: %lf us\n%s", i, cli_time_vec[i],
                lat_per_cli * 1000, gathered_stats[i].c_str());
       }
       avg_lat_ms /= comm_spec.worker_num();
-      printf("Throughput: %lf req/s, avg latency: %f us, [%f, %f]\n", 
-        total_throughput, avg_lat_ms * 1000, min_lat_ms * 1000, max_lat_ms * 1000);
+      printf("Throughput: %lf req/s, avg latency: %f us, [%f, %f]\n",
+             total_throughput, avg_lat_ms * 1000, min_lat_ms * 1000,
+             max_lat_ms * 1000);
     }
   }
   FinalizeMPIComm();
