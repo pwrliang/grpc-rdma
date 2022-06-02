@@ -104,7 +104,6 @@ size_t RDMASenderReceiverBPEV::recv(msghdr* msg) {
   GPR_ASSERT(expected_len > 0);
 
   unread_mlens_ -= expected_len;
-  event_counter_--;
 
   if (should_recycle) {
     update_remote_metadata();
