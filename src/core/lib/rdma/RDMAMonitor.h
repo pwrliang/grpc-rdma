@@ -37,21 +37,11 @@ class RDMAMonitor {
 
     gpr_mu_lock(&rdmasr_locks_[0]);
     size_t n_rdmasr = 0;
-    size_t max_thread;
+    size_t max_thread = 1;
 
     for (auto& vec : rdmasr_slots_) {
       n_rdmasr += vec.size();
     }
-    if (n_rdmasr <= 4) {
-      max_thread = 1;
-    } else if (n_rdmasr <= 16) {
-      max_thread = 3;
-    } else if (n_rdmasr <= 64) {
-      max_thread = 4;
-    } else {
-      max_thread = 4;
-    }
-    max_thread = std::min(max_thread, rdmasr_slots_.size());
 
     while (monitor_ths_.size() < max_thread) {
       monitor_ths_.emplace_back(
@@ -96,9 +86,11 @@ class RDMAMonitor {
     gpr_mu_unlock(&rdmasr_locks_[slot_id]);
   }
 
+  size_t get_thread_num() const { return monitor_ths_.size(); }
+
  private:
   RDMAMonitor() {
-    int n_slots = 8;
+    int n_slots = 16;
 
     n_threads_ = 0;
     rdmasr_slots_.resize(n_slots);

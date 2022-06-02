@@ -47,7 +47,8 @@ RDMASenderReceiverBPEV::~RDMASenderReceiverBPEV() {
 
 void RDMASenderReceiverBPEV::connect(int fd) {
   fd_ = fd;
-//  printf("RDMASenderReceiverBPEV, fd = %ld, wakeup_fd = %ld, is server: %d\n", fd, wakeup_fd_, rdmasr_is_server);
+  //  printf("RDMASenderReceiverBPEV, fd = %ld, wakeup_fd = %ld, is server:
+  //  %d\n", fd, wakeup_fd_, rdmasr_is_server);
   conn_th_ = std::thread([this, fd] {
     conn_->SyncQP(fd);
     conn_->SyncMR(fd, local_ringbuf_mr_, remote_ringbuf_mr_);
@@ -103,6 +104,7 @@ size_t RDMASenderReceiverBPEV::recv(msghdr* msg) {
   GPR_ASSERT(expected_len > 0);
 
   unread_mlens_ -= expected_len;
+  event_counter_--;
 
   if (should_recycle) {
     update_remote_metadata();
@@ -241,12 +243,13 @@ bool RDMASenderReceiverBPEV::send(msghdr* msg, size_t mlen) {
 //   size_t data_len = copy_to_sendbuf(sendbuf_) - sendbuf_;
 
 //   last_n_post_send_ =
-//       conn_->post_send(remote_ringbuf_mr_, remote_ringbuf_tail_, sendbuf_mr_, 0,
+//       conn_->post_send(remote_ringbuf_mr_, remote_ringbuf_tail_, sendbuf_mr_,
+//       0,
 //                        data_len, IBV_WR_RDMA_WRITE);
 //   conn_->poll_send_completion(last_n_post_send_);
 
-//   remote_ringbuf_tail_ = (remote_ringbuf_tail_ + data_len) % remote_ringbuf_sz;
-//   last_failed_send_size_ = 0;
+//   remote_ringbuf_tail_ = (remote_ringbuf_tail_ + data_len) %
+//   remote_ringbuf_sz; last_failed_send_size_ = 0;
 
 //   return true;
 // }

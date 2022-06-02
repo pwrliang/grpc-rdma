@@ -84,7 +84,6 @@ struct BenchmarkConfig {
   int send_interval_us{};
   double n_work_thread{};
   bool should_work{};
-  bool work_stealing{};
 };
 
 int bind_thread_to_cores(const std::vector<int>& core_ids) {

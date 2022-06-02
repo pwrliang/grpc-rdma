@@ -23,4 +23,3 @@ DEFINE_int32(start_cpu, 0, "Start number of CPU binding");
 DEFINE_int32(send_interval, 0, "max sleep time for each sending");
 DEFINE_int32(work_thread, -1,
              "It is used to control how many threads are serving");
-DEFINE_bool(work_stealing, false, "");

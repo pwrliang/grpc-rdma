@@ -82,7 +82,6 @@ int main(int argc, char* argv[]) {
     config.send_interval_us = FLAGS_send_interval;
     config.n_cpu_limit = FLAGS_cpu_limit;
     config.n_work_thread = FLAGS_work_thread;
-    config.work_stealing = FLAGS_work_stealing;
     if (config.mpi_server) {
       config.n_client = comm_spec.worker_num() - 1;
     } else {

@@ -274,8 +274,6 @@ void serve_event(Connections* conns, const BenchmarkConfig* config) {
 
   conns->BindCore(config);
 
-  auto before_tasklet = get_tasklet_count();
-
   {
     std::unique_lock<std::mutex> lk(cv_m);
     cv.wait(lk, [] { return all_connected; });
@@ -420,16 +418,6 @@ void serve_event(Connections* conns, const BenchmarkConfig* config) {
        << conns->rusage.ru_stime.tv_sec * 1000 * 1000 +
               conns->rusage.ru_stime.tv_usec
        << " us";
-
-    if (conns->tid == 0) {
-      auto after_tasklet = get_tasklet_count();
-      int max_inc = 0;
-      for (int i = 0; i < before_tasklet.size(); i++) {
-        int inc = after_tasklet[i] - before_tasklet[i];
-        max_inc = std::max(max_inc, inc);
-      }
-      ss << " Tasklet: " << max_inc;
-    }
 
     gpr_log(GPR_INFO, "%s", ss.str().c_str());
   }
@@ -913,7 +901,8 @@ class RDMAServer {
       MPI_Barrier(comm_spec_.comm());
     }
 
-    cpu_time_t cpu_time_before = get_cpu_time();
+    auto cpu_time1 = get_cpu_time_per_core();
+    auto before_tasklet = get_tasklet_count();
     {
       // notify serving threads
       std::lock_guard<std::mutex> lk(cv_m);
@@ -924,13 +913,35 @@ class RDMAServer {
     for (auto& th : polling_threads_) {
       th.join();
     }
-    cpu_time_t cpu_time_after = get_cpu_time();
-    cpu_time_t diff = cpu_time_after - cpu_time_before;
+    auto cpu_time2 = get_cpu_time_per_core();
+    auto after_tasklet = get_tasklet_count();
+
+    int num_cores = sysconf(_SC_NPROCESSORS_ONLN);
+    uint64_t n_tasklet = 0;
+
+    for (int i = 0; i < num_cores; i++) {
+      n_tasklet += after_tasklet[i] - before_tasklet[i];
+    }
+    auto time_diff = cpu_time2["cpu"] - cpu_time1["cpu"];
     gpr_log(GPR_INFO,
-            "CPU-TIME (s) user: %lf nice: %lf sys: %lf iowait: %lf irq: %lf "
-            "softirq: %f",
-            diff.t_user, diff.t_nice, diff.t_system, diff.t_iowait, diff.t_irq,
-            diff.t_softirq);
+            "CPU-TIME (s) user: %lf idle: %lf nice: %lf sys: %lf iowait: %lf "
+            "irq: %lf softirq: %lf sum: %lf tasklet: %lu",
+            time_diff.t_user, time_diff.t_idle, time_diff.t_nice,
+            time_diff.t_system, time_diff.t_iowait, time_diff.t_irq,
+            time_diff.t_softirq, time_diff.t_sum, n_tasklet);
+
+    for (int i = 0; i < num_cores; i++) {
+      auto cpu_name = "cpu" + std::to_string(i);
+      time_diff = cpu_time2[cpu_name] - cpu_time1[cpu_name];
+      auto n_tasklet_diff = after_tasklet[i] - before_tasklet[i];
+      gpr_log(
+          GPR_INFO,
+          "CPU%d-TIME (s) user: %lf idle: %lf nice: %lf sys: %lf iowait: %lf "
+          "irq: %lf softirq: %lf sum: %lf tasklet: %lu",
+          i, time_diff.t_user, time_diff.t_idle, time_diff.t_nice,
+          time_diff.t_system, time_diff.t_iowait, time_diff.t_irq,
+          time_diff.t_softirq, time_diff.t_sum, n_tasklet_diff);
+    }
 
     computing_ = false;
     for (auto& th : computing_threads_) {

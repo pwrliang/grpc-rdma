@@ -22,6 +22,7 @@
 #include <set>
 #include "include/grpcpp/stats_time.h"
 #include "src/core/lib/iomgr/port.h"
+#include "src/core/lib/rdma/RDMAMonitor.h"
 
 /* This polling engine is only relevant on linux kernels supporting epoll() */
 #ifdef GRPC_LINUX_EPOLL_CREATE1
@@ -150,6 +151,8 @@ static void pollable_unref(pollable* p, const grpc_core::DebugLocation& dbg_loc,
                            const char* reason);
 #define POLLABLE_REF(p, r) pollable_ref((p), DEBUG_LOCATION, (r))
 #define POLLABLE_UNREF(p, r) pollable_unref((p), DEBUG_LOCATION, (r))
+
+thread_local bool grpc_rdma_bpev_affinity = false;
 
 /*******************************************************************************
  * Fd Declarations
@@ -1314,6 +1317,26 @@ static grpc_error_handle pollset_work(grpc_pollset* pollset,
   }
   static const char* err_desc = "pollset_work";
   grpc_error_handle error = GRPC_ERROR_NONE;
+
+  if (!grpc_rdma_bpev_affinity) {
+    int num_cores = sysconf(_SC_NPROCESSORS_ONLN);
+    cpu_set_t cpuset;
+
+    CPU_ZERO(&cpuset);
+    int begin_cpu = RDMAMonitor::GetInstance().get_thread_num() % num_cores;
+    for (int cpu_id = begin_cpu; cpu_id < num_cores; cpu_id++) {
+      CPU_SET(cpu_id, &cpuset);
+    }
+
+    pthread_t current_thread = pthread_self();
+    if (pthread_setaffinity_np(current_thread, sizeof(cpu_set_t), &cpuset) !=
+        0) {
+      gpr_log(GPR_ERROR, "Set affinity failed");
+      abort();
+    }
+    grpc_rdma_bpev_affinity = true;
+  }
+
   if (pollset->kicked_without_poller) {
     pollset->kicked_without_poller = false;
   } else {

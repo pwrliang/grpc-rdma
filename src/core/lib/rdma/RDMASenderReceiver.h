@@ -39,13 +39,13 @@ class RDMASenderReceiver {
 
     // char* flag = getenv("GRPC_RDMA_ZEROCOPY_ENABLE");
     // if (flag && strcmp(flag, "true") == 0) {
-      zerocopy_flag_ = true;
-      last_zerocopy_send_finished_.store(true);
-      zerocopy_sendbuf_ = new uint8_t[sendbuf_size];
-      if (zerocopy_sendbuf_mr_.local_reg(pd, zerocopy_sendbuf_, sendbuf_size)) {
-        gpr_log(GPR_ERROR, "failed to local_reg zerocopy_sendbuf_mr");
-        exit(-1);
-      }
+    zerocopy_flag_ = true;
+    last_zerocopy_send_finished_.store(true);
+    zerocopy_sendbuf_ = new uint8_t[sendbuf_size];
+    if (zerocopy_sendbuf_mr_.local_reg(pd, zerocopy_sendbuf_, sendbuf_size)) {
+      gpr_log(GPR_ERROR, "failed to local_reg zerocopy_sendbuf_mr");
+      exit(-1);
+    }
     // } else {
     //   zerocopy_flag_ = false;
     //   last_zerocopy_send_finished_.store(false);
@@ -349,7 +349,6 @@ class RDMASenderReceiverBPEV : public RDMASenderReceiver {
   size_t last_failed_send_size_;
   int wakeup_fd_;
   int index_;
-
   std::thread conn_th_;
 };
 #endif
