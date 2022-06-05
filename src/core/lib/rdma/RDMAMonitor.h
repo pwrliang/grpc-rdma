@@ -5,6 +5,7 @@
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
 #include "grpc/support/log.h"
+#include "grpcpp/get_clock.h"
 #include "include/grpc/support/sync.h"
 #include "src/core/lib/rdma/RDMASenderReceiver.h"
 extern bool rdmasr_is_server;
@@ -52,6 +53,8 @@ class RDMAMonitor {
 
               bind_thread_to_core(thread_id % num_cores);
             }
+
+            grpc_stats_time_init(255);
 
             while (running_) {
               auto n_threads = n_threads_.load();
@@ -101,6 +104,8 @@ class RDMAMonitor {
       rdmasr_slots_[i].reserve(4096);
       gpr_mu_init(&rdmasr_locks_[i]);
     }
+    int no_cpu_freq_fail = 0;
+    cpu_mhz_ = get_cpu_mhz(no_cpu_freq_fail);
   }
 
   void notifyWaiter(int slot_id) {
@@ -111,9 +116,20 @@ class RDMAMonitor {
     // TODO: We may design a more efficient scheduling (e.g. prioritized sched)
     for (auto* rdmasr : rdmasr_slots_[slot_id]) {
       if (rdmasr->get_unread_data_size() == 0 && rdmasr->check_incoming() > 0) {
-        do {
-          sz = write(rdmasr->get_wakeup_fd(), &val, sizeof(val));
-        } while (sz < 0 && errno == EAGAIN);
+        cycles_t last_recv_time = rdmasr->last_recv_time();
+        double recv_lag_us = (get_cycles() - last_recv_time) / cpu_mhz_;
+        bool first_set_event = !rdmasr->set_event();
+
+        if (first_set_event || recv_lag_us > 1000) {
+          GRPCProfiler profiler(GRPC_STATS_TIME_RDMA_POLL);
+
+          do {
+            sz = write(rdmasr->get_wakeup_fd(), &val, sizeof(val));
+          } while (sz < 0 && errno == EAGAIN);
+          if (!rdmasr_is_server) {
+            std::this_thread::yield();
+          }
+        }
       }
     }
 
@@ -140,6 +156,7 @@ class RDMAMonitor {
   std::atomic_uint32_t n_threads_;
   std::vector<std::thread> monitor_ths_;
   bool running_;
+  double cpu_mhz_;
 };
 
 #endif  // GRPC_CORE_LIB_RDMA_RDMAMONITOR_H

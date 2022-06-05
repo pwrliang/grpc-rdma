@@ -29,6 +29,7 @@ typedef enum {
   GRPC_STATS_TIME_CLIENT_CQ_NEXT,
   GRPC_STATS_TIME_SERVER_PREPARE,
   GRPC_STATS_TIME_SERVER_CQ_NEXT,
+  GRPC_STATS_TIME_RDMA_POLL,
   GRPC_STATS_TIME_ADHOC_1,
   GRPC_STATS_TIME_ADHOC_2,
   GRPC_STATS_TIME_ADHOC_3,
@@ -42,7 +43,6 @@ typedef enum {
   GRPC_STATS_TIME_MILLI,
   GRPC_STATS_TIME_SEC,
 } grpc_stats_time_unit;
-
 
 struct grpc_stats_time_entry {
   uint64_t duration;

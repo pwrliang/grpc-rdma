@@ -127,6 +127,8 @@ std::string grpc_stats_time_op_to_str(int op) {
       return "SERVER_PREPARE";
     case GRPC_STATS_TIME_SERVER_CQ_NEXT:
       return "SERVER_CQ_NEXT";
+    case GRPC_STATS_TIME_RDMA_POLL:
+      return "RDMA_POLL";
     case GRPC_STATS_TIME_ADHOC_1:
       return "ADHOC_1";
     case GRPC_STATS_TIME_ADHOC_2:

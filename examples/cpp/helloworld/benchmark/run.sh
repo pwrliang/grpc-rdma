@@ -18,6 +18,7 @@ N_REPEAT=5
 POLL_NUM=100
 PROFILING=""
 AFFINITY="false"
+OVERWRITE=0
 
 if [[ ! -f "$HELLOWORLD_HOME/$SERVER_PROGRAM" ]]; then
   echo "Invalid HELLOWORLD_HOME"
@@ -70,6 +71,10 @@ for i in "$@"; do
     AFFINITY="true"
     shift
     ;;
+  --overwrite)
+    OVERWRITE=1
+    shift
+    ;;
   --* | -*)
     echo "Unknown option $i"
     exit 1
@@ -111,6 +116,9 @@ WORKLOADS="greeter_async_client greeter_async_client2"
 WORKLOADS="greeter_async_client2"
 for workload in ${WORKLOADS}; do
   curr_log_path="$LOG_PATH/${workload}.log"
+  if [[ $OVERWRITE -eq 1 ]]; then
+    rm -f "$curr_log_path"
+  fi
   if [[ -f "$curr_log_path" ]]; then
     echo "$curr_log_path exists, skip"
   else

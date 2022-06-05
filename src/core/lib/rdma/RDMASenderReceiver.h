@@ -92,6 +92,10 @@ class RDMASenderReceiver {
 
   bool get_zerocopy_flag() const { return zerocopy_flag_; }
 
+  cycles_t last_send_time() const { return last_send_time_; }
+
+  cycles_t last_recv_time() const { return last_recv_time_; }
+
   virtual bool send(msghdr* msg, size_t mlen) = 0;
   virtual size_t recv(msghdr* msg) = 0;
 
@@ -164,7 +168,7 @@ class RDMASenderReceiver {
   void* metadata_sendbuf_;
   MemRegion metadata_sendbuf_mr_;
 
-  // Profiling
+  // Profiling and limit wakeup
   cycles_t last_send_time_;
   cycles_t last_recv_time_;
 
@@ -343,12 +347,15 @@ class RDMASenderReceiverBPEV : public RDMASenderReceiver {
 
   int get_index() const { return index_; }
 
- protected:
+  bool set_event() { return has_event_.test_and_set(); }
+
+ private:
   int last_n_post_send_;
   // this need to sync in initialization
   size_t last_failed_send_size_;
   int wakeup_fd_;
   int index_;
   std::thread conn_th_;
+  std::atomic_flag has_event_;
 };
 #endif

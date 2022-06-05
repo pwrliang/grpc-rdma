@@ -34,6 +34,7 @@ RDMASenderReceiverBPEV::RDMASenderReceiverBPEV()
   connected_ = false;
   wakeup_fd_ = eventfd(0, EFD_NONBLOCK);
   index_ = 0;
+  has_event_.clear();
 }
 
 void RDMASenderReceiverBPEV::Shutdown() {}
@@ -89,12 +90,13 @@ bool RDMASenderReceiverBPEV::check_incoming() const {
 
 size_t RDMASenderReceiverBPEV::check_and_ack_incomings_locked() {
   WaitConnect();
+  size_t unread_mlens = dynamic_cast<RingBufferBP*>(ringbuf_)->check_mlens();
   // Look at first send
-  if (dynamic_cast<RingBufferBP*>(ringbuf_)->check_mlen() == 0) {
+  if (unread_mlens == 0) {
     return unread_mlens_;
   }
 
-  return unread_mlens_ = dynamic_cast<RingBufferBP*>(ringbuf_)->check_mlens();
+  return unread_mlens_ = unread_mlens;
 }
 
 size_t RDMASenderReceiverBPEV::recv(msghdr* msg) {
@@ -102,9 +104,9 @@ size_t RDMASenderReceiverBPEV::recv(msghdr* msg) {
   size_t expected_len = unread_mlens_;
   bool should_recycle = ringbuf_->read_to_msghdr(msg, expected_len);
   GPR_ASSERT(expected_len > 0);
-
+  last_recv_time_ = get_cycles();
   unread_mlens_ -= expected_len;
-
+  has_event_.clear();
   if (should_recycle) {
     update_remote_metadata();
   }

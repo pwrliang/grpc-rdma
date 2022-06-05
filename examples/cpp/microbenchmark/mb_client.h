@@ -14,6 +14,7 @@
 #include "grpc/support/time.h"
 #include "grpcpp/get_clock.h"
 #include "netinet/tcp.h"
+#include "proc_parser.h"
 #include "src/core/lib/rdma/RDMASenderReceiver.h"
 
 class RDMAClient {
@@ -21,6 +22,7 @@ class RDMAClient {
   RDMAClient(const BenchmarkConfig& config, const CommSpec& comm_spec)
       : config_(config), comm_spec_(comm_spec) {
     sockfd_ = SocketUtils::socket(AF_INET, SOCK_STREAM, 0);
+    gethostname(hostname_, 255);
   }
 
   void connect(const char* server_address, int port) {
@@ -60,6 +62,8 @@ class RDMAClient {
         sleep(1);
       }
     } while (r < 0);
+    int rank = comm_spec_.worker_id();
+    write_data(sockfd_, reinterpret_cast<char*>(&rank), sizeof(rank));
   }
 
   void set_should_work() {
@@ -108,7 +112,8 @@ class RDMAClient {
     };
 
     MPI_Barrier(comm_spec_.client_comm());
-
+    auto cpu_time1 = get_cpu_time_per_core();
+    auto before_tasklet = get_tasklet_count();
     auto t_begin = absl::Now();
 
     switch (config_.dir) {
@@ -181,7 +186,39 @@ class RDMAClient {
     }
 
     auto t_end = absl::Now();
+    auto cpu_time2 = get_cpu_time_per_core();
+    auto after_tasklet = get_tasklet_count();
+#if 0
+    int num_cores = sysconf(_SC_NPROCESSORS_ONLN);
+    uint64_t n_total_tasklet = 0;
 
+    for (int i = 0; i < num_cores; i++) {
+      n_total_tasklet += after_tasklet[i] - before_tasklet[i];
+    }
+    auto time_diff = cpu_time2["cpu"] - cpu_time1["cpu"];
+    gpr_log(GPR_INFO,
+            "[C%d-%s] CPU-TIME (s) user: %lf idle: %lf nice: %lf sys: %lf "
+            "iowait: %lf "
+            "irq: %lf softirq: %lf sum: %lf tasklet: %lu",
+            comm_spec_.worker_id(), hostname_, time_diff.t_user,
+            time_diff.t_idle, time_diff.t_nice, time_diff.t_system,
+            time_diff.t_iowait, time_diff.t_irq, time_diff.t_softirq,
+            time_diff.t_sum, n_total_tasklet);
+
+    for (int i = 0; i < num_cores; i++) {
+      auto cpu_name = "cpu" + std::to_string(i);
+      time_diff = cpu_time2[cpu_name] - cpu_time1[cpu_name];
+      auto n_tasklet = after_tasklet[i] - before_tasklet[i];
+      gpr_log(GPR_INFO,
+              "[C%d-%s] CPU%d-TIME (s) user: %lf idle: %lf nice: %lf sys: %lf "
+              "iowait: %lf "
+              "irq: %lf softirq: %lf sum: %lf tasklet: %lu",
+              comm_spec_.worker_id(), hostname_, i, time_diff.t_user,
+              time_diff.t_idle, time_diff.t_nice, time_diff.t_system,
+              time_diff.t_iowait, time_diff.t_irq, time_diff.t_softirq,
+              time_diff.t_sum, n_tasklet);
+    }
+#endif
     rusage rusage;
     getrusage(RUSAGE_THREAD, &rusage);
     int no_cpu_freq_fail = 0;
@@ -195,14 +232,7 @@ class RDMAClient {
     ss << " nvcsw: " << rusage.ru_nvcsw << " nivscw: " << rusage.ru_nivcsw;
     gpr_log(GPR_INFO, "%s", ss.str().c_str());
 
-    MPI_Request request;
-    MPI_Ibarrier(comm_spec_.client_comm(), &request);
-
-    int flag = 0;
-    do {
-      MPI_Test(&request, &flag, MPI_STATUS_IGNORE);
-      std::this_thread::yield();
-    } while (flag == 0);
+    clientBarrier();
   }
 
   void RunEpoll() {
@@ -278,16 +308,14 @@ class RDMAClient {
     };
 
     cycles_t iter_cycles = 0;
-    cycles_t send_cycles = 0;
     cycles_t epoll_cycles = 0;
-    cycles_t check_cycles = 0;
     size_t n_iter = 0;
     size_t epoll_count = 0;
-    size_t check_count = 0;
-    size_t send_count = 0;
 
     MPI_Barrier(comm_spec_.client_comm());
 
+    auto cpu_time1 = get_cpu_time_per_core();
+    auto before_tasklet = get_tasklet_count();
     auto t_begin = absl::Now();
 
     switch (config_.dir) {
@@ -426,7 +454,40 @@ class RDMAClient {
     }
 
     auto t_end = absl::Now();
+    auto cpu_time2 = get_cpu_time_per_core();
+    auto after_tasklet = get_tasklet_count();
+#if 0
+    int num_cores = sysconf(_SC_NPROCESSORS_ONLN);
+    uint64_t n_total_tasklet = 0;
 
+    for (int i = 0; i < num_cores; i++) {
+      n_total_tasklet += after_tasklet[i] - before_tasklet[i];
+    }
+    auto time_diff = cpu_time2["cpu"] - cpu_time1["cpu"];
+
+    gpr_log(GPR_INFO,
+            "[C%d-%s] CPU-TIME (s) user: %lf idle: %lf nice: %lf sys: %lf "
+            "iowait: %lf "
+            "irq: %lf softirq: %lf sum: %lf tasklet: %lu",
+            comm_spec_.worker_id(), hostname_, time_diff.t_user,
+            time_diff.t_idle, time_diff.t_nice, time_diff.t_system,
+            time_diff.t_iowait, time_diff.t_irq, time_diff.t_softirq,
+            time_diff.t_sum, n_total_tasklet);
+
+    for (int i = 0; i < num_cores; i++) {
+      auto cpu_name = "cpu" + std::to_string(i);
+      time_diff = cpu_time2[cpu_name] - cpu_time1[cpu_name];
+      auto n_tasklet = after_tasklet[i] - before_tasklet[i];
+      gpr_log(GPR_INFO,
+              "[C%d-%s] CPU%d-TIME (s) user: %lf idle: %lf nice: %lf sys: %lf "
+              "iowait: %lf "
+              "irq: %lf softirq: %lf sum: %lf tasklet: %lu",
+              comm_spec_.worker_id(), hostname_, i, time_diff.t_user,
+              time_diff.t_idle, time_diff.t_nice, time_diff.t_system,
+              time_diff.t_iowait, time_diff.t_irq, time_diff.t_softirq,
+              time_diff.t_sum, n_tasklet);
+    }
+#endif
     rusage rusage;
     getrusage(RUSAGE_THREAD, &rusage);
     int no_cpu_freq_fail = 0;
@@ -442,15 +503,6 @@ class RDMAClient {
     }
     ss << " nvcsw: " << rusage.ru_nvcsw << " nivscw: " << rusage.ru_nivcsw;
     gpr_log(GPR_INFO, "%s", ss.str().c_str());
-
-    MPI_Request request;
-    MPI_Ibarrier(comm_spec_.client_comm(), &request);
-
-    int flag = 0;
-    do {
-      MPI_Test(&request, &flag, MPI_STATUS_IGNORE);
-      std::this_thread::yield();
-    } while (flag == 0);
   }
 
   void RunBPEV() {
@@ -656,14 +708,7 @@ class RDMAClient {
     ss << " nvcsw: " << rusage.ru_nvcsw << " nivscw: " << rusage.ru_nivcsw;
     gpr_log(GPR_INFO, "%s", ss.str().c_str());
 
-    MPI_Request request;
-    MPI_Ibarrier(comm_spec_.client_comm(), &request);
-
-    int flag = 0;
-    do {
-      MPI_Test(&request, &flag, MPI_STATUS_IGNORE);
-      std::this_thread::yield();
-    } while (flag == 0);
+    clientBarrier();
   }
 
   void RunTCP() {
@@ -844,6 +889,16 @@ class RDMAClient {
     ss << " nvcsw: " << rusage.ru_nvcsw << " nivscw: " << rusage.ru_nivcsw;
     ss << " failed cnt: " << failed_cnt;
     gpr_log(GPR_INFO, "%s", ss.str().c_str());
+    clientBarrier();
+  }
+
+ private:
+  BenchmarkConfig config_;
+  CommSpec comm_spec_;
+  int sockfd_;
+  char hostname_[255];
+
+  void clientBarrier() {
     MPI_Request request;
     MPI_Ibarrier(comm_spec_.client_comm(), &request);
 
@@ -853,11 +908,6 @@ class RDMAClient {
       std::this_thread::yield();
     } while (flag == 0);
   }
-
- private:
-  BenchmarkConfig config_;
-  CommSpec comm_spec_;
-  int sockfd_;
 };
 
 #endif  // MICROBENCHMARK_MB_CLIENT_H

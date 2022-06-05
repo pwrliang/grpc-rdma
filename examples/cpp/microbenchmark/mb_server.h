@@ -10,6 +10,7 @@
 #include "flags.h"
 #include "grpcpp/get_clock.h"
 #include "mb.h"
+#include "proc_parser.h"
 #include "src/core/lib/rdma/RDMAConn.h"
 #include "src/core/lib/rdma/RDMASenderReceiver.h"
 
@@ -18,7 +19,6 @@ std::condition_variable cv;
 std::mutex cv_m;
 std::atomic_int global_n_active_client(0);  // for work stealing
 bool all_connected = false;
-#include "proc_parser.h"
 
 struct Connections {
   Connections()
@@ -37,17 +37,24 @@ struct Connections {
 
   void CreateBPConnection(int fd) {
     auto conn = std::make_shared<RDMASenderReceiverBP>();
+    int rank;
+
+    read_data(fd, reinterpret_cast<char*>(&rank), sizeof(rank));
     conn->connect(fd);
     rdma_conns.push_back(conn);
     tcp_conns.push_back(fd);
+    ranks.push_back(rank);
   }
 
   void CreateEventConnection(int fd) {
     auto conn = std::make_shared<RDMASenderReceiverEvent>();
+    int rank;
 
+    read_data(fd, reinterpret_cast<char*>(&rank), sizeof(rank));
     conn->connect(fd);
     rdma_conns.push_back(conn);
     tcp_conns.push_back(fd);
+    ranks.push_back(rank);
 
     int rdma_meta_recv_channel_fd = conn->get_metadata_recv_channel_fd();
     struct epoll_event meta_recv_ev_fd;
@@ -84,10 +91,13 @@ struct Connections {
 
   void CreateBPEVConnection(int fd) {
     auto conn = std::make_shared<RDMASenderReceiverBPEV>();
+    int rank;
 
+    read_data(fd, reinterpret_cast<char*>(&rank), sizeof(rank));
     conn->connect(fd);
     rdma_conns.push_back(conn);
     tcp_conns.push_back(fd);
+    ranks.push_back(rank);
 
     auto add_fd = [&](int epfd) {
       int wakeup_fd = conn->get_wakeup_fd();
@@ -113,7 +123,11 @@ struct Connections {
   }
 
   void CreateTCPConnection(int fd) {
+    int rank;
+
+    read_data(fd, reinterpret_cast<char*>(&rank), sizeof(rank));
     tcp_conns.push_back(fd);
+    ranks.push_back(rank);
 
     struct epoll_event ep_event;
     ep_event.events =
@@ -147,6 +161,7 @@ struct Connections {
   CommSpec comm_spec;
   std::vector<std::shared_ptr<RDMASenderReceiver>> rdma_conns;
   std::vector<int> tcp_conns;
+  std::vector<int> ranks;
   int epfd;
   int tid;
   std::vector<int> epfds;
@@ -158,7 +173,8 @@ struct Connections {
   size_t recv_count;
   cycles_t check_cycles;
   size_t check_count;
-  struct rusage rusage;
+  struct rusage rusage_begin;
+  struct rusage rusage_end;
 };
 
 void serve_bp(Connections* conns, const BenchmarkConfig* config) {
@@ -183,6 +199,7 @@ void serve_bp(Connections* conns, const BenchmarkConfig* config) {
     cv.wait(lk, [] { return all_connected; });
   }
   auto t_begin = absl::Now();
+  getrusage(RUSAGE_THREAD, &conns->rusage_begin);
   uint32_t nops = 0;
 
   if (config->dir == Dir::kBi || config->dir == Dir::kC2S) {
@@ -232,25 +249,38 @@ void serve_bp(Connections* conns, const BenchmarkConfig* config) {
   }
 
   auto t_end = absl::Now();
-  getrusage(RUSAGE_THREAD, &conns->rusage);
+  getrusage(RUSAGE_THREAD, &conns->rusage_end);
 
   if (nops > 1) {
+    uint64_t user_us = (conns->rusage_end.ru_utime.tv_sec * 1000000ull +
+                        conns->rusage_end.ru_utime.tv_usec) -
+                       (conns->rusage_begin.ru_utime.tv_sec * 1000000ull +
+                        conns->rusage_begin.ru_utime.tv_usec);
+    uint64_t sys_us = (conns->rusage_end.ru_stime.tv_sec * 1000000ull +
+                       conns->rusage_end.ru_stime.tv_usec) -
+                      (conns->rusage_begin.ru_stime.tv_sec * 1000000ull +
+                       conns->rusage_begin.ru_stime.tv_usec);
+
     std::stringstream ss;
+    ss << "Server thread: " << conns->tid
+       << " Time: " << ToDoubleMilliseconds((t_end - t_begin)) << " ms";
 
-    ss << " nvcsw: " << conns->rusage.ru_nvcsw
-       << " nivcsw: " << conns->rusage.ru_nivcsw;
-    ss << " user: "
-       << conns->rusage.ru_utime.tv_sec * 1000 * 1000 +
-              conns->rusage.ru_utime.tv_usec
-       << " us";
-    ss << " sys: "
-       << conns->rusage.ru_stime.tv_sec * 1000 * 1000 +
-              conns->rusage.ru_stime.tv_usec
+    ss << " Served Reqs: " << nops;
+    ss << " Avg Time: " << ToDoubleMicroseconds((t_end - t_begin)) / nops
        << " us";
 
-    gpr_log(GPR_INFO, "Server thread: %d, Served Reqs: %u Avg Time: %lf %s",
-            conns->tid, nops, ToDoubleMicroseconds((t_end - t_begin)) / nops,
-            ss.str().c_str());
+    ss << " nvcsw: "
+       << conns->rusage_end.ru_nvcsw - conns->rusage_begin.ru_nvcsw
+       << " nivcsw: "
+       << conns->rusage_end.ru_nivcsw - conns->rusage_begin.ru_nivcsw;
+    ss << " user: " << user_us << " us";
+    ss << " sys: " << sys_us << " us";
+    ss << " idle: "
+       << absl::ToInt64Microseconds((t_end - t_begin) -
+                                    absl::Microseconds(user_us) -
+                                    absl::Microseconds(sys_us));
+
+    gpr_log(GPR_INFO, "%s", ss.str().c_str());
   }
 }
 
@@ -279,6 +309,7 @@ void serve_event(Connections* conns, const BenchmarkConfig* config) {
     cv.wait(lk, [] { return all_connected; });
   }
   auto t_begin = absl::Now();
+  getrusage(RUSAGE_THREAD, &conns->rusage_begin);
 
   auto send_msg = [&](RDMASenderReceiverEvent* rdmasr) {
     cycles_t c1 = get_cycles();
@@ -381,13 +412,21 @@ void serve_event(Connections* conns, const BenchmarkConfig* config) {
   }
 
   auto t_end = absl::Now();
-  getrusage(RUSAGE_THREAD, &conns->rusage);
+  getrusage(RUSAGE_THREAD, &conns->rusage_end);
 
   int no_cpu_freq_fail = 0;
   double mhz = get_cpu_mhz(no_cpu_freq_fail);
 
   if (conns->send_count > 0 || conns->recv_count > 0) {
     std::stringstream ss;
+    uint64_t user_us = (conns->rusage_end.ru_utime.tv_sec * 1000000ull +
+                        conns->rusage_end.ru_utime.tv_usec) -
+                       (conns->rusage_begin.ru_utime.tv_sec * 1000000ull +
+                        conns->rusage_begin.ru_utime.tv_usec);
+    uint64_t sys_us = (conns->rusage_end.ru_stime.tv_sec * 1000000ull +
+                       conns->rusage_end.ru_stime.tv_usec) -
+                      (conns->rusage_begin.ru_stime.tv_sec * 1000000ull +
+                       conns->rusage_begin.ru_stime.tv_usec);
 
     ss << "Server thread: " << conns->tid
        << " Time: " << ToDoubleMilliseconds((t_end - t_begin)) << " ms";
@@ -408,16 +447,16 @@ void serve_event(Connections* conns, const BenchmarkConfig* config) {
       ss << " Check Lat: " << conns->check_cycles / mhz / conns->check_count
          << " us";
     }
-    ss << " nvcsw: " << conns->rusage.ru_nvcsw
-       << " nivcsw: " << conns->rusage.ru_nivcsw;
-    ss << " user: "
-       << conns->rusage.ru_utime.tv_sec * 1000 * 1000 +
-              conns->rusage.ru_utime.tv_usec
-       << " us";
-    ss << " sys: "
-       << conns->rusage.ru_stime.tv_sec * 1000 * 1000 +
-              conns->rusage.ru_stime.tv_usec
-       << " us";
+    ss << " nvcsw: "
+       << conns->rusage_end.ru_nvcsw - conns->rusage_begin.ru_nvcsw
+       << " nivcsw: "
+       << conns->rusage_end.ru_nivcsw - conns->rusage_begin.ru_nivcsw;
+    ss << " user: " << user_us << " us";
+    ss << " sys: " << sys_us << " us";
+    ss << " idle: "
+       << absl::ToInt64Microseconds((t_end - t_begin) -
+                                    absl::Microseconds(user_us) -
+                                    absl::Microseconds(sys_us));
 
     gpr_log(GPR_INFO, "%s", ss.str().c_str());
   }
@@ -449,6 +488,7 @@ void serve_bpev(Connections* conns, const BenchmarkConfig* config) {
     cv.wait(lk, [] { return all_connected; });
   }
   auto t_begin = absl::Now();
+  getrusage(RUSAGE_THREAD, &conns->rusage_begin);
 
   auto send_msg = [&](RDMASenderReceiverBPEV* rdmasr) {
     cycles_t c1 = get_cycles();
@@ -552,13 +592,21 @@ void serve_bpev(Connections* conns, const BenchmarkConfig* config) {
   }
 
   auto t_end = absl::Now();
-  getrusage(RUSAGE_THREAD, &conns->rusage);
+  getrusage(RUSAGE_THREAD, &conns->rusage_end);
 
   int no_cpu_freq_fail = 0;
   double mhz = get_cpu_mhz(no_cpu_freq_fail);
 
   if (conns->send_count > 0 || conns->recv_count > 0) {
     std::stringstream ss;
+    uint64_t user_us = (conns->rusage_end.ru_utime.tv_sec * 1000000ull +
+                        conns->rusage_end.ru_utime.tv_usec) -
+                       (conns->rusage_begin.ru_utime.tv_sec * 1000000ull +
+                        conns->rusage_begin.ru_utime.tv_usec);
+    uint64_t sys_us = (conns->rusage_end.ru_stime.tv_sec * 1000000ull +
+                       conns->rusage_end.ru_stime.tv_usec) -
+                      (conns->rusage_begin.ru_stime.tv_sec * 1000000ull +
+                       conns->rusage_begin.ru_stime.tv_usec);
 
     ss << "Server thread: " << conns->tid
        << " Time: " << ToDoubleMilliseconds((t_end - t_begin)) << " ms";
@@ -579,8 +627,17 @@ void serve_bpev(Connections* conns, const BenchmarkConfig* config) {
       ss << " Check Lat: " << conns->check_cycles / mhz / conns->check_count
          << " us";
     }
-    ss << " nvcsw: " << conns->rusage.ru_nvcsw
-       << " nivcsw: " << conns->rusage.ru_nivcsw;
+
+    ss << " nvcsw: "
+       << conns->rusage_end.ru_nvcsw - conns->rusage_begin.ru_nvcsw
+       << " nivcsw: "
+       << conns->rusage_end.ru_nivcsw - conns->rusage_begin.ru_nivcsw;
+    ss << " user: " << user_us << " us";
+    ss << " sys: " << sys_us << " us";
+    ss << " idle: "
+       << absl::ToInt64Microseconds((t_end - t_begin) -
+                                    absl::Microseconds(user_us) -
+                                    absl::Microseconds(sys_us));
     gpr_log(GPR_INFO, "%s", ss.str().c_str());
   }
 }
@@ -610,9 +667,9 @@ void serve_tcp(Connections* conns, const BenchmarkConfig* config) {
     std::unique_lock<std::mutex> lk(cv_m);
     cv.wait(lk, [] { return all_connected; });
   }
-  auto t_begin = absl::Now();
-
   std::queue<std::pair<int64_t, int>> failed_data;
+  auto t_begin = absl::Now();
+  getrusage(RUSAGE_THREAD, &conns->rusage_begin);
 
   auto send_msg = [&](int fd) {
     cycles_t c1 = get_cycles();
@@ -702,13 +759,21 @@ void serve_tcp(Connections* conns, const BenchmarkConfig* config) {
   }
 
   auto t_end = absl::Now();
-  getrusage(RUSAGE_THREAD, &conns->rusage);
+  getrusage(RUSAGE_THREAD, &conns->rusage_end);
 
   int no_cpu_freq_fail = 0;
   double mhz = get_cpu_mhz(no_cpu_freq_fail);
 
   if (!conns->rdma_conns.empty() || !conns->tcp_conns.empty()) {
     std::stringstream ss;
+    uint64_t user_us = (conns->rusage_end.ru_utime.tv_sec * 1000000ull +
+                        conns->rusage_end.ru_utime.tv_usec) -
+                       (conns->rusage_begin.ru_utime.tv_sec * 1000000ull +
+                        conns->rusage_begin.ru_utime.tv_usec);
+    uint64_t sys_us = (conns->rusage_end.ru_stime.tv_sec * 1000000ull +
+                       conns->rusage_end.ru_stime.tv_usec) -
+                      (conns->rusage_begin.ru_stime.tv_sec * 1000000ull +
+                       conns->rusage_begin.ru_stime.tv_usec);
 
     ss << "Server thread: " << conns->tid
        << " Time: " << ToDoubleMilliseconds((t_end - t_begin)) << " ms";
@@ -729,8 +794,18 @@ void serve_tcp(Connections* conns, const BenchmarkConfig* config) {
       ss << " Check Lat: " << conns->check_cycles / mhz / conns->check_count
          << " us";
     }
-    ss << " nvcsw: " << conns->rusage.ru_nvcsw
-       << " nivcsw: " << conns->rusage.ru_nivcsw;
+
+    ss << " nvcsw: "
+       << conns->rusage_end.ru_nvcsw - conns->rusage_begin.ru_nvcsw
+       << " nivcsw: "
+       << conns->rusage_end.ru_nivcsw - conns->rusage_begin.ru_nivcsw;
+    ss << " user: " << user_us << " us";
+    ss << " sys: " << sys_us << " us";
+    ss << " idle: "
+       << absl::ToInt64Microseconds((t_end - t_begin) -
+                                    absl::Microseconds(user_us) -
+                                    absl::Microseconds(sys_us));
+
     gpr_log(GPR_INFO, "%s", ss.str().c_str());
   }
 }
@@ -873,6 +948,15 @@ class RDMAServer {
       for (auto& rdmasr : conns.rdma_conns) {
         rdmasr->WaitConnect();
       }
+#if 0
+      if (!conns.ranks.empty()) {
+        std::stringstream ss;
+        for (int rank : conns.ranks) {
+          ss << rank << " ";
+        }
+        gpr_log(GPR_INFO, "TID: %d ranks: %s", conns.tid, ss.str().c_str());
+      }
+#endif
     }
 
     int n_working_clients = 0;
@@ -917,30 +1001,31 @@ class RDMAServer {
     auto after_tasklet = get_tasklet_count();
 
     int num_cores = sysconf(_SC_NPROCESSORS_ONLN);
-    uint64_t n_tasklet = 0;
+    uint64_t n_total_tasklet = 0;
 
     for (int i = 0; i < num_cores; i++) {
-      n_tasklet += after_tasklet[i] - before_tasklet[i];
+      n_total_tasklet += after_tasklet[i] - before_tasklet[i];
     }
     auto time_diff = cpu_time2["cpu"] - cpu_time1["cpu"];
-    gpr_log(GPR_INFO,
-            "CPU-TIME (s) user: %lf idle: %lf nice: %lf sys: %lf iowait: %lf "
-            "irq: %lf softirq: %lf sum: %lf tasklet: %lu",
-            time_diff.t_user, time_diff.t_idle, time_diff.t_nice,
-            time_diff.t_system, time_diff.t_iowait, time_diff.t_irq,
-            time_diff.t_softirq, time_diff.t_sum, n_tasklet);
+    gpr_log(
+        GPR_INFO,
+        "[S] CPU-TIME (s) user: %lf idle: %lf nice: %lf sys: %lf iowait: %lf "
+        "irq: %lf softirq: %lf sum: %lf tasklet: %lu",
+        time_diff.t_user, time_diff.t_idle, time_diff.t_nice,
+        time_diff.t_system, time_diff.t_iowait, time_diff.t_irq,
+        time_diff.t_softirq, time_diff.t_sum, n_total_tasklet);
 
     for (int i = 0; i < num_cores; i++) {
       auto cpu_name = "cpu" + std::to_string(i);
       time_diff = cpu_time2[cpu_name] - cpu_time1[cpu_name];
-      auto n_tasklet_diff = after_tasklet[i] - before_tasklet[i];
-      gpr_log(
-          GPR_INFO,
-          "CPU%d-TIME (s) user: %lf idle: %lf nice: %lf sys: %lf iowait: %lf "
-          "irq: %lf softirq: %lf sum: %lf tasklet: %lu",
-          i, time_diff.t_user, time_diff.t_idle, time_diff.t_nice,
-          time_diff.t_system, time_diff.t_iowait, time_diff.t_irq,
-          time_diff.t_softirq, time_diff.t_sum, n_tasklet_diff);
+      auto n_tasklet = after_tasklet[i] - before_tasklet[i];
+      gpr_log(GPR_INFO,
+              "[S] CPU%d-TIME (s) user: %lf idle: %lf nice: %lf sys: %lf "
+              "iowait: %lf "
+              "irq: %lf softirq: %lf sum: %lf tasklet: %lu",
+              i, time_diff.t_user, time_diff.t_idle, time_diff.t_nice,
+              time_diff.t_system, time_diff.t_iowait, time_diff.t_irq,
+              time_diff.t_softirq, time_diff.t_sum, n_tasklet);
     }
 
     computing_ = false;
