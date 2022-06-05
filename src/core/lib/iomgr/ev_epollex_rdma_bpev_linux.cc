@@ -22,7 +22,7 @@
 #include <set>
 #include "include/grpcpp/stats_time.h"
 #include "src/core/lib/iomgr/port.h"
-#include "src/core/lib/rdma/RDMAMonitor.h"
+#include "src/core/lib/rdma/RDMAPoller.h"
 
 /* This polling engine is only relevant on linux kernels supporting epoll() */
 #ifdef GRPC_LINUX_EPOLL_CREATE1
@@ -115,6 +115,7 @@ struct pollable {
   struct epoll_event events[MAX_EPOLL_EVENTS];
 
   std::vector<grpc_fd*>* rdma_fds;
+  size_t last_poll_idx;
   gpr_mu rdma_mu;
 };
 
@@ -690,6 +691,7 @@ static grpc_error_handle pollable_create(pollable_type type, pollable** p) {
   (*p)->event_cursor = 0;
   (*p)->event_count = 0;
   (*p)->rdma_fds = new std::vector<grpc_fd*>();
+  (*p)->last_poll_idx = 0;
   (*p)->rdma_fds->reserve(4096);
   gpr_mu_init(&(*p)->rdma_mu);
   return GRPC_ERROR_NONE;
@@ -1090,8 +1092,6 @@ static void pollset_destroy(grpc_pollset* pollset) {
   gpr_mu_destroy(&pollset->mu);
 }
 
-thread_local size_t last_size = 0;
-
 static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
   GRPCProfiler profiler(GRPC_STATS_TIME_POLLABLE_EPOLL);
   GPR_TIMER_SCOPE("pollable_epoll", 0);
@@ -1105,11 +1105,12 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
   if (timeout != 0) {
     GRPC_SCHEDULING_START_BLOCKING_REGION;
   }
+
   int r = 0;
-  if (GRPC_TRACE_FLAG_ENABLED(grpc_polling_trace)) {
-    gpr_log(GPR_INFO, "pollable_epoll, epfd = %d, timeout = %d", p->epfd,
-            timeout);
-  }
+  gpr_mu_lock(&p->rdma_mu);
+  size_t n_fds = p->rdma_fds->size();
+  bool enable_bp = n_fds <= 2;
+  gpr_mu_unlock(&p->rdma_mu);
 
   int polling_limit_ms = 10;
   absl::Time t_begin = absl::Now();
@@ -1121,22 +1122,20 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
 
   do {
     GRPC_STATS_INC_SYSCALL_POLL();
-    r = epoll_wait(p->epfd, p->events, MAX_EPOLL_EVENTS, 0);
 
-    // Only directly poll if one thread servers on client to achieve lower
-    // latency
-    if (r < MAX_EPOLL_EVENTS && rdmasr_is_server && false) {
-      auto& fds = *p->rdma_fds;
+    if (enable_bp) {
       gpr_mu_lock(&p->rdma_mu);
 
+      auto& fds = *p->rdma_fds;
       for (size_t i = 0; i < fds.size() && r < MAX_EPOLL_EVENTS; i++) {
         auto* fd = fds[i];
-
-        GPR_ASSERT(fd->rdmasr != nullptr);
+        auto* rdmasr = fd->rdmasr;
+        GPR_DEBUG_ASSERT(rdmasr != nullptr);
 
         uint32_t events = 0;
-        if (fd->rdmasr->get_unread_data_size() == 0 &&
-            fd->rdmasr->check_incoming() > 0) {
+
+        if (rdmasr->get_unread_data_size() == 0 &&
+            rdmasr->check_incoming() > 0) {
           events |= EPOLLIN;
         }
 
@@ -1152,10 +1151,8 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
         }
       }
       gpr_mu_unlock(&p->rdma_mu);
-    }
-
-    if (r == 0) {
-      std::this_thread::yield();
+    } else {
+      r = epoll_wait(p->epfd, p->events, MAX_EPOLL_EVENTS, 0);
     }
     t_spend_ms = ToInt64Milliseconds((absl::Now() - t_begin));
   } while ((r < 0 && errno == EINTR || r == 0) &&
@@ -1165,16 +1162,15 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
     timeout = std::max(0, timeout - t_spend_ms);
   }
 
-  if (r <= 0) {
-    GRPCProfiler profiler(GRPC_STATS_TIME_ADHOC_5);
+  if (enable_bp && r == 0) {
     do {
       GRPC_STATS_INC_SYSCALL_POLL();
       r = epoll_wait(p->epfd, p->events, MAX_EPOLL_EVENTS, timeout);
     } while (r < 0 && errno == EINTR);
+  }
 
-    if (timeout != 0) {
-      GRPC_SCHEDULING_END_BLOCKING_REGION;
-    }
+  if (timeout != 0) {
+    GRPC_SCHEDULING_END_BLOCKING_REGION;
   }
 
   if (GRPC_TRACE_FLAG_ENABLED(grpc_polling_trace)) {
@@ -1182,7 +1178,6 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
   }
 
   if (r < 0) return GRPC_OS_ERROR(errno, "epoll_wait");
-
   if (GRPC_TRACE_FLAG_ENABLED(grpc_polling_trace)) {
     gpr_log(GPR_INFO, "POLLABLE:%p got %d events", p, r);
   }
@@ -1360,7 +1355,7 @@ static grpc_error_handle pollset_work(grpc_pollset* pollset,
     cpu_set_t cpuset;
 
     CPU_ZERO(&cpuset);
-    int begin_cpu = RDMAMonitor::GetInstance().get_thread_num() % num_cores;
+    int begin_cpu = RDMAPoller::GetInstance().get_thread_num() % num_cores;
     for (int cpu_id = begin_cpu; cpu_id < num_cores; cpu_id++) {
       CPU_SET(cpu_id, &cpuset);
     }

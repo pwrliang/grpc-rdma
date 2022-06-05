@@ -5,7 +5,7 @@
 #include "RDMASenderReceiver.h"
 #include "include/grpcpp/stats_time.h"
 #include "src/core/lib/debug/trace.h"
-#include "src/core/lib/rdma/RDMAMonitor.h"
+#include "src/core/lib/rdma/RDMAPoller.h"
 #ifndef EPOLLEXCLUSIVE
 #define EPOLLEXCLUSIVE (1 << 28)
 #endif
@@ -41,15 +41,13 @@ void RDMASenderReceiverBPEV::Shutdown() {}
 
 RDMASenderReceiverBPEV::~RDMASenderReceiverBPEV() {
   // conn_->poll_send_completion(last_n_post_send_);
-  RDMAMonitor::GetInstance().Unregister(this);
+  RDMAPoller::GetInstance().Unregister(this);
   close(wakeup_fd_);
   delete ringbuf_;
 }
 
 void RDMASenderReceiverBPEV::connect(int fd) {
   fd_ = fd;
-  //  printf("RDMASenderReceiverBPEV, fd = %ld, wakeup_fd = %ld, is server:
-  //  %d\n", fd, wakeup_fd_, rdmasr_is_server);
   conn_th_ = std::thread([this, fd] {
     conn_->SyncQP(fd);
     conn_->SyncMR(fd, local_ringbuf_mr_, remote_ringbuf_mr_);
@@ -57,7 +55,7 @@ void RDMASenderReceiverBPEV::connect(int fd) {
     barrier(fd);
 
     connected_ = true;
-    RDMAMonitor::GetInstance().Register(this);
+    RDMAPoller::GetInstance().Register(this);
   });
   conn_th_.detach();
 }

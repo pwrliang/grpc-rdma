@@ -1,5 +1,6 @@
 #ifndef GRPC_CORE_LIB_RDMA_RDMAMONITOR_H
 #define GRPC_CORE_LIB_RDMA_RDMAMONITOR_H
+#include <sys/resource.h>
 #include <algorithm>
 #include <unordered_map>
 #include "absl/time/clock.h"
@@ -9,9 +10,9 @@
 #include "include/grpc/support/sync.h"
 #include "src/core/lib/rdma/RDMASenderReceiver.h"
 extern bool rdmasr_is_server;
-class RDMAMonitor {
+class RDMAPoller {
  public:
-  ~RDMAMonitor() {
+  ~RDMAPoller() {
     running_ = false;
     for (auto& th : monitor_ths_) {
       th.join();
@@ -22,9 +23,9 @@ class RDMAMonitor {
     }
   }
 
-  static RDMAMonitor& GetInstance() {
-    static RDMAMonitor monitor;
-    return monitor;
+  static RDMAPoller& GetInstance() {
+    static RDMAPoller inst;
+    return inst;
   }
 
   void Register(RDMASenderReceiverBPEV* rdmasr) {
@@ -92,7 +93,7 @@ class RDMAMonitor {
   size_t get_thread_num() const { return monitor_ths_.size(); }
 
  private:
-  RDMAMonitor() {
+  RDMAPoller() {
     int n_slots = 16;
 
     n_threads_ = 0;
@@ -115,20 +116,14 @@ class RDMAMonitor {
     gpr_mu_lock(&rdmasr_locks_[slot_id]);
     // TODO: We may design a more efficient scheduling (e.g. prioritized sched)
     for (auto* rdmasr : rdmasr_slots_[slot_id]) {
-      if (rdmasr->get_unread_data_size() == 0 && rdmasr->check_incoming() > 0) {
-        cycles_t last_recv_time = rdmasr->last_recv_time();
-        double recv_lag_us = (get_cycles() - last_recv_time) / cpu_mhz_;
-        bool first_set_event = !rdmasr->set_event();
+      if (poll(rdmasr)) {
+        GRPCProfiler profiler(GRPC_STATS_TIME_RDMA_POLL);
 
-        if (first_set_event || recv_lag_us > 1000) {
-          GRPCProfiler profiler(GRPC_STATS_TIME_RDMA_POLL);
-
-          do {
-            sz = write(rdmasr->get_wakeup_fd(), &val, sizeof(val));
-          } while (sz < 0 && errno == EAGAIN);
-          if (!rdmasr_is_server) {
-            std::this_thread::yield();
-          }
+        do {
+          sz = write(rdmasr->get_wakeup_fd(), &val, sizeof(val));
+        } while (sz < 0 && errno == EAGAIN);
+        if (!rdmasr_is_server) {
+          std::this_thread::yield();
         }
       }
     }
@@ -148,6 +143,21 @@ class RDMAMonitor {
 
     pthread_t current_thread = pthread_self();
     return pthread_setaffinity_np(current_thread, sizeof(cpu_set_t), &cpuset);
+  }
+
+  bool poll(RDMASenderReceiverBPEV* rdmasr) {
+    bool readable = false;
+
+    if (rdmasr->get_unread_data_size() == 0 && rdmasr->check_incoming() > 0) {
+      cycles_t last_recv_time = rdmasr->last_recv_time();
+      double recv_lag_us = (get_cycles() - last_recv_time) / cpu_mhz_;
+      bool first_set_event = !rdmasr->set_event();
+
+      if (first_set_event || recv_lag_us > 1000) {
+        readable = true;
+      }
+    }
+    return readable;
   }
 
   std::vector<gpr_mu> rdmasr_locks_;

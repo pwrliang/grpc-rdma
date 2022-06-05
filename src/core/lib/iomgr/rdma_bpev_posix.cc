@@ -298,14 +298,19 @@ static void rdma_read_allocation_done(void* rdmap, grpc_error_handle error) {
   }
 }
 
+thread_local absl::Time last_tcp_read_;
+
 // when there is no data in rdma, call it, test if remote socket closed
 int tcp_do_read(grpc_rdma* rdma) {
   uint8_t buf[16];
+  int ret = 1;
 
-  int ret;
-  do {
-    ret = recv(rdma->fd, buf, 16, 0);
-  } while (ret < 0 && errno == EINTR);
+  if ((absl::Now() - last_tcp_read_) > absl::Milliseconds(10)) {
+    do {
+      ret = recv(rdma->fd, buf, 16, 0);
+    } while (ret < 0 && errno == EINTR);
+    last_tcp_read_ = absl::Now();
+  }
 
   return ret;
 }
@@ -447,11 +452,13 @@ static bool rdma_flush(grpc_rdma* rdma, grpc_error_handle* error) {
     }
     bool send_ok = rdma->rdmasr->send(&msg, sending_length);
 
-    // printf("rdma_flush, send %lld bytes, succeed: %d\n", sending_length, send_ok);
+    // printf("rdma_flush, send %lld bytes, succeed: %d\n", sending_length,
+    // send_ok);
 
     if (send_ok) {
       grpc_stats_time_add_custom(GRPC_STATS_TIME_SEND_SIZE, sending_length);
     }
+
     if (!send_ok) {
       if (rdma->rdmasr->IfRemoteExit()) {
         grpc_slice_buffer_reset_and_unref_internal(rdma->outgoing_buffer);
@@ -591,8 +598,8 @@ static const grpc_endpoint_vtable vtable = {rdma_read,
                                             rdma_get_fd,
                                             rdma_can_track_err};
 grpc_endpoint* grpc_rdma_bpev_create(grpc_fd* em_fd,
-                                   const grpc_channel_args* channel_args,
-                                   const char* peer_string) {
+                                     const grpc_channel_args* channel_args,
+                                     const char* peer_string) {
   grpc_resource_quota* resource_quota = grpc_resource_quota_create(nullptr);
   if (channel_args != nullptr) {
     for (size_t i = 0; i < channel_args->num_args; i++) {
@@ -654,7 +661,7 @@ int grpc_rdma_bpev_fd(grpc_endpoint* ep) {
 }
 
 void grpc_rdma_bpev_destroy_and_release_fd(grpc_endpoint* ep, int* fd,
-                                         grpc_closure* done) {
+                                           grpc_closure* done) {
   grpc_rdma* rdma = reinterpret_cast<grpc_rdma*>(ep);
   GPR_ASSERT(ep->vtable == &vtable);
   rdma->release_fd = fd;
@@ -669,7 +676,8 @@ RDMASenderReceiver* grpc_rdma_bpev_get_rdmasr(grpc_endpoint* ep) {
   return rdma->rdmasr;
 }
 
-void* grpc_rdma_bpev_require_zerocopy_sendspace(grpc_endpoint* ep, size_t size) {
+void* grpc_rdma_bpev_require_zerocopy_sendspace(grpc_endpoint* ep,
+                                                size_t size) {
   grpc_rdma* rdma = reinterpret_cast<grpc_rdma*>(ep);
   GPR_ASSERT(ep->vtable == &vtable);
   return rdma->rdmasr->require_zerocopy_sendspace(size);
