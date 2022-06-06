@@ -152,8 +152,8 @@ class RDMAPoller {
       cycles_t last_recv_time = rdmasr->last_recv_time();
       double recv_lag_us = (get_cycles() - last_recv_time) / cpu_mhz_;
       bool first_set_event = !rdmasr->set_event();
-
-      if (first_set_event || recv_lag_us > 1000) {
+      // notify again if working thread do not read within time limit
+      if (first_set_event || recv_lag_us > 100) {
         readable = true;
       }
     }

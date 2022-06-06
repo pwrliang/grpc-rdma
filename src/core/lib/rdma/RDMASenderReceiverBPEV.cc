@@ -37,8 +37,6 @@ RDMASenderReceiverBPEV::RDMASenderReceiverBPEV()
   has_event_.clear();
 }
 
-void RDMASenderReceiverBPEV::Shutdown() {}
-
 RDMASenderReceiverBPEV::~RDMASenderReceiverBPEV() {
   // conn_->poll_send_completion(last_n_post_send_);
   RDMAPoller::GetInstance().Unregister(this);

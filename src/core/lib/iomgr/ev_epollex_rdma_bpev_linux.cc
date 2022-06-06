@@ -1109,12 +1109,12 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
   int r = 0;
   gpr_mu_lock(&p->rdma_mu);
   size_t n_fds = p->rdma_fds->size();
-  bool enable_bp = n_fds <= 2;
+  bool enable_bp = n_fds == 1;
   gpr_mu_unlock(&p->rdma_mu);
 
-  int polling_limit_ms = 10;
+  int polling_limit_ms = 1;
   absl::Time t_begin = absl::Now();
-  int t_spend_ms;
+  int t_elapsed_ms;
 
   if (timeout >= 0) {
     polling_limit_ms = std::min(timeout, polling_limit_ms);
@@ -1154,12 +1154,12 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
     } else {
       r = epoll_wait(p->epfd, p->events, MAX_EPOLL_EVENTS, 0);
     }
-    t_spend_ms = ToInt64Milliseconds((absl::Now() - t_begin));
+    t_elapsed_ms = ToInt64Milliseconds((absl::Now() - t_begin));
   } while ((r < 0 && errno == EINTR || r == 0) &&
-           t_spend_ms < polling_limit_ms);
+           t_elapsed_ms < polling_limit_ms);
 
   if (timeout > 0) {
-    timeout = std::max(0, timeout - t_spend_ms);
+    timeout = std::max(0, timeout - t_elapsed_ms);
   }
 
   if (enable_bp && r == 0) {

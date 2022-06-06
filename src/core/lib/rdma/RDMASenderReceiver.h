@@ -309,7 +309,6 @@ class RDMASenderReceiverBPEV : public RDMASenderReceiver {
   void connect(int fd) override;
   void update_remote_metadata() override;
   void update_local_metadata() override;
-  void Shutdown() override;
   bool connected() { return connected_; }
 
   bool send(msghdr* msg, size_t) override;

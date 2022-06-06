@@ -305,7 +305,7 @@ int tcp_do_read(grpc_rdma* rdma) {
   uint8_t buf[16];
   int ret = 1;
 
-  if ((absl::Now() - last_tcp_read_) > absl::Milliseconds(10)) {
+  if ((absl::Now() - last_tcp_read_) > absl::Milliseconds(1)) {
     do {
       ret = recv(rdma->fd, buf, 16, 0);
     } while (ret < 0 && errno == EINTR);
