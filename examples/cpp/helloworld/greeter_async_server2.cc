@@ -61,27 +61,7 @@ int bind_thread_to_core(int core_id) {
 
 class ServerImpl final {
  public:
-  ServerImpl() {
-    running_ = true;
-    monitor_th_ = std::thread([this] {
-      uint64_t last_poll_num = 0;
-      while (running_) {
-        uint64_t total_poll_num = 0;
-        for (auto& cq : cqs_) {
-          total_poll_num += grpc_get_cq_poll_num(cq->cq());
-        }
-        if (last_poll_num != total_poll_num) {
-          printf("Total Poll Num: %lu\n", total_poll_num);
-        }
-        last_poll_num = total_poll_num;
-        sleep(2);
-      }
-    });
-  }
-
   ~ServerImpl() {
-    running_ = false;
-    monitor_th_.join();
     server_->Shutdown();
     for (auto& cq : cqs_) {
       cq->Shutdown();
@@ -193,8 +173,6 @@ class ServerImpl final {
   std::vector<std::unique_ptr<ServerCompletionQueue>> cqs_;
   Greeter::AsyncService service_;
   std::unique_ptr<Server> server_;
-  std::atomic_bool running_;
-  std::thread monitor_th_;
   std::thread grab_mem_th_;
 };
 
