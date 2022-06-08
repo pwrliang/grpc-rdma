@@ -123,8 +123,12 @@ std::string grpc_stats_time_op_to_str(int op) {
       return "CLIENT_PREPARE";
     case GRPC_STATS_TIME_CLIENT_CQ_NEXT:
       return "CLIENT_CQ_NEXT";
-    case GRPC_STATS_TIME_SERVER_PREPARE:
-      return "SERVER_PREPARE";
+    case GRPC_STATS_TIME_SERVER_RPC_REQUEST:
+      return "SERVER_RPC_REQUEST";
+    case GRPC_STATS_TIME_SERVER_RPC_FINISH:
+      return "SERVER_RPC_FINISH";
+    case GRPC_STATS_TIME_SERVER_RPC_DELETE:
+      return "SERVER_RPC_DELETE";
     case GRPC_STATS_TIME_SERVER_CQ_NEXT:
       return "SERVER_CQ_NEXT";
     case GRPC_STATS_TIME_RDMA_POLL:

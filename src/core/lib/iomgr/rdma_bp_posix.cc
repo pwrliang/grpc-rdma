@@ -301,10 +301,10 @@ static void rdma_read_allocation_done(void* rdmap, grpc_error_handle error) {
 int tcp_do_read(grpc_rdma* rdma) {
   uint8_t buf[16];
 
-  int ret;
-  do {
-    ret = recv(rdma->fd, buf, 16, 0);
-  } while (ret < 0 && errno == EINTR);
+  int ret = 1;
+//  do {
+//    ret = recv(rdma->fd, buf, 16, 0);
+//  } while (ret < 0 && errno == EINTR);
 
   return ret;
 }

@@ -96,10 +96,13 @@ class ServerImpl final {
     }
 
     void Proceed() {
+      cycles_t c1 = get_cycles();
       if (status_ == CREATE) {
         status_ = PROCESS;
         service_->RequestSayHello(&ctx_, &request_, &responder_, cq_, cq_,
                                   this);
+        cycles_t c2 = get_cycles();
+        grpc_stats_time_add(GRPC_STATS_TIME_SERVER_RPC_REQUEST, c2 - c1, 1);
       } else if (status_ == PROCESS) {
         new CallData(service_, cq_);
 
@@ -109,9 +112,13 @@ class ServerImpl final {
         }
         status_ = FINISH;
         responder_.Finish(reply_, Status::OK, this);
+        cycles_t c2 = get_cycles();
+        grpc_stats_time_add(GRPC_STATS_TIME_SERVER_RPC_FINISH, c2 - c1, 1);
       } else {
         GPR_ASSERT(status_ == FINISH);
         delete this;
+        cycles_t c2 = get_cycles();
+        grpc_stats_time_add(GRPC_STATS_TIME_SERVER_RPC_DELETE, c2 - c1, 1);
       }
     }
 
@@ -157,9 +164,7 @@ class ServerImpl final {
               GPR_ASSERT(ok);
               cycles_t c2 = get_cycles();
               static_cast<CallData*>(tag)->Proceed();
-              cycles_t c3 = get_cycles();
               grpc_stats_time_add(GRPC_STATS_TIME_SERVER_CQ_NEXT, c2 - c1);
-              grpc_stats_time_add(GRPC_STATS_TIME_ADHOC_1, c3 - c2);
             }
           },
           i);
