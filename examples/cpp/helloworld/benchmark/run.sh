@@ -14,7 +14,7 @@ SERVER_PROGRAM="greeter_async_server2"
 BATCH_SIZE=10000
 REQ_SIZE=64
 RESP_SIZE=4096
-N_REPEAT=5
+N_REPEAT=1
 POLL_NUM=100
 PROFILING=""
 AFFINITY="false"
@@ -67,6 +67,14 @@ for i in "$@"; do
     export GRPC_SLEEP=$SLEEP
     shift
     ;;
+  --bp-timeout=*)
+    export GRPC_BP_TIMEOUT="${i#*=}"
+    shift
+    ;;
+  --max-poller=*)
+    export GRPC_RDMA_MAX_POLLER="${i#*=}"
+    shift
+    ;;
   --affinity)
     AFFINITY="true"
     shift
@@ -99,12 +107,12 @@ mkdir -p "$LOG_PATH"
 export RDMA_VERBOSITY=ERROR
 
 function start_server() {
-  mpirun --bind-to none -x GRPC_PLATFORM_TYPE -x RDMA_VERBOSITY -x GRPC_PROFILING -x GRPC_SLEEP -x GRPC_EXECUTOR \
+  mpirun --bind-to none -x GRPC_PLATFORM_TYPE -x RDMA_VERBOSITY -x GRPC_PROFILING -x GRPC_SLEEP -x GRPC_EXECUTOR -x GRPC_BP_TIMEOUT -x GRPC_RDMA_MAX_POLLER \
     -n 1 -host "$SERVER" \
     "$HELLOWORLD_HOME"/$SERVER_PROGRAM \
     -threads="$SERVER_THREADS" \
     -cqs="$SERVER_THREADS" \
-    -resp "$RESP_SIZE" -affinity="$AFFINITY" >"$1" &
+    -resp "$RESP_SIZE" -affinity="$AFFINITY" |& tee "$1" &
 }
 
 function kill_server() {
@@ -130,7 +138,7 @@ for workload in ${WORKLOADS}; do
       echo "============================= Running $workload with $NP clients, server threads: $SERVER_THREADS, req: $REQ_SIZE, resp: $RESP_SIZE batch: $BATCH_SIZE poll_num: $POLL_NUM"
       start_server "$LOG_PATH/server_${workload}.log"
       # Evaluate
-      mpirun --bind-to none -x GRPC_PLATFORM_TYPE -x RDMA_VERBOSITY -x GRPC_PROFILING \
+      mpirun --bind-to none -x GRPC_PLATFORM_TYPE -x RDMA_VERBOSITY -x GRPC_PROFILING -x GRPC_BP_TIMEOUT \
         --oversubscribe \
         -mca btl_tcp_if_include ib0 \
         -np "$NP" -hostfile "$tmp_host" \

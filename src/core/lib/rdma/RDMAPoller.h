@@ -11,9 +11,8 @@
 #include "src/core/lib/rdma/RDMASenderReceiver.h"
 #include "src/core/lib/rdma/cpu_stats.h"
 
-#define RDMA_POLLER_MAX_THREAD 2
-#define CPU_TIME_UPDATE_INTERVAL_MS 500
 extern bool rdmasr_is_server;
+
 class RDMAPoller {
  public:
   ~RDMAPoller() {
@@ -33,6 +32,9 @@ class RDMAPoller {
   }
 
   void Register(RDMASenderReceiverBPEV* rdmasr) {
+    if (!rdmasr_is_server) {
+      return;
+    }
     int reg_id = reg_id_++;
     int slot_id = reg_id % rdmasr_slots_.size();
 
@@ -42,9 +44,7 @@ class RDMAPoller {
     gpr_mu_unlock(&rdmasr_locks_[slot_id]);
 
     gpr_mu_lock(&rdmasr_locks_[0]);
-    size_t max_thread = rdmasr_is_server ? RDMA_POLLER_MAX_THREAD : 1;
-
-    while (monitor_ths_.size() < max_thread) {
+    while (monitor_ths_.size() < max_n_threads_) {
       monitor_ths_.emplace_back(
           [&, this](int thread_id) {
             size_t n_slots = rdmasr_slots_.size();
@@ -58,10 +58,6 @@ class RDMAPoller {
 
             while (running_) {
               int n_threads = n_threads_;
-
-              if (thread_id == 0) {
-//                updateLoad();
-              }
 
               if (n_threads > 0) {
                 size_t avg_n_slots = (n_slots + n_threads - 1) / n_threads;
@@ -82,6 +78,9 @@ class RDMAPoller {
   }
 
   void Unregister(RDMASenderReceiverBPEV* rdmasr) {
+    if (!rdmasr_is_server) {
+      return;
+    }
     int reg_id = rdmasr->get_index();
     int slot_id = reg_id % rdmasr_slots_.size();
 
@@ -95,11 +94,28 @@ class RDMAPoller {
     gpr_mu_unlock(&rdmasr_locks_[slot_id]);
   }
 
-  bool ShouldBP() const { return cpu_active_rate_ < 0.5; }
+  int max_n_threads() const { return max_n_threads_; }
 
  private:
   RDMAPoller() {
-    int n_slots = RDMA_POLLER_MAX_THREAD;
+    max_n_threads_ = 1;
+    // Only allowing server uses multiple pollers
+    if (rdmasr_is_server) {
+      char* s_nthreads = getenv("GRPC_RDMA_MAX_POLLER");
+
+      if (s_nthreads != nullptr) {
+        int num_cores = sysconf(_SC_NPROCESSORS_ONLN);
+
+        max_n_threads_ = atoi(s_nthreads);
+        if (max_n_threads_ <= 0 || max_n_threads_ > num_cores) {
+          gpr_log(GPR_ERROR, "Invalid env GRPC_RDMA_MAX_POLLER: %d",
+                  max_n_threads_);
+          abort();
+        }
+      }
+    }
+
+    int n_slots = max_n_threads_;
 
     n_threads_ = 0;
     rdmasr_slots_.resize(n_slots);
@@ -112,7 +128,6 @@ class RDMAPoller {
     }
     int no_cpu_freq_fail = 0;
     cpu_mhz_ = get_cpu_mhz(no_cpu_freq_fail);
-    cpu_active_rate_ = 0;
   }
 
   void notifyWaiter(int slot_id) {
@@ -164,42 +179,12 @@ class RDMAPoller {
     return readable;
   }
 
-  void updateLoad() {
-    auto curr_counters = read_counters("/proc/stat", "cpu ");
-    auto curr_time = absl::Now();
-
-    if (last_cpu_time_counters_.empty()) {
-      last_cpu_time_counters_ = curr_counters;
-      last_update_time_ = curr_time;
-      return;
-    }
-
-    if (ToInt64Milliseconds((curr_time - last_update_time_)) >
-        CPU_TIME_UPDATE_INTERVAL_MS) {
-      auto active_time =
-          static_cast<float>(get_active_time(curr_counters) -
-                             get_active_time(last_cpu_time_counters_));
-      auto idle_time =
-          static_cast<float>(get_idle_time(curr_counters) -
-                             get_idle_time(last_cpu_time_counters_));
-      auto total_time = active_time + idle_time;
-
-      cpu_active_rate_ = active_time / total_time;
-      last_update_time_ = curr_time;
-      if (rdmasr_is_server) {
-        printf("Active rate: %f\n", cpu_active_rate_.load());
-      }
-    }
-  }
-
+  int max_n_threads_;
   std::vector<gpr_mu> rdmasr_locks_;
   std::vector<std::vector<RDMASenderReceiverBPEV*>> rdmasr_slots_;
   std::atomic_int32_t reg_id_;
   std::atomic_uint32_t n_threads_;
   std::vector<std::thread> monitor_ths_;
-  absl::Time last_update_time_;
-  std::vector<uint64_t> last_cpu_time_counters_;
-  std::atomic<float> cpu_active_rate_;
   bool running_;
   double cpu_mhz_;
 };

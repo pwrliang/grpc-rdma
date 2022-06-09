@@ -17,6 +17,8 @@ SERVER_TIMEOUT=0
 CLIENT_TIMEOUT=0
 SEND_INTERVAL=0
 OVERWRITE=0
+CPU_LIMIT=-1
+WORK_THREAD=-1
 
 if [[ ! -f "$MB_PATH" ]]; then
   echo "Invalid MB_HOME"
@@ -49,6 +51,10 @@ for i in "$@"; do
     AFFINITY=true
     shift
     ;;
+  --cpu-limit=*)
+    CPU_LIMIT="${i#*=}"
+    shift
+    ;;
   --overwrite)
     OVERWRITE=1
     shift
@@ -65,6 +71,10 @@ for i in "$@"; do
     SEND_INTERVAL="${i#*=}"
     shift
     ;;
+  --work-thread=*)
+    WORK_THREAD="${i#*=}"
+    shift
+    ;;
   --* | -*)
     echo "Unknown option $i"
     exit 1
@@ -79,6 +89,11 @@ LOG_PATH=$(realpath "$SCRIPT_DIR/logs/")
 if [[ -n "$LOG_SUFFIX" ]]; then
   LOG_PATH="${LOG_PATH}_${LOG_SUFFIX}"
 fi
+
+if [[ "$WORK_THREAD" -ne -1 ]]; then
+  LOG_PATH="${LOG_PATH}_work_thread_${WORK_THREAD}"
+fi
+
 mkdir -p "$LOG_PATH"
 
 curr_log_path="$LOG_PATH/${MODE}_client_${NP}_poll_${POLLING_THREADS}_interval_${SEND_INTERVAL}_dir_${DIR}_affinity_${AFFINITY}.log"
@@ -102,11 +117,13 @@ else
       -dir="$DIR" \
       -polling_thread="$POLLING_THREADS" \
       -computing_thread="$COMPUTING_THREAD" \
-      -batch "$BATCH_SIZE" \
-      -affinity "$AFFINITY" \
-      -server_timeout "$SERVER_TIMEOUT" \
-      -client_timeout "$CLIENT_TIMEOUT" \
-      -send_interval "$SEND_INTERVAL" |& tee -a "${curr_log_path}.tmp"
+      -batch="$BATCH_SIZE" \
+      -affinity="$AFFINITY" \
+      -server_timeout="$SERVER_TIMEOUT" \
+      -client_timeout="$CLIENT_TIMEOUT" \
+      -send_interval="$SEND_INTERVAL" \
+      -cpu_limit="$CPU_LIMIT" \
+      -work_thread="$WORK_THREAD" |& tee -a "${curr_log_path}.tmp"
     row_count=$(grep -c "Rank:" <"${curr_log_path}.tmp")
     if [[ $row_count -eq "$NP" ]]; then
       mv "${curr_log_path}.tmp" "${curr_log_path}"

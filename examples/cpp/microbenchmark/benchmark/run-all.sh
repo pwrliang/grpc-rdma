@@ -8,7 +8,7 @@ if [[ ! -f "$hostfile_template" ]]; then
   exit 1
 fi
 
-MODES=(bp bprr event)
+MODES=(event)
 
 function set_hostfile() {
   n_clients=$1
@@ -19,29 +19,39 @@ function set_hostfile() {
 }
 
 function client_scalability() {
-  MODES=(event)
+  MODES=(bp bprr event bpev)
+  MODES=(bprr)
   dir=bi
   for mode in "${MODES[@]}"; do
-    for interval in 0; do
-      #for n_clients in 1 2 4 8 16 28 32 64 128; do
-      for n_clients in 28; do
+    for interval in 0 5 100; do
+      for n_clients in 1 2 4 8 16 28 32 64 128; do
         set_hostfile $n_clients
-        ./run.sh --polling-thread=28 \
-          --mode="${mode}" \
-          --direction="${dir}" \
-          --batch=200000 \
-          --server-timeout=-1 \
-          --client-timeout=-1 \
-          --send-interval=$interval \
-          --overwrite
-#
-#        ./run.sh --polling-thread=28 \
-#          --mode="${mode}" \
-#          --direction="${dir}" \
-#          --batch=200000 \
-#          --server-timeout=-1 \
-#          --client-timeout=-1 \
-#          --affinity --send-interval=$interval
+        th=28
+        if [[ $mode == "bpev" ]]; then
+          th=24
+        elif [[ $mode == "bprr" ]]; then
+          th=28
+        elif [[ $mode == "event" ]]; then
+          th=28
+        fi
+#        if [[ $n_clients -lt 28 ]]; then
+          ./run.sh --polling-thread=$th \
+            --mode="${mode}" \
+            --direction="${dir}" \
+            --batch=200000 \
+            --server-timeout=-1 \
+            --client-timeout=-1 \
+            --send-interval=$interval \
+            --affinity
+#        else
+#          ./run.sh --polling-thread=$th \
+#            --mode="${mode}" \
+#            --direction="${dir}" \
+#            --batch=200000 \
+#            --server-timeout=-1 \
+#            --client-timeout=-1 \
+#            --send-interval=$interval
+#        fi
       done
     done
   done

@@ -11,7 +11,8 @@ fi
 
 POLL_NUMS=(1)
 GRPC_MODES=(TCP RDMA_BP RDMA_EVENT)
-GRPC_MODES=(RDMA_EVENT)
+GRPC_MODES=(RDMA_BP RDMA_BPEV RDMA_EVENT)
+GRPC_MODES=(RDMA_BPEV)
 
 function set_hostfile() {
   n_clients=$1
@@ -22,25 +23,25 @@ function set_hostfile() {
 }
 
 function get_batch_size() {
-    data_size=$1
-    if [[ $data_size -le 32*1024 ]]; then
-      batch_size=100000
-    elif [[ $data_size -le 64*1024 ]]; then
-      batch_size=80000
-    elif [[ $data_size -le 128*1024 ]]; then
-      batch_size=60000
-    elif [[ $data_size -le 256*1024 ]]; then
-      batch_size=40000
-    elif [[ $data_size -le 512*1024 ]]; then
-      batch_size=20000
-    elif [[ $data_size -le 1024*1024 ]]; then
-      batch_size=10000
-    elif [[ $data_size -le 2*1024*1024 ]]; then
-      batch_size=5000
-    else
-      batch_size=2500
-    fi
-    echo $batch_size
+  data_size=$1
+  if [[ $data_size -le 32*1024 ]]; then
+    batch_size=100000
+  elif [[ $data_size -le 64*1024 ]]; then
+    batch_size=80000
+  elif [[ $data_size -le 128*1024 ]]; then
+    batch_size=60000
+  elif [[ $data_size -le 256*1024 ]]; then
+    batch_size=40000
+  elif [[ $data_size -le 512*1024 ]]; then
+    batch_size=20000
+  elif [[ $data_size -le 1024*1024 ]]; then
+    batch_size=10000
+  elif [[ $data_size -le 2*1024*1024 ]]; then
+    batch_size=5000
+  else
+    batch_size=2500
+  fi
+  echo $batch_size
 }
 
 function profile() {
@@ -70,39 +71,42 @@ function profile() {
 }
 
 function client_scalability() {
-  REQs=(64 1024 4096 65536 131072)
-  RESPs=(64 1024 4096 65536 131072)
   REQs=(64)
   RESPs=(64)
-  N_CLIENTS=(2 4 8 16 32)
-  N_THREADS=(1 2 4 8 16)
-  N_CLIENTS=(64)
-#          req_batch_size=$(get_batch_size "$REQ")
-#          resp_batch_size=$(get_batch_size "$RESP")
-#          batch_size=$((req_batch_size > resp_batch_size ? req_batch_size : resp_batch_size))
+  N_CLIENTS=(1 2 4 8 16 32 64 128)
+  N_CLIENTS=(128)
+
   for i in "${!REQs[@]}"; do
     REQ=${REQs[i]}
     RESP=${RESPs[i]}
     for poll_num in "${POLL_NUMS[@]}"; do
-      for grp_mode in "${GRPC_MODES[@]}"; do
-        export GRPC_PLATFORM_TYPE=$grp_mode
+      for grpc_mode in "${GRPC_MODES[@]}"; do
+        export GRPC_PLATFORM_TYPE=$grpc_mode
         for j in "${!N_CLIENTS[@]}"; do
-          set_hostfile "${N_CLIENTS[j]}"
-#          export LOG_SUFFIX="${grp_mode}_${REQ}_${RESP}_${N_THREADS[j]}"
-#          ./run.sh --server_thread="${N_THREADS[j]}" \
-#                   --client_thread=1 \
-#                   --req="$REQ" \
-#                   --resp="$RESP" \
-#                   --poll-num="$poll_num" \
-#                   --profiling=milli \
-#                   --batch=500000
-          export LOG_SUFFIX="${grp_mode}_${REQ}_${RESP}"
-          ./run.sh --server_thread=28 \
-                   --client_thread=1 \
-                   --req="$REQ" \
-                   --resp="$RESP" \
-                   --poll-num="$poll_num" \
-                   --batch=500000
+          n_cli="${N_CLIENTS[j]}"
+          set_hostfile "$n_cli"
+          export LOG_SUFFIX="${grpc_mode}_${REQ}_${RESP}"
+          thread=28
+          bp_to=0
+          if [[ n_cli -le 32 ]]; then
+            if [[ "${grpc_mode}" == "RDMA_BPEV" ]]; then
+              thread=27
+            else
+              thread=28
+            fi
+            bp_to=50
+          elif [[ n_cli -le 64 ]]; then
+            thread=32
+          else
+            thread=64 # for 128 client
+          fi
+
+          ./run.sh --server_thread=$thread \
+            --client_thread=1 \
+            --req="$REQ" \
+            --resp="$RESP" \
+            --poll-num="$poll_num" \
+            --batch=1000000 --bp-timeout=$bp_to --overwrite
         done
       done
     done
