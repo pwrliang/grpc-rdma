@@ -1309,6 +1309,7 @@ static long sys_gettid(void) { return syscall(__NR_gettid); }
 static grpc_error_handle pollset_work(grpc_pollset* pollset,
                                       grpc_pollset_worker** worker_hdl,
                                       grpc_millis deadline) {
+  GRPCProfiler profiler(GRPC_STATS_TIME_POLLSET_WORK);
   GPR_TIMER_SCOPE("pollset_work", 0);
 #ifdef GRPC_EPOLLEX_CREATE_WORKERS_ON_HEAP
   grpc_pollset_worker* worker =
@@ -1336,6 +1337,7 @@ static grpc_error_handle pollset_work(grpc_pollset* pollset,
     if (begin_worker(pollset, WORKER_PTR, worker_hdl, deadline)) {
       gpr_tls_set(&g_current_thread_pollset, (intptr_t)pollset);
       gpr_tls_set(&g_current_thread_worker, (intptr_t)WORKER_PTR);
+      GRPCProfiler profiler(GRPC_STATS_TIME_BEGIN_WORKER);
       if (WORKER_PTR->pollable_obj->event_cursor ==
           WORKER_PTR->pollable_obj->event_count) {
         append_error(&error, pollable_epoll(WORKER_PTR->pollable_obj, deadline),

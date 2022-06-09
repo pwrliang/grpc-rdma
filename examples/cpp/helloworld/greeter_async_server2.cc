@@ -96,8 +96,9 @@ class ServerImpl final {
     }
 
     void Proceed() {
-      cycles_t c1 = get_cycles();
+
       if (status_ == CREATE) {
+        cycles_t c1 = get_cycles();
         status_ = PROCESS;
         service_->RequestSayHello(&ctx_, &request_, &responder_, cq_, cq_,
                                   this);
@@ -111,14 +112,13 @@ class ServerImpl final {
           grpc_stats_time_enable();
         }
         status_ = FINISH;
+        cycles_t c1 = get_cycles();
         responder_.Finish(reply_, Status::OK, this);
         cycles_t c2 = get_cycles();
         grpc_stats_time_add(GRPC_STATS_TIME_SERVER_RPC_FINISH, c2 - c1, 1);
       } else {
         GPR_ASSERT(status_ == FINISH);
         delete this;
-        cycles_t c2 = get_cycles();
-        grpc_stats_time_add(GRPC_STATS_TIME_SERVER_RPC_DELETE, c2 - c1, 1);
       }
     }
 

@@ -127,12 +127,14 @@ std::string grpc_stats_time_op_to_str(int op) {
       return "SERVER_RPC_REQUEST";
     case GRPC_STATS_TIME_SERVER_RPC_FINISH:
       return "SERVER_RPC_FINISH";
-    case GRPC_STATS_TIME_SERVER_RPC_DELETE:
-      return "SERVER_RPC_DELETE";
     case GRPC_STATS_TIME_SERVER_CQ_NEXT:
       return "SERVER_CQ_NEXT";
     case GRPC_STATS_TIME_RDMA_POLL:
       return "RDMA_POLL";
+    case GRPC_STATS_TIME_BEGIN_WORKER:
+      return "BEGIN_WORKER";
+    case GRPC_STATS_TIME_ASYNC_NEXT_INTERNAL:
+      return "ASYNC_NEXT_INTERNAL";
     case GRPC_STATS_TIME_ADHOC_1:
       return "ADHOC_1";
     case GRPC_STATS_TIME_ADHOC_2:
