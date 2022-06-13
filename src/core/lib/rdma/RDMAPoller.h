@@ -10,6 +10,7 @@
 #include "include/grpc/support/sync.h"
 #include "src/core/lib/rdma/RDMASenderReceiver.h"
 #include "src/core/lib/rdma/cpu_stats.h"
+#include "include/grpcpp/stats_time.h"
 
 extern bool rdmasr_is_server;
 
@@ -54,6 +55,9 @@ class RDMAPoller {
               bind_thread_to_core(thread_id % num_cores);
             }
 
+            pthread_setname_np(
+                pthread_self(),
+                ("RDMAPoller" + std::to_string(thread_id)).c_str());
             grpc_stats_time_init(200 + thread_id);
 
             while (running_) {

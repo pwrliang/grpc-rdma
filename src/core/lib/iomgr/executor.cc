@@ -33,7 +33,8 @@
 #include "src/core/lib/gprpp/memory.h"
 #include "src/core/lib/iomgr/exec_ctx.h"
 #include "src/core/lib/iomgr/iomgr.h"
-
+#include "src/core/lib/iomgr/iomgr_internal.h"
+#include "src/core/lib/rdma/RDMAPoller.h"
 #define MAX_DEPTH 2
 
 #define EXECUTOR_TRACE(format, ...)                       \
@@ -226,6 +227,25 @@ void Executor::Shutdown() { SetThreading(false); }
 void Executor::ThreadMain(void* arg) {
   ThreadState* ts = static_cast<ThreadState*>(arg);
   gpr_tls_set(&g_this_thread_state, reinterpret_cast<intptr_t>(ts));
+  // do not allow this thread contenting with polling threads
+  if (grpc_check_iomgr_platform() == IOMGR_RDMA_BPEV) {
+    int num_cores = sysconf(_SC_NPROCESSORS_ONLN);
+    cpu_set_t cpuset;
+
+    CPU_ZERO(&cpuset);
+    int begin_cpu = RDMAPoller::GetInstance().max_n_threads() % num_cores;
+
+    for (int cpu_id = begin_cpu; cpu_id < num_cores; cpu_id++) {
+      CPU_SET(cpu_id, &cpuset);
+    }
+
+    pthread_t current_thread = pthread_self();
+    if (pthread_setaffinity_np(current_thread, sizeof(cpu_set_t), &cpuset) !=
+        0) {
+      gpr_log(GPR_ERROR, "Set affinity failed");
+      abort();
+    }
+  }
 
   grpc_core::ExecCtx exec_ctx(GRPC_EXEC_CTX_FLAG_IS_INTERNAL_THREAD);
 
