@@ -43,7 +43,6 @@ using grpc::Status;
 using helloworld::Greeter;
 using helloworld::HelloReply;
 using helloworld::HelloRequest;
-int grpc_get_cq_poll_num(grpc_completion_queue* cq);
 
 int bind_thread_to_core(int core_id) {
   int num_cores = sysconf(_SC_NPROCESSORS_ONLN);

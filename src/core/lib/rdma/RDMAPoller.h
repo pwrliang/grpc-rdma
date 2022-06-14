@@ -8,9 +8,9 @@
 #include "grpc/support/log.h"
 #include "grpcpp/get_clock.h"
 #include "include/grpc/support/sync.h"
+#include "include/grpcpp/stats_time.h"
 #include "src/core/lib/rdma/RDMASenderReceiver.h"
 #include "src/core/lib/rdma/cpu_stats.h"
-#include "include/grpcpp/stats_time.h"
 
 extern bool rdmasr_is_server;
 
@@ -141,14 +141,9 @@ class RDMAPoller {
     gpr_mu_lock(&rdmasr_locks_[slot_id]);
     for (auto* rdmasr : rdmasr_slots_[slot_id]) {
       if (poll(rdmasr)) {
-        GRPCProfiler profiler(GRPC_STATS_TIME_RDMA_POLL);
-
         do {
           sz = write(rdmasr->get_wakeup_fd(), &val, sizeof(val));
         } while (sz < 0 && errno == EAGAIN);
-        if (!rdmasr_is_server) {
-          std::this_thread::yield();
-        }
       }
     }
     gpr_mu_unlock(&rdmasr_locks_[slot_id]);
@@ -173,12 +168,7 @@ class RDMAPoller {
 
     if (rdmasr->get_unread_data_size() == 0 && rdmasr->check_incoming() > 0) {
       cycles_t last_recv_time = rdmasr->last_recv_time();
-      double recv_lag_us = (get_cycles() - last_recv_time) / cpu_mhz_;
-      bool first_set_event = !rdmasr->set_event();
-      // notify again if working thread do not read within time limit
-      if (first_set_event || recv_lag_us > 10) {
-        readable = true;
-      }
+      readable = true;
     }
     return readable;
   }

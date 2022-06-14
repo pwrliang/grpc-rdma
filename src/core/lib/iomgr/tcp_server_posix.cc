@@ -61,6 +61,8 @@
 #include "src/core/lib/iomgr/tcp_server_utils_posix.h"
 #include "src/core/lib/iomgr/unix_sockets_posix.h"
 
+extern bool rdmasr_is_server;
+
 static grpc_error_handle tcp_server_create(grpc_closure* shutdown_complete,
                                            const grpc_channel_args* args,
                                            grpc_tcp_server** server) {
@@ -107,6 +109,7 @@ static grpc_error_handle tcp_server_create(grpc_closure* shutdown_complete,
   s->nports = 0;
   s->channel_args = grpc_channel_args_copy(args);
   s->fd_handler = nullptr;
+  rdmasr_is_server = true;
   gpr_atm_no_barrier_store(&s->next_pollset_to_assign, 0);
   *server = s;
   return GRPC_ERROR_NONE;
@@ -192,8 +195,6 @@ static void tcp_server_destroy(grpc_tcp_server* s) {
   }
 }
 
-extern bool rdmasr_is_server;
-
 /* event manager callback when reads are ready */
 static void on_read(void* arg, grpc_error_handle err) {
   grpc_tcp_listener* sp = static_cast<grpc_tcp_listener*>(arg);
@@ -270,8 +271,6 @@ static void on_read(void* arg, grpc_error_handle err) {
     acceptor->port_index = sp->port_index;
     acceptor->fd_index = sp->fd_index;
     acceptor->external_connection = false;
-
-    rdmasr_is_server = true;
 
     sp->server->on_accept_cb(
         sp->server->on_accept_cb_arg,

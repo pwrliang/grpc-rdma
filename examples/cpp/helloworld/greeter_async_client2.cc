@@ -136,8 +136,6 @@ class GreeterClient {
   CompletionQueue cq_;
 };
 
-extern int mpirank, num_node;
-
 int main(int argc, char** argv) {
   InitMPIComm();
 
@@ -160,9 +158,6 @@ int main(int argc, char** argv) {
   {
     CommSpec comm_spec;
     comm_spec.Init(MPI_COMM_WORLD);
-
-    mpirank = comm_spec.worker_id();
-    num_node = FLAGS_node;
 
     GreeterClient greeter(grpc::CreateChannel(
         FLAGS_host + ":50051", grpc::InsecureChannelCredentials()));
