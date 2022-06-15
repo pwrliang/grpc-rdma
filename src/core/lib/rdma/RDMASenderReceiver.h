@@ -10,7 +10,7 @@
 #include "RDMAConn.h"
 #include "grpcpp/get_clock.h"
 #include "ringbuffer.h"
-const size_t DEFAULT_RINGBUF_SZ = 1024ull * 1024 * 4;
+const size_t DEFAULT_RINGBUF_SZ = 1024ull * 1024 * 10;
 const size_t DEFAULT_HEADBUF_SZ = 64;
 
 class RDMASenderReceiver {
