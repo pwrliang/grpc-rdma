@@ -1129,10 +1129,10 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
       polling_limit_us = std::min(timeout * 1000, polling_limit_us);
     }
 
+    gpr_mu_lock(&p->rdma_mu);
     do {
-      gpr_mu_lock(&p->rdma_mu);
-
       auto& fds = *p->rdma_fds;
+
       for (size_t i = 0; i < fds.size() && r < MAX_EPOLL_EVENTS; i++) {
         auto* fd = fds[i];
         auto* rdmasr = fd->rdmasr;
@@ -1156,9 +1156,9 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
           r++;
         }
       }
-      gpr_mu_unlock(&p->rdma_mu);
       t_elapsed_us = ToInt64Microseconds((absl::Now() - t_begin_poll));
     } while (r == 0 && t_elapsed_us < polling_limit_us);
+    gpr_mu_unlock(&p->rdma_mu);
 
     if (timeout > 0) {
       timeout = std::max(0l, timeout - t_elapsed_us / 1000);
@@ -1387,7 +1387,7 @@ static grpc_error_handle pollset_work(grpc_pollset* pollset,
   static const char* err_desc = "pollset_work";
   grpc_error_handle error = GRPC_ERROR_NONE;
 
-//  grpc_rdma_bpev_affinity = true;
+  //  grpc_rdma_bpev_affinity = true;
   if (!grpc_rdma_bpev_affinity) {
     int num_cores = sysconf(_SC_NPROCESSORS_ONLN);
     cpu_set_t cpuset;

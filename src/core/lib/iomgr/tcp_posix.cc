@@ -420,8 +420,6 @@ struct grpc_tcp {
                                       on errors anymore */
   TcpZerocopySendCtx tcp_zerocopy_send_ctx;
   TcpZerocopySendRecord* current_zerocopy_send = nullptr;
-  cycles_t last_read_time;
-  cycles_t last_write_time;
 };
 
 struct backup_poller {
@@ -710,11 +708,6 @@ static void call_read_cb(grpc_tcp* tcp, grpc_error_handle error) {
 #define MAX_READ_IOVEC 4
 static void tcp_do_read(grpc_tcp* tcp) {
   GRPCProfiler profiler(GRPC_STATS_TIME_TRANSPORT_DO_READ, 0);
-  if (tcp->last_read_time != 0) {
-    grpc_stats_time_add(GRPC_STATS_TIME_RECV_LAG,
-                        get_cycles() - tcp->last_read_time, -1);
-  }
-  tcp->last_read_time = get_cycles();
   GPR_TIMER_SCOPE("tcp_do_read", 0);
   struct msghdr msg;
   struct iovec iov[MAX_READ_IOVEC];
@@ -1342,11 +1335,6 @@ void TcpZerocopySendRecord::UpdateOffsetForBytesSent(size_t sending_length,
 static bool do_tcp_flush_zerocopy(grpc_tcp* tcp, TcpZerocopySendRecord* record,
                                   grpc_error_handle* error) {
   GRPCProfiler profiler(GRPC_STATS_TIME_TRANSPORT_FLUSH, 0);
-  if (tcp->last_write_time != 0) {
-    grpc_stats_time_add(GRPC_STATS_TIME_SEND_LAG,
-                        get_cycles() - tcp->last_write_time, -1);
-  }
-  tcp->last_write_time = get_cycles();
   struct msghdr msg;
   struct iovec iov[MAX_WRITE_IOVEC];
   msg_iovlen_type iov_size;
@@ -1434,11 +1422,6 @@ static bool tcp_flush_zerocopy(grpc_tcp* tcp, TcpZerocopySendRecord* record,
 
 static bool tcp_flush(grpc_tcp* tcp, grpc_error_handle* error) {
   GRPCProfiler profiler(GRPC_STATS_TIME_TRANSPORT_FLUSH, 0);
-  if (tcp->last_write_time != 0) {
-    grpc_stats_time_add(GRPC_STATS_TIME_SEND_LAG,
-                        get_cycles() - tcp->last_write_time, -1);
-  }
-  tcp->last_write_time = get_cycles();
   struct msghdr msg;
   struct iovec iov[MAX_WRITE_IOVEC];
   msg_iovlen_type iov_size;
@@ -1814,8 +1797,6 @@ grpc_endpoint* grpc_tcp_create(grpc_fd* em_fd,
   tcp->socket_ts_enabled = false;
   tcp->ts_capable = true;
   tcp->outgoing_buffer_arg = nullptr;
-  tcp->last_read_time = 0;
-  tcp->last_write_time = 0;
   if (tcp_tx_zerocopy_enabled && !tcp->tcp_zerocopy_send_ctx.memory_limited()) {
 #ifdef GRPC_LINUX_ERRQUEUE
     const int enable = 1;

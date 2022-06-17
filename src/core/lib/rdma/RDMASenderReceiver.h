@@ -10,8 +10,29 @@
 #include "RDMAConn.h"
 #include "grpcpp/get_clock.h"
 #include "ringbuffer.h"
+//#define RDMA_DETECT_CONTENTION
+
 const size_t DEFAULT_RINGBUF_SZ = 1024ull * 1024 * 10;
 const size_t DEFAULT_HEADBUF_SZ = 64;
+
+#ifdef RDMA_DETECT_CONTENTION
+class ContentAssertion {
+ public:
+  explicit ContentAssertion(std::atomic_int& counter) : counter_(counter) {
+    GPR_ASSERT(counter_++ == 0);
+  }
+
+  ~ContentAssertion() { counter_--; }
+
+ private:
+  std::atomic_int& counter_;
+};
+#else
+class ContentAssertion {
+ public:
+  explicit ContentAssertion(std::atomic_int&) {}
+};
+#endif
 
 class RDMASenderReceiver {
  public:
@@ -23,9 +44,10 @@ class RDMASenderReceiver {
         unread_mlens_(0),
         metadata_recvbuf_sz_(DEFAULT_HEADBUF_SZ),
         metadata_sendbuf_sz_(DEFAULT_HEADBUF_SZ),
-        connected_(false),
-        last_send_time_(0),
-        last_recv_time_(0) {
+        n_outstanding_send_(0),
+        last_failed_send_size_(0),
+        read_counter_(0),
+        write_counter_(0) {
     auto& node = RDMANode::GetInstance();
     auto pd = node.get_pd();
     size_t sendbuf_size = ringbuf->get_sendbuf_size();
@@ -37,27 +59,29 @@ class RDMASenderReceiver {
       exit(-1);
     }
 
-    // char* flag = getenv("GRPC_RDMA_ZEROCOPY_ENABLE");
-    // if (flag && strcmp(flag, "true") == 0) {
-    zerocopy_flag_ = true;
-    last_zerocopy_send_finished_.store(true);
-    zerocopy_sendbuf_ = new uint8_t[sendbuf_size];
-    if (zerocopy_sendbuf_mr_.local_reg(pd, zerocopy_sendbuf_, sendbuf_size)) {
-      gpr_log(GPR_ERROR, "failed to local_reg zerocopy_sendbuf_mr");
-      exit(-1);
+    char* flag = getenv("GRPC_RDMA_ZEROCOPY_ENABLE");
+    // Enable by default
+    if (flag == nullptr || strcmp(flag, "true") == 0) {
+      zerocopy_ = true;
+      last_zerocopy_send_finished_ = true;
+      zerocopy_sendbuf_ = new uint8_t[sendbuf_size];
+      if (zerocopy_sendbuf_mr_.local_reg(pd, zerocopy_sendbuf_, sendbuf_size)) {
+        gpr_log(GPR_ERROR, "failed to local_reg zerocopy_sendbuf_mr");
+        abort();
+      }
+    } else {
+      zerocopy_ = false;
+      last_zerocopy_send_finished_ = false;
+      zerocopy_sendbuf_ = nullptr;
     }
-    // } else {
-    //   zerocopy_flag_ = false;
-    //   last_zerocopy_send_finished_.store(false);
-    // }
-    unfinished_zerocopy_send_size_.store(0);
+    unfinished_zerocopy_send_size_ = 0;
 
     posix_memalign(&metadata_recvbuf_, 64, metadata_recvbuf_sz_);
     memset(metadata_recvbuf_, 0, metadata_recvbuf_sz_);
     if (local_metadata_recvbuf_mr_.local_reg(pd, metadata_recvbuf_,
                                              metadata_recvbuf_sz_)) {
       gpr_log(GPR_ERROR, "failed to local_reg local_metadata_recvbuf_mr");
-      exit(-1);
+      abort();
     }
 
     posix_memalign(&metadata_sendbuf_, 64, metadata_sendbuf_sz_);
@@ -65,7 +89,7 @@ class RDMASenderReceiver {
     if (metadata_sendbuf_mr_.local_reg(pd, metadata_sendbuf_,
                                        metadata_sendbuf_sz_)) {
       gpr_log(GPR_ERROR, "failed to local_reg metadata_sendbuf_mr");
-      exit(-1);
+      abort();
     }
   }
 
@@ -82,6 +106,7 @@ class RDMASenderReceiver {
 
   virtual ~RDMASenderReceiver() {
     delete[] sendbuf_;
+    delete[] zerocopy_sendbuf_;
     free(metadata_recvbuf_);
     free(metadata_sendbuf_);
   }
@@ -90,30 +115,19 @@ class RDMASenderReceiver {
 
   size_t get_max_send_size() const { return ringbuf_->get_max_send_size(); }
 
-  bool get_zerocopy_flag() const { return zerocopy_flag_; }
-
-  cycles_t last_send_time() const { return last_send_time_; }
-
-  cycles_t last_recv_time() const { return last_recv_time_; }
-
   virtual bool send(msghdr* msg, size_t mlen) = 0;
-  virtual size_t recv(msghdr* msg) = 0;
 
-  void WaitConnect() const {
-    while (!connected_) {
-      std::this_thread::yield();
-    }
-  }
+  virtual size_t recv(msghdr* msg) = 0;
 
   bool IfRemoteExit() { return remote_exit_ == 1; }
 
   void* require_zerocopy_sendspace(size_t size) {
-    if (!zerocopy_flag_ || size >= ringbuf_->get_sendbuf_size() - 64) {
+    if (!zerocopy_ || size >= ringbuf_->get_sendbuf_size() - 64) {
       return nullptr;
     }
 
     size_t max_counter = 1;
-    while (last_zerocopy_send_finished_.exchange(false) == false) {
+    while (!last_zerocopy_send_finished_.exchange(false)) {
       if (max_counter-- == 1) {
         // printf("require %lld send bytes, denied\n", size);
         return nullptr;
@@ -124,7 +138,7 @@ class RDMASenderReceiver {
   }
 
   bool zerocopy_sendbuf_contains(void* bytes) {
-    if (!zerocopy_flag_) return false;
+    if (!zerocopy_) return false;
     uint8_t* ptr = (uint8_t*)bytes;
     return (ptr >= zerocopy_sendbuf_ &&
             ptr < (zerocopy_sendbuf_ + ringbuf_->get_sendbuf_size()));
@@ -132,6 +146,7 @@ class RDMASenderReceiver {
 
  protected:
   virtual void connect(int fd) = 0;
+
   virtual void update_remote_metadata() {
     reinterpret_cast<size_t*>(metadata_sendbuf_)[0] = ringbuf_->get_head();
     reinterpret_cast<size_t*>(metadata_sendbuf_)[1] = 0;
@@ -140,10 +155,12 @@ class RDMASenderReceiver {
                          0, metadata_sendbuf_sz_, IBV_WR_RDMA_WRITE);
     conn_->poll_send_completion(n_entries);
   }
+
   virtual void update_local_metadata() {
     remote_ringbuf_head_ = reinterpret_cast<size_t*>(metadata_recvbuf_)[0];
     remote_exit_ = reinterpret_cast<size_t*>(metadata_recvbuf_)[1];
   }
+
   virtual bool is_writable(size_t mlen) = 0;
 
   RDMAConn* conn_;
@@ -155,7 +172,10 @@ class RDMASenderReceiver {
 
   uint8_t *sendbuf_, *zerocopy_sendbuf_;
   MemRegion sendbuf_mr_, zerocopy_sendbuf_mr_;
-  bool zerocopy_flag_;
+  int n_outstanding_send_;
+  size_t last_failed_send_size_;
+
+  bool zerocopy_;
   std::atomic_bool last_zerocopy_send_finished_;
   std::atomic_size_t unfinished_zerocopy_send_size_;
   size_t total_send_size = 0, total_zerocopy_send_size = 0;
@@ -168,13 +188,10 @@ class RDMASenderReceiver {
   void* metadata_sendbuf_;
   MemRegion metadata_sendbuf_mr_;
 
-  // Profiling and limit wakeup
-  cycles_t last_send_time_;
-  cycles_t last_recv_time_;
-
-  bool connected_;
   int remote_exit_ = 0;
   int fd_;
+  // for debugging
+  std::atomic_int read_counter_, write_counter_;
 };
 
 /*
@@ -220,12 +237,10 @@ class RDMASenderReceiverBP : public RDMASenderReceiver {
   // this should be thread safe,
   bool check_incoming() const;
 
-  size_t check_and_ack_incomings_locked(bool read_all = true);
+  size_t check_and_ack_incomings_locked();
 
  protected:
-  int last_n_post_send_;
   std::atomic_bool write_again_;
-  std::thread conn_th_;
 };
 
 class RDMASenderReceiverEvent : public RDMASenderReceiver {
@@ -238,7 +253,6 @@ class RDMASenderReceiverEvent : public RDMASenderReceiver {
   void update_remote_metadata() override;
   void update_local_metadata() override;
   void Shutdown() override;
-  bool connected() { return connected_; }
 
   bool send(msghdr* msg, size_t mlen) override;
   virtual size_t recv(msghdr* msg);
@@ -287,8 +301,6 @@ class RDMASenderReceiverEvent : public RDMASenderReceiver {
 
   // this need to sync in initialization
   size_t remote_rr_tail_ = 0, remote_rr_head_ = 0;
-  size_t last_failed_send_size_;
-
 #ifdef SENDER_RECEIVER_NON_ATOMIC
   bool check_data_;
   bool check_metadata_;
@@ -296,8 +308,6 @@ class RDMASenderReceiverEvent : public RDMASenderReceiver {
   std::atomic_bool check_data_;
   std::atomic_bool check_metadata_;
 #endif
-
-  std::thread conn_th_;
 };
 
 class RDMASenderReceiverBPEV : public RDMASenderReceiver {
@@ -309,7 +319,6 @@ class RDMASenderReceiverBPEV : public RDMASenderReceiver {
   void connect(int fd) override;
   void update_remote_metadata() override;
   void update_local_metadata() override;
-  bool connected() { return connected_; }
 
   bool send(msghdr* msg, size_t) override;
 
@@ -346,15 +355,12 @@ class RDMASenderReceiverBPEV : public RDMASenderReceiver {
 
   int get_index() const { return index_; }
 
-  bool set_event() { return has_event_.test_and_set(); }
+  cycles_t get_last_recv_time() const { return last_recv_time_; }
 
  private:
-  int last_n_post_send_;
   // this need to sync in initialization
-  size_t last_failed_send_size_;
   int wakeup_fd_;
   int index_;
-  std::thread conn_th_;
-  std::atomic_flag has_event_;
+  cycles_t last_recv_time_;
 };
 #endif

@@ -17,7 +17,7 @@ extern bool rdmasr_is_server;
 class RDMAPoller {
  public:
   ~RDMAPoller() {
-    running_ = false;
+    polling_ = false;
     for (auto& th : monitor_ths_) {
       th.join();
     }
@@ -39,6 +39,8 @@ class RDMAPoller {
     int reg_id = reg_id_++;
     int slot_id = reg_id % rdmasr_slots_.size();
 
+    // ease the contentions
+    pause_ = true;
     gpr_mu_lock(&rdmasr_locks_[slot_id]);
     rdmasr->set_index(reg_id);
     rdmasr_slots_[slot_id].push_back(rdmasr);
@@ -60,7 +62,7 @@ class RDMAPoller {
                 ("RDMAPoller" + std::to_string(thread_id)).c_str());
             grpc_stats_time_init(200 + thread_id);
 
-            while (running_) {
+            while (polling_) {
               int n_threads = n_threads_;
 
               if (n_threads > 0) {
@@ -73,12 +75,16 @@ class RDMAPoller {
                   notifyWaiter(i);
                 }
               }
+
+              while (pause_) {
+                std::this_thread::yield();
+              }
             }
           },
           n_threads_++);
     }
-
     gpr_mu_unlock(&rdmasr_locks_[0]);
+    pause_ = false;
   }
 
   void Unregister(RDMASenderReceiverBPEV* rdmasr) {
@@ -122,9 +128,11 @@ class RDMAPoller {
     int n_slots = max_n_threads_;
 
     n_threads_ = 0;
+    monitor_ths_.reserve(1024);
     rdmasr_slots_.resize(n_slots);
     rdmasr_locks_.resize(n_slots);
-    running_ = true;
+    polling_ = true;
+    pause_ = false;
 
     for (int i = 0; i < n_slots; i++) {
       rdmasr_slots_[i].reserve(4096);
@@ -167,8 +175,12 @@ class RDMAPoller {
     bool readable = false;
 
     if (rdmasr->get_unread_data_size() == 0 && rdmasr->check_incoming() > 0) {
-      cycles_t last_recv_time = rdmasr->last_recv_time();
-      readable = true;
+      double read_lag =
+          (get_cycles() - rdmasr->get_last_recv_time()) / cpu_mhz_;
+      // We found that messages will not be read within 5us, we notify again
+      if (read_lag > 5) {
+        readable = true;
+      }
     }
     return readable;
   }
@@ -179,8 +191,9 @@ class RDMAPoller {
   std::atomic_int32_t reg_id_;
   std::atomic_uint32_t n_threads_;
   std::vector<std::thread> monitor_ths_;
-  bool running_;
+  bool polling_;
   double cpu_mhz_;
+  std::atomic_bool pause_;
 };
 
 #endif  // GRPC_CORE_LIB_RDMA_RDMAMONITOR_H

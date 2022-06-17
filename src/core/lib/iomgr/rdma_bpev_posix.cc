@@ -98,8 +98,6 @@ struct grpc_rdma {
   bool final_read;
   bool preallocate;
 
-  cycles_t last_read_time;
-  cycles_t last_write_time;
   // grpc_core::TracedBuffer* tb_head; /* List of traced buffers */
   // gpr_mu tb_mu; /* Lock for access to list of traced buffers */
 
@@ -213,11 +211,6 @@ static void call_read_cb(grpc_rdma* rdma, grpc_error_handle error) {
 
 static void rdma_do_read(grpc_rdma* rdma) {
   GRPCProfiler profiler(GRPC_STATS_TIME_TRANSPORT_DO_READ, 0);
-  if (rdma->last_read_time != 0) {
-    grpc_stats_time_add(GRPC_STATS_TIME_RECV_LAG,
-                        get_cycles() - rdma->last_read_time, -1);
-  }
-  rdma->last_read_time = get_cycles();
   struct msghdr msg;
   struct iovec iov[MAX_READ_IOVEC];
   size_t iov_len = rdma->incoming_buffer->count;
@@ -399,11 +392,6 @@ static void rdma_read(grpc_endpoint* ep, grpc_slice_buffer* incoming_buffer,
 
 static bool rdma_flush(grpc_rdma* rdma, grpc_error_handle* error) {
   GRPCProfiler profiler(GRPC_STATS_TIME_TRANSPORT_FLUSH, 0);
-  if (rdma->last_write_time != 0) {
-    grpc_stats_time_add(GRPC_STATS_TIME_SEND_LAG,
-                        get_cycles() - rdma->last_write_time, -1);
-  }
-  rdma->last_write_time = get_cycles();
   struct msghdr msg;
   struct iovec iov[MAX_WRITE_IOVEC];
   size_t iov_size;
@@ -648,8 +636,6 @@ grpc_endpoint* grpc_rdma_bpev_create(grpc_fd* em_fd,
   rdma->rdmasr->connect(rdma->fd);
   rdma->final_read = false;
   rdma->preallocate = true;
-  rdma->last_read_time = 0;
-  rdma->last_write_time = 0;
   grpc_fd_set_rdmasr_bpev(em_fd, rdma->rdmasr);
   return &rdma->base;
 }

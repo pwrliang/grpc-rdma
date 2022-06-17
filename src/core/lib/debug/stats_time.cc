@@ -103,10 +103,6 @@ std::string grpc_stats_time_op_to_str(int op) {
       return "TRANSPORT_HANDLE_WRITE";
     case GRPC_STATS_TIME_TRANSPORT_WRITE:
       return "TRANSPORT_WRITE";
-    case GRPC_STATS_TIME_SEND_LAG:
-      return "SEND_LAG";
-    case GRPC_STATS_TIME_RECV_LAG:
-      return "RECV_LAG";
     case GRPC_STATS_TIME_SEND:
       return "SEND";
     case GRPC_STATS_TIME_SEND_MEMCPY:

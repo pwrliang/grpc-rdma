@@ -95,7 +95,6 @@ class ServerImpl final {
     }
 
     void Proceed() {
-
       if (status_ == CREATE) {
         cycles_t c1 = get_cycles();
         status_ = PROCESS;
@@ -155,6 +154,8 @@ class ServerImpl final {
               }
             }
 
+            pthread_setname_np(pthread_self(),
+                               ("work_th" + std::to_string(idx)).c_str());
             grpc_stats_time_init(idx);
 
             while (true) {
