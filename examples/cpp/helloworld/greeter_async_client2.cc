@@ -121,6 +121,17 @@ class GreeterClient {
     }
   }
 
+  void NotifyFinish() {
+    std::string user = "fin";
+    HelloRequest request;
+    request.set_name(user);
+    HelloReply reply;
+    ClientContext context;
+    context.set_wait_for_ready(true);
+    Status status = stub_->SayHello(&context, request, &reply);
+    GPR_ASSERT(status.ok());
+  }
+
   std::atomic_int rest_resp_;
 
  private:
@@ -235,8 +246,10 @@ int main(int argc, char** argv) {
       printf("Throughput: %lf req/s, avg latency: %f us, [%f, %f]\n",
              total_throughput, avg_lat_ms * 1000, min_lat_ms * 1000,
              max_lat_ms * 1000);
+      greeter.NotifyFinish();
     }
   }
+
   FinalizeMPIComm();
   gflags::ShutDownCommandLineFlags();
   return 0;

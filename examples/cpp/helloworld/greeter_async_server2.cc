@@ -34,6 +34,8 @@
 #include "flags.h"
 #include "gflags/gflags.h"
 #include "grpcpp/stats_time.h"
+#include "proc_parser.h"
+
 using grpc::Server;
 using grpc::ServerAsyncResponseWriter;
 using grpc::ServerBuilder;
@@ -43,6 +45,8 @@ using grpc::Status;
 using helloworld::Greeter;
 using helloworld::HelloReply;
 using helloworld::HelloRequest;
+
+std::map<std::string, cpu_time_t> cpu_time1;
 
 int bind_thread_to_core(int core_id) {
   int num_cores = sysconf(_SC_NPROCESSORS_ONLN);
@@ -107,8 +111,35 @@ class ServerImpl final {
 
         reply_.mutable_message()->resize(FLAGS_resp);
         if (request_.has_start_benchmark() && request_.start_benchmark()) {
+          cpu_time1 = get_cpu_time_per_core();
           grpc_stats_time_enable();
         }
+
+        if (request_.name() == "fin") {
+          auto cpu_time2 = get_cpu_time_per_core();
+
+          int num_cores = sysconf(_SC_NPROCESSORS_ONLN);
+          auto time_diff = cpu_time2["cpu"] - cpu_time1["cpu"];
+          printf(
+              "[S] CPU-TIME (s) user: %lf idle: %lf nice: %lf sys: %lf "
+              "iowait: %lf "
+              "irq: %lf softirq: %lf sum: %lf\n",
+              time_diff.t_user, time_diff.t_idle, time_diff.t_nice,
+              time_diff.t_system, time_diff.t_iowait, time_diff.t_irq,
+              time_diff.t_softirq, time_diff.t_sum);
+          for (int i = 0; i < num_cores; i++) {
+            auto cpu_name = "cpu" + std::to_string(i);
+            time_diff = cpu_time2[cpu_name] - cpu_time1[cpu_name];
+            printf(
+                "[S] CPU%d-TIME (s) user: %lf idle: %lf nice: %lf sys: %lf "
+                "iowait: %lf "
+                "irq: %lf softirq: %lf sum: %lf\n",
+                i, time_diff.t_user, time_diff.t_idle, time_diff.t_nice,
+                time_diff.t_system, time_diff.t_iowait, time_diff.t_irq,
+                time_diff.t_softirq, time_diff.t_sum);
+          }
+        }
+
         status_ = FINISH;
         cycles_t c1 = get_cycles();
         responder_.Finish(reply_, Status::OK, this);
@@ -137,7 +168,7 @@ class ServerImpl final {
 
     for (int i = 0; i < FLAGS_threads; i++) {
       ths.emplace_back(
-          [this, &ths, &rest_rpc](int idx) {
+          [this](int idx) {
             auto& cq = cqs_[idx % cqs_.size()];
             new CallData(&service_, cq.get());
             void* tag;
