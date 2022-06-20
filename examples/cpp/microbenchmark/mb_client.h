@@ -127,9 +127,11 @@ class RDMAClient {
           cycles_t c2 = get_cycles();
           iter_cycles += c2 - c1;
           if (config_.send_interval_us > 0) {
-            gpr_sleep_until(gpr_time_add(
-                gpr_now(GPR_CLOCK_REALTIME),
-                gpr_time_from_micros(config_.send_interval_us, GPR_TIMESPAN)));
+            absl::Time begin_poll = absl::Now();
+
+            while ((absl::Now() - begin_poll) <
+                   absl::Microseconds(config_.send_interval_us)) {
+            }
           }
         }
         n_iter = batch_size;
@@ -173,9 +175,11 @@ class RDMAClient {
           iter_cycles += c2 - c1;
           n_iter++;
           if (config_.send_interval_us > 0) {
-            gpr_sleep_until(gpr_time_add(
-                gpr_now(GPR_CLOCK_REALTIME),
-                gpr_time_from_micros(config_.send_interval_us, GPR_TIMESPAN)));
+            absl::Time begin_poll = absl::Now();
+
+            while ((absl::Now() - begin_poll) <
+                   absl::Microseconds(config_.send_interval_us)) {
+            }
           }
         }
         // Notify server to exit
@@ -329,9 +333,11 @@ class RDMAClient {
           cycles_t c2 = get_cycles();
           iter_cycles += c2 - c1;
           if (config_.send_interval_us > 0) {
-            gpr_sleep_until(gpr_time_add(
-                gpr_now(GPR_CLOCK_REALTIME),
-                gpr_time_from_micros(config_.send_interval_us, GPR_TIMESPAN)));
+            absl::Time begin_poll = absl::Now();
+
+            while ((absl::Now() - begin_poll) <
+                   absl::Microseconds(config_.send_interval_us)) {
+            }
           }
         }
         n_iter = batch_size;
@@ -441,9 +447,11 @@ class RDMAClient {
           iter_cycles += c3 - c1;
           n_iter++;
           if (config_.send_interval_us > 0) {
-            gpr_sleep_until(gpr_time_add(
-                gpr_now(GPR_CLOCK_REALTIME),
-                gpr_time_from_micros(config_.send_interval_us, GPR_TIMESPAN)));
+            absl::Time begin_poll = absl::Now();
+
+            while ((absl::Now() - begin_poll) <
+                   absl::Microseconds(config_.send_interval_us)) {
+            }
           }
         }
         // Notify server to exit
@@ -582,9 +590,11 @@ class RDMAClient {
           cycles_t c2 = get_cycles();
           iter_cycles += c2 - c1;
           if (config_.send_interval_us > 0) {
-            gpr_sleep_until(gpr_time_add(
-                gpr_now(GPR_CLOCK_REALTIME),
-                gpr_time_from_micros(config_.send_interval_us, GPR_TIMESPAN)));
+            absl::Time begin_poll = absl::Now();
+
+            while ((absl::Now() - begin_poll) <
+                   absl::Microseconds(config_.send_interval_us)) {
+            }
           }
         }
         n_iter = batch_size;
@@ -681,9 +691,11 @@ class RDMAClient {
           iter_cycles += c2 - c1;
           n_iter++;
           if (config_.send_interval_us > 0) {
-            gpr_sleep_until(gpr_time_add(
-                gpr_now(GPR_CLOCK_REALTIME),
-                gpr_time_from_micros(config_.send_interval_us, GPR_TIMESPAN)));
+            absl::Time begin_poll = absl::Now();
+
+            while ((absl::Now() - begin_poll) <
+                   absl::Microseconds(config_.send_interval_us)) {
+            }
           }
         }
         // Notify server to exit

@@ -116,8 +116,6 @@ struct pollable {
   int event_count;
   struct epoll_event events[MAX_EPOLL_EVENTS];
 
-  long sleep_in_micro;
-
   // pollable is created by malloc inside pollable_create
   std::vector<grpc_fd*>* rdma_fds;
   gpr_mu rdma_mu;
@@ -679,17 +677,6 @@ static grpc_error_handle pollable_create(pollable_type type, pollable** p) {
   (*p)->event_cursor = 0;
   (*p)->event_count = 0;
   (*p)->rdma_fds = new std::vector<grpc_fd*>();
-  char* s_sleep = getenv("GRPC_SLEEP");
-  long sleep_in_micro = 0;
-  if (s_sleep != nullptr) {
-    char* end;
-    sleep_in_micro = strtol(s_sleep, &end, 10);
-    if (*end != '\0' || sleep_in_micro < 0) {
-      sleep_in_micro = 0;
-      printf("Error ENV GRPC_SLEEP\n");
-    }
-  }
-  (*p)->sleep_in_micro = sleep_in_micro;
   // new (&(*p)->rdma_timer) std::unique_ptr<TimerPackage>(new TimerPackage());
   gpr_mu_init(&(*p)->rdma_mu);
   // printf("pollable is created, epfd = %d\n", epfd);
@@ -1076,13 +1063,9 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
 
   if (has_rdma_fds) {
     auto begin_poll_time = absl::Now();
-    absl::Time last_epoll_time;
 
     do {
-      if ((absl::Now() - last_epoll_time) > absl::Microseconds(1000)) {
-        r = epoll_wait(p->epfd, p->events, MAX_EPOLL_EVENTS, 0);
-        last_epoll_time = absl::Now();
-      }
+      r = epoll_wait(p->epfd, p->events, MAX_EPOLL_EVENTS, 0);
 
       if (r < MAX_EPOLL_EVENTS) {
         gpr_mu_lock(&p->rdma_mu);
@@ -1112,22 +1095,6 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
           }
         }
         gpr_mu_unlock(&p->rdma_mu);
-      }
-      if (r == 0) {
-        /* N.B. this is crucial for performance: we spin 1 microsecond to
-         * stop firing too many closures
-         * 1 micro is a trade of between wakeup lag and overhead of scheduling
-         * closures since epoll_wait normally will spend 5 micro seconds to
-         * wakeup
-         * */
-        int64_t sleep_time = p->sleep_in_micro;
-        if (sleep_time > 0) {
-          gpr_sleep_until(
-              gpr_time_add(gpr_now(GPR_CLOCK_REALTIME),
-                           gpr_time_from_micros(sleep_time, GPR_TIMESPAN)));
-        } else {
-          //          std::this_thread::yield();
-        }
       }
     } while ((r < 0 && errno == EINTR) ||
              (r == 0 && (timeout == -1 || (absl::Now() - begin_poll_time) <

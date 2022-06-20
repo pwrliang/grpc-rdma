@@ -14,7 +14,7 @@ DECLARE_int32(warmup);
 DECLARE_bool(affinity);
 DECLARE_bool(grab_mem);
 DECLARE_string(mode);
-DECLARE_int32(sleep);
+DECLARE_int32(send_interval);
 DECLARE_int32(executor);
 DECLARE_int32(node);
 DECLARE_int32(cpu);

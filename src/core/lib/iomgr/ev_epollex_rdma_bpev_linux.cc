@@ -1156,6 +1156,10 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
           r++;
         }
       }
+
+      if (r == 0) {
+        std::this_thread::yield();
+      }
       t_elapsed_us = ToInt64Microseconds((absl::Now() - t_begin_poll));
     } while (r == 0 && t_elapsed_us < polling_limit_us);
     gpr_mu_unlock(&p->rdma_mu);
@@ -1200,6 +1204,10 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
           }
         }
         gpr_mu_unlock(&p->rdma_mu);
+      }
+
+      if (r == 0) {
+        std::this_thread::yield();
       }
     } while ((r < 0 && errno == EINTR) ||
              (r == 0 && (timeout == -1 || (absl::Now() - t_begin_poll) <
@@ -1387,7 +1395,6 @@ static grpc_error_handle pollset_work(grpc_pollset* pollset,
   static const char* err_desc = "pollset_work";
   grpc_error_handle error = GRPC_ERROR_NONE;
 
-  //  grpc_rdma_bpev_affinity = true;
   if (!grpc_rdma_bpev_affinity) {
     int num_cores = sysconf(_SC_NPROCESSORS_ONLN);
     pthread_t current_thread = pthread_self();
@@ -1415,7 +1422,8 @@ static grpc_error_handle pollset_work(grpc_pollset* pollset,
       for (int cpu_id = begin_cpu; cpu_id < num_cores; cpu_id++) {
         CPU_SET(cpu_id, &cpuset);
       }
-      r_val = pthread_setaffinity_np(current_thread, sizeof(cpu_set_t), &cpuset);
+      r_val =
+          pthread_setaffinity_np(current_thread, sizeof(cpu_set_t), &cpuset);
       if (r_val != 0) {
         gpr_log(GPR_ERROR, "Set affinity failed, %s", strerror(r_val));
         abort();

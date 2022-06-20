@@ -102,6 +102,7 @@ class GreeterClient {
         delete call;
       } else {
         rest_resp_++;
+        gpr_log(GPR_ERROR, "RPC Failed");
       }
     }
   }
@@ -145,9 +146,6 @@ int main(int argc, char** argv) {
   if (!FLAGS_mode.empty()) {
     setenv("GRPC_PLATFORM_TYPE", FLAGS_mode.c_str(), 1);
   }
-  if (FLAGS_sleep > 0) {
-    setenv("GRPC_SLEEP", std::to_string(FLAGS_sleep).c_str(), 1);
-  }
   if (FLAGS_executor > 0) {
     setenv("GRPC_EXECUTOR", std::to_string(FLAGS_executor).c_str(), 1);
   }
@@ -185,7 +183,7 @@ int main(int argc, char** argv) {
           greeter.SayHello(user);
           greeter.AsyncCompleteRpc();
 
-          auto send_interval_us = FLAGS_sleep;
+          auto send_interval_us = FLAGS_send_interval;
           absl::Time begin_poll = absl::Now();
           while ((absl::Now() - begin_poll) <
                  absl::Microseconds(send_interval_us)) {

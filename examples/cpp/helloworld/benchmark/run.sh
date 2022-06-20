@@ -15,7 +15,7 @@ BATCH_SIZE=10000
 REQ_SIZE=64
 RESP_SIZE=4096
 N_REPEAT=1
-SEND_DELAY=0
+SEND_INTERVAL=0
 PROFILING=""
 AFFINITY="false"
 OVERWRITE=0
@@ -47,8 +47,8 @@ for i in "$@"; do
     RESP_SIZE="${i#*=}"
     shift
     ;;
-  --send-delay=*)
-    SEND_DELAY="${i#*=}"
+  --send-interval=*)
+    SEND_INTERVAL="${i#*=}"
     shift
     ;;
   --profiling=*)
@@ -60,11 +60,6 @@ for i in "$@"; do
   --executor=*)
     EXECUTOR="${i#*=}"
     export GRPC_EXECUTOR=$EXECUTOR
-    shift
-    ;;
-  --sleep=*)
-    SLEEP="${i#*=}"
-    export GRPC_SLEEP=$SLEEP
     shift
     ;;
   --bp-timeout=*)
@@ -106,7 +101,7 @@ fi
 mkdir -p "$LOG_PATH"
 
 function start_server() {
-  mpirun --bind-to none -x GRPC_PLATFORM_TYPE -x GRPC_PROFILING -x GRPC_SLEEP -x GRPC_EXECUTOR -x GRPC_BP_TIMEOUT -x GRPC_RDMA_MAX_POLLER \
+  mpirun --bind-to none -x GRPC_PLATFORM_TYPE -x GRPC_PROFILING -x GRPC_EXECUTOR -x GRPC_BP_TIMEOUT -x GRPC_RDMA_MAX_POLLER \
     -n 1 -host "$SERVER" \
     "$HELLOWORLD_HOME"/$SERVER_PROGRAM \
     -threads="$SERVER_THREADS" \
@@ -135,7 +130,7 @@ for workload in ${WORKLOADS}; do
     while true; do
       tmp_host="/tmp/clients.$RANDOM"
       tail -n +2 "$HOSTS_PATH" >"$tmp_host"
-      echo "============================= Running $workload with $NP clients, server threads: $SERVER_THREADS, req: $REQ_SIZE, resp: $RESP_SIZE batch: $BATCH_SIZE Delay: $SEND_DELAY"
+      echo "============================= Running $workload with $NP clients, server threads: $SERVER_THREADS, req: $REQ_SIZE, resp: $RESP_SIZE batch: $BATCH_SIZE interval: $SEND_INTERVAL"
       start_server "$LOG_PATH/server_${workload}.log"
       # Evaluate
       mpirun --bind-to none -x GRPC_PLATFORM_TYPE -x GRPC_PROFILING -x GRPC_BP_TIMEOUT \
@@ -148,7 +143,7 @@ for workload in ${WORKLOADS}; do
         -cqs "$CLIENT_THREADS" \
         -batch "$BATCH_SIZE" \
         -req "$REQ_SIZE" \
-        -sleep "$SEND_DELAY" | tee -a "${curr_log_path}.tmp" 2>&1
+        -send_interval "$SEND_INTERVAL" | tee -a "${curr_log_path}.tmp" 2>&1
       if [[ $PROFILING != "" ]]; then
         ssh "$SERVER" "ps aux | pgrep greeter | xargs kill -SIGUSR1 2>/dev/null || true"
         sleep 1

@@ -243,9 +243,6 @@ int main(int argc, char** argv) {
   if (!FLAGS_mode.empty()) {
     setenv("GRPC_PLATFORM_TYPE", FLAGS_mode.c_str(), 1);
   }
-  if (FLAGS_sleep > 0) {
-    setenv("GRPC_SLEEP", std::to_string(FLAGS_sleep).c_str(), 1);
-  }
   if (FLAGS_executor > 0) {
     setenv("GRPC_EXECUTOR", std::to_string(FLAGS_executor).c_str(), 1);
   }
