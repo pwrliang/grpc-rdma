@@ -1390,19 +1390,36 @@ static grpc_error_handle pollset_work(grpc_pollset* pollset,
   //  grpc_rdma_bpev_affinity = true;
   if (!grpc_rdma_bpev_affinity) {
     int num_cores = sysconf(_SC_NPROCESSORS_ONLN);
+    pthread_t current_thread = pthread_self();
     cpu_set_t cpuset;
+    int cpu_cnt = 0;
+    int r_val;
 
-    CPU_ZERO(&cpuset);
-    int begin_cpu = RDMAPoller::GetInstance().max_n_threads() % num_cores;
-    for (int cpu_id = begin_cpu; cpu_id < num_cores; cpu_id++) {
-      CPU_SET(cpu_id, &cpuset);
+    r_val = pthread_getaffinity_np(current_thread, sizeof(cpu_set_t), &cpuset);
+    if (r_val != 0) {
+      gpr_log(GPR_ERROR, "Get affinity failed, %s", strerror(r_val));
+      abort();
     }
 
-    pthread_t current_thread = pthread_self();
-    if (pthread_setaffinity_np(current_thread, sizeof(cpu_set_t), &cpuset) !=
-        0) {
-      gpr_log(GPR_ERROR, "Set affinity failed");
-      abort();
+    for (int i = 0; i < CPU_SETSIZE; i++) {
+      if (CPU_ISSET(i, &cpuset)) {
+        cpu_cnt++;
+      }
+    }
+
+    // Affinity is not set
+    if (cpu_cnt == num_cores) {
+      int begin_cpu = RDMAPoller::GetInstance().max_n_threads() % num_cores;
+
+      CPU_ZERO(&cpuset);
+      for (int cpu_id = begin_cpu; cpu_id < num_cores; cpu_id++) {
+        CPU_SET(cpu_id, &cpuset);
+      }
+      r_val = pthread_setaffinity_np(current_thread, sizeof(cpu_set_t), &cpuset);
+      if (r_val != 0) {
+        gpr_log(GPR_ERROR, "Set affinity failed, %s", strerror(r_val));
+        abort();
+      }
     }
     grpc_rdma_bpev_affinity = true;
   }

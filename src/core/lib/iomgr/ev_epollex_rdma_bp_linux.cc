@@ -120,7 +120,6 @@ struct pollable {
 
   // pollable is created by malloc inside pollable_create
   std::vector<grpc_fd*>* rdma_fds;
-  size_t last_poll_idx;
   gpr_mu rdma_mu;
 };
 
@@ -680,7 +679,6 @@ static grpc_error_handle pollable_create(pollable_type type, pollable** p) {
   (*p)->event_cursor = 0;
   (*p)->event_count = 0;
   (*p)->rdma_fds = new std::vector<grpc_fd*>();
-  (*p)->last_poll_idx = 0;
   char* s_sleep = getenv("GRPC_SLEEP");
   long sleep_in_micro = 0;
   if (s_sleep != nullptr) {
@@ -1078,26 +1076,21 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
 
   if (has_rdma_fds) {
     auto begin_poll_time = absl::Now();
-    bool break_flag = false;
+    absl::Time last_epoll_time;
 
     do {
-      r = epoll_wait(p->epfd, p->events, MAX_EPOLL_EVENTS, 0);
+      if ((absl::Now() - last_epoll_time) > absl::Microseconds(1000)) {
+        r = epoll_wait(p->epfd, p->events, MAX_EPOLL_EVENTS, 0);
+        last_epoll_time = absl::Now();
+      }
 
       if (r < MAX_EPOLL_EVENTS) {
         gpr_mu_lock(&p->rdma_mu);
         auto& fds = *p->rdma_fds;
-        auto last_poll_idx = p->last_poll_idx;
-        auto curr_poll_idx = last_poll_idx;
         for (size_t i = 0; i < fds.size() && r < MAX_EPOLL_EVENTS; i++) {
-          //          curr_poll_idx = (i + last_poll_idx) % fds.size();
-          //          auto* fd = fds[curr_poll_idx];
           auto* fd = fds[i];
 
           GPR_ASSERT(fd->rdmasr != nullptr);
-          // if (fd->rdmasr->IfRemoteExit()) {
-          //   break_flag = true;
-          //   break;
-          // }
 
           uint32_t events = 0;
           // FIXME: We may implement this with Edeg-Trigger, but last time
@@ -1118,7 +1111,6 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
             r++;
           }
         }
-        p->last_poll_idx = curr_poll_idx;
         gpr_mu_unlock(&p->rdma_mu);
       }
       if (r == 0) {
@@ -1134,10 +1126,10 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
               gpr_time_add(gpr_now(GPR_CLOCK_REALTIME),
                            gpr_time_from_micros(sleep_time, GPR_TIMESPAN)));
         } else {
-          std::this_thread::yield();
+          //          std::this_thread::yield();
         }
       }
-    } while ((r < 0 && errno == EINTR) || break_flag ||
+    } while ((r < 0 && errno == EINTR) ||
              (r == 0 && (timeout == -1 || (absl::Now() - begin_poll_time) <
                                               absl::Milliseconds(timeout))));
   } else {

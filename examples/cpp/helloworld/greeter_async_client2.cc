@@ -43,20 +43,6 @@ using helloworld::Greeter;
 using helloworld::HelloReply;
 using helloworld::HelloRequest;
 
-int bind_thread_to_core(int core_id) {
-  int num_cores = sysconf(_SC_NPROCESSORS_ONLN);
-  if (core_id < 0 || core_id >= num_cores) {
-    return EINVAL;
-  }
-
-  cpu_set_t cpuset;
-  CPU_ZERO(&cpuset);
-  CPU_SET(core_id, &cpuset);
-
-  pthread_t current_thread = pthread_self();
-  return pthread_setaffinity_np(current_thread, sizeof(cpu_set_t), &cpuset);
-}
-
 class GreeterClient {
  public:
   explicit GreeterClient(std::shared_ptr<Channel> channel)
@@ -102,19 +88,18 @@ class GreeterClient {
     call->response_reader->Finish(&call->reply, &call->status, (void*)call);
   }
 
-  void AsyncCompleteRpc(int batch_size) {
+  void AsyncCompleteRpc() {
     GRPCProfiler profiler(GRPC_STATS_TIME_CLIENT_CQ_NEXT);
     void* got_tag;
     bool ok = false;
 
-    while (batch_size > 0 && rest_resp_-- > 0) {
+    if (rest_resp_-- > 0) {
       if (cq_.Next(&got_tag, &ok)) {
         AsyncClientCall* call = static_cast<AsyncClientCall*>(got_tag);
 
         GPR_ASSERT(ok);
         GPR_ASSERT(call->status.ok());
         delete call;
-        batch_size--;
       } else {
         rest_resp_++;
       }
@@ -196,15 +181,16 @@ int main(int argc, char** argv) {
 
         grpc_stats_time_init(0);
 
-        int send_batch_size = FLAGS_poll_num;
         for (int j = 0; j < chunk_size; j++) {
           greeter.SayHello(user);
+          greeter.AsyncCompleteRpc();
 
-          if (j % send_batch_size == 0) {
-            greeter.AsyncCompleteRpc(send_batch_size);
+          auto send_interval_us = FLAGS_sleep;
+          absl::Time begin_poll = absl::Now();
+          while ((absl::Now() - begin_poll) <
+                 absl::Microseconds(send_interval_us)) {
           }
         }
-        greeter.AsyncCompleteRpc(std::numeric_limits<int>::max());
       });
     }
 

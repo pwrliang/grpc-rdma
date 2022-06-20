@@ -15,7 +15,7 @@ BATCH_SIZE=10000
 REQ_SIZE=64
 RESP_SIZE=4096
 N_REPEAT=1
-POLL_NUM=100
+SEND_DELAY=0
 PROFILING=""
 AFFINITY="false"
 OVERWRITE=0
@@ -47,8 +47,8 @@ for i in "$@"; do
     RESP_SIZE="${i#*=}"
     shift
     ;;
-  --poll-num=*)
-    POLL_NUM="${i#*=}"
+  --send-delay=*)
+    SEND_DELAY="${i#*=}"
     shift
     ;;
   --profiling=*)
@@ -75,8 +75,8 @@ for i in "$@"; do
     export GRPC_RDMA_MAX_POLLER="${i#*=}"
     shift
     ;;
-  --affinity)
-    AFFINITY="true"
+  --affinity=*)
+    AFFINITY="${i#*=}"
     shift
     ;;
   --overwrite)
@@ -104,15 +104,15 @@ if [[ -n "$LOG_SUFFIX" ]]; then
   LOG_PATH="${LOG_PATH}_${LOG_SUFFIX}"
 fi
 mkdir -p "$LOG_PATH"
-export RDMA_VERBOSITY=ERROR
 
 function start_server() {
-  mpirun --bind-to none -x GRPC_PLATFORM_TYPE -x RDMA_VERBOSITY -x GRPC_PROFILING -x GRPC_SLEEP -x GRPC_EXECUTOR -x GRPC_BP_TIMEOUT -x GRPC_RDMA_MAX_POLLER \
+  mpirun --bind-to none -x GRPC_PLATFORM_TYPE -x GRPC_PROFILING -x GRPC_SLEEP -x GRPC_EXECUTOR -x GRPC_BP_TIMEOUT -x GRPC_RDMA_MAX_POLLER \
     -n 1 -host "$SERVER" \
     "$HELLOWORLD_HOME"/$SERVER_PROGRAM \
     -threads="$SERVER_THREADS" \
     -cqs="$SERVER_THREADS" \
-    -resp "$RESP_SIZE" -affinity="$AFFINITY" |& tee "$1" &
+    -resp "$RESP_SIZE" \
+    -affinity="$AFFINITY" |& tee "$1" &
 }
 
 function kill_server() {
@@ -135,10 +135,10 @@ for workload in ${WORKLOADS}; do
     while true; do
       tmp_host="/tmp/clients.$RANDOM"
       tail -n +2 "$HOSTS_PATH" >"$tmp_host"
-      echo "============================= Running $workload with $NP clients, server threads: $SERVER_THREADS, req: $REQ_SIZE, resp: $RESP_SIZE batch: $BATCH_SIZE poll_num: $POLL_NUM"
+      echo "============================= Running $workload with $NP clients, server threads: $SERVER_THREADS, req: $REQ_SIZE, resp: $RESP_SIZE batch: $BATCH_SIZE Delay: $SEND_DELAY"
       start_server "$LOG_PATH/server_${workload}.log"
       # Evaluate
-      mpirun --bind-to none -x GRPC_PLATFORM_TYPE -x RDMA_VERBOSITY -x GRPC_PROFILING -x GRPC_BP_TIMEOUT \
+      mpirun --bind-to none -x GRPC_PLATFORM_TYPE -x GRPC_PROFILING -x GRPC_BP_TIMEOUT \
         --oversubscribe \
         -mca btl_tcp_if_include ib0 \
         -np "$NP" -hostfile "$tmp_host" \
@@ -147,8 +147,8 @@ for workload in ${WORKLOADS}; do
         -threads "$CLIENT_THREADS" \
         -cqs "$CLIENT_THREADS" \
         -batch "$BATCH_SIZE" \
-        -poll_num "$POLL_NUM" \
-        -req "$REQ_SIZE" | tee -a "${curr_log_path}.tmp" 2>&1
+        -req "$REQ_SIZE" \
+        -sleep "$SEND_DELAY" | tee -a "${curr_log_path}.tmp" 2>&1
       if [[ $PROFILING != "" ]]; then
         ssh "$SERVER" "ps aux | pgrep greeter | xargs kill -SIGUSR1 2>/dev/null || true"
         sleep 1

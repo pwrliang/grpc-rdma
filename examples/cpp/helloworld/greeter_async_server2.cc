@@ -164,7 +164,6 @@ class ServerImpl final {
 
   void HandleRpcs() {
     std::vector<std::thread> ths;
-    std::atomic_int32_t rest_rpc(FLAGS_batch);
 
     for (int i = 0; i < FLAGS_threads; i++) {
       ths.emplace_back(
@@ -175,10 +174,19 @@ class ServerImpl final {
             bool ok;
 
             if (FLAGS_affinity) {
-              // int num_cores = sysconf(_SC_NPROCESSORS_ONLN) - 4;
-              int num_cores = FLAGS_cpu;
-              int rc = bind_thread_to_core(idx % num_cores);
-              printf("Bind thread %d to core %d\n", idx, idx % num_cores);
+              int num_cores = sysconf(_SC_NPROCESSORS_ONLN);
+              const char* type = getenv("GRPC_PLATFORM_TYPE");
+              int core_id;
+
+              if (type != nullptr && strcmp(type, "RDMA_BPEV") == 0) {
+                // Leave core 1 to polling thread
+                core_id = idx % (num_cores - 1) + 1;
+              } else {
+                core_id = idx % num_cores;
+              }
+
+              int rc = bind_thread_to_core(core_id);
+              printf("Bind thread %d to core %d\n", idx, core_id);
               if (rc != 0) {
                 std::cerr << "Error calling pthread_setaffinity_np: " << rc
                           << "\n";
