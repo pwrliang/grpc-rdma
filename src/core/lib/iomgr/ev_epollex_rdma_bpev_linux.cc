@@ -116,6 +116,7 @@ struct pollable {
 
   std::vector<grpc_fd*>* rdma_fds;
   gpr_mu rdma_mu;
+  bool bp_yield;
   int bp_timeout;
 };
 
@@ -705,6 +706,8 @@ static grpc_error_handle pollable_create(pollable_type type, pollable** p) {
     (*p)->bp_timeout = 0;
   }
 
+  s_to = getenv("GRPC_BP_YIELD");
+  (*p)->bp_yield = s_to == nullptr || strcmp(s_to, "true") == 0;
   gpr_mu_init(&(*p)->rdma_mu);
   return GRPC_ERROR_NONE;
 }
@@ -1133,7 +1136,9 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
     do {
       auto& fds = *p->rdma_fds;
 
-      for (size_t i = 0; i < fds.size() && r < MAX_EPOLL_EVENTS; i++) {
+      r = epoll_wait(p->epfd, p->events, MAX_EPOLL_EVENTS, 0);
+
+      for (size_t i = 0; i < fds.size() && r == 0; i++) {
         auto* fd = fds[i];
         auto* rdmasr = fd->rdmasr;
         GPR_DEBUG_ASSERT(rdmasr != nullptr);
@@ -1157,7 +1162,7 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
         }
       }
 
-      if (r == 0) {
+      if (r == 0 && p->bp_yield) {
         std::this_thread::yield();
       }
       t_elapsed_us = ToInt64Microseconds((absl::Now() - t_begin_poll));
@@ -1175,8 +1180,13 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
       } while (r < 0 && errno == EINTR);
     }
   } else {
+    absl::Time last_epoll_time;
     do {
-      r = epoll_wait(p->epfd, p->events, MAX_EPOLL_EVENTS, 0);
+      auto now = absl::Now();
+      if ((now - last_epoll_time) > absl::Microseconds(100)) {
+        r = epoll_wait(p->epfd, p->events, MAX_EPOLL_EVENTS, 0);
+        last_epoll_time = now;
+      }
 
       if (r < MAX_EPOLL_EVENTS) {
         gpr_mu_lock(&p->rdma_mu);
@@ -1204,10 +1214,6 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
           }
         }
         gpr_mu_unlock(&p->rdma_mu);
-      }
-
-      if (r == 0) {
-        std::this_thread::yield();
       }
     } while ((r < 0 && errno == EINTR) ||
              (r == 0 && (timeout == -1 || (absl::Now() - t_begin_poll) <

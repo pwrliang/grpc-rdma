@@ -119,6 +119,7 @@ struct pollable {
   // pollable is created by malloc inside pollable_create
   std::vector<grpc_fd*>* rdma_fds;
   gpr_mu rdma_mu;
+  bool bp_yield;
 };
 
 static const char* pollable_type_string(pollable_type t) {
@@ -677,9 +678,11 @@ static grpc_error_handle pollable_create(pollable_type type, pollable** p) {
   (*p)->event_cursor = 0;
   (*p)->event_count = 0;
   (*p)->rdma_fds = new std::vector<grpc_fd*>();
-  // new (&(*p)->rdma_timer) std::unique_ptr<TimerPackage>(new TimerPackage());
   gpr_mu_init(&(*p)->rdma_mu);
-  // printf("pollable is created, epfd = %d\n", epfd);
+
+  char* s_to = getenv("GRPC_BP_YIELD");
+  (*p)->bp_yield = s_to == nullptr || strcmp(s_to, "true") == 0;
+
   return GRPC_ERROR_NONE;
 }
 
@@ -1063,9 +1066,13 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
 
   if (has_rdma_fds) {
     auto begin_poll_time = absl::Now();
+    absl::Time last_epoll_time;
 
     do {
-      r = epoll_wait(p->epfd, p->events, MAX_EPOLL_EVENTS, 0);
+      if ((absl::Now() - last_epoll_time) > absl::Microseconds(1000)) {
+        r = epoll_wait(p->epfd, p->events, MAX_EPOLL_EVENTS, 0);
+        last_epoll_time = absl::Now();
+      }
 
       if (r < MAX_EPOLL_EVENTS) {
         gpr_mu_lock(&p->rdma_mu);
@@ -1095,6 +1102,10 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
           }
         }
         gpr_mu_unlock(&p->rdma_mu);
+      }
+
+      if (r == 0 && p->bp_yield) {
+        std::this_thread::yield();
       }
     } while ((r < 0 && errno == EINTR) ||
              (r == 0 && (timeout == -1 || (absl::Now() - begin_poll_time) <

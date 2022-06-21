@@ -179,52 +179,52 @@ function client_scalability() {
 function mb() {
   N_CLIENTS=(1 2 4 8 16 32 64)
   GRPC_MODES=(TCP RDMA_EVENT RDMA_BPNV RDMA_BP RDMA_BPEV)
-  GRPC_MODES=(RDMA_BPNV RDMA_BP RDMA_BPEV)
   REQs=(128)
   RESPs=(128)
 
   for i in "${!REQs[@]}"; do
     REQ=${REQs[i]}
     RESP=${RESPs[i]}
-    for delay in 0 100; do
+    for delay in 0 200; do
       for grpc_mode in "${GRPC_MODES[@]}"; do
-        if [[ "$grpc_mode" == "RDMA_BPNV" || "$grpc_mode" == "RDMA_BP2" || "$grpc_mode" == "RDMA_BP3" ]]; then
-          export GRPC_PLATFORM_TYPE="RDMA_BP"
-        else
-          export GRPC_PLATFORM_TYPE=$grpc_mode
-        fi
-
         for j in "${!N_CLIENTS[@]}"; do
           n_cli="${N_CLIENTS[j]}"
           set_hostfile "$n_cli"
           export LOG_SUFFIX="${grpc_mode}_${REQ}_${RESP}_delay_${delay}"
           thread=28
-          bp_to=0
           affinity="false"
-          if [[ n_cli -lt 32 ]]; then
+          if [[ $n_cli -lt 32 ]]; then
             if [[ "${grpc_mode}" == "RDMA_BPEV" ]]; then
-              thread=27 # do not enable affinity for BPEV as it internally binds cores in gRPC
+              thread=27 # Only use 27 thread as we leave one core for busy polling
             else
               thread=28
             fi
-            bp_to=100
             affinity="true"
-          elif [[ n_cli -le 32 ]]; then
+          elif [[ $n_cli -le 32 ]]; then
             thread=32
-            bp_to=100
-          elif [[ n_cli -le 64 ]]; then
+          elif [[ $n_cli -le 64 ]]; then
             thread=32
-            bp_to=100
           else
             thread=64 # for 128 client
           fi
 
-          if [ "$grpc_mode" == "RDMA_BPNV" ]; then
+          if [[ $delay -eq 0 ]]; then
+            bp_to=50
+          else
+            bp_to=0
+          fi
+
+          if [[ "$grpc_mode" == "RDMA_BPNV" ]]; then
+            export GRPC_PLATFORM_TYPE="RDMA_BP"
+            export GRPC_BP_YIELD="false"
             thread=$n_cli
-          elif [ "$grpc_mode" == "RDMA_BP2" ]; then
-            thread=28
-          elif [ "$grpc_mode" == "RDMA_BP3" ]; then
-            thread=24
+          else
+            export GRPC_PLATFORM_TYPE=$grpc_mode
+          fi
+
+          batch=500000
+          if [[ $delay -gt 0 ]]; then
+            batch=200000
           fi
 
           ./run.sh --server_thread="$thread" \
@@ -233,8 +233,8 @@ function mb() {
             --req="$REQ" \
             --resp="$RESP" \
             --send-interval="$delay" \
-            --batch=200000 \
-            --bp-timeout=$bp_to # --profiling=milli
+            --batch=$batch \
+            --bp-timeout=$bp_to  # --profiling=milli
         done
       done
     done

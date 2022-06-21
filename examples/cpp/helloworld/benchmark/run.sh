@@ -101,7 +101,7 @@ fi
 mkdir -p "$LOG_PATH"
 
 function start_server() {
-  mpirun --bind-to none -x GRPC_PLATFORM_TYPE -x GRPC_PROFILING -x GRPC_EXECUTOR -x GRPC_BP_TIMEOUT -x GRPC_RDMA_MAX_POLLER \
+  mpirun --bind-to none -x GRPC_PLATFORM_TYPE -x GRPC_PROFILING -x GRPC_EXECUTOR -x GRPC_BP_TIMEOUT -x GRPC_RDMA_MAX_POLLER -x GRPC_BP_YIELD \
     -n 1 -host "$SERVER" \
     "$HELLOWORLD_HOME"/$SERVER_PROGRAM \
     -threads="$SERVER_THREADS" \
@@ -112,7 +112,7 @@ function start_server() {
 
 function kill_server() {
   ssh "$SERVER" "ps aux| pgrep greeter |xargs kill 2>/dev/null || true"
-  sleep 3
+  sleep 10 # cool down
 }
 
 WORKLOADS="greeter_async_client greeter_async_client2"
@@ -133,29 +133,30 @@ for workload in ${WORKLOADS}; do
       echo "============================= Running $workload with $NP clients, server threads: $SERVER_THREADS, req: $REQ_SIZE, resp: $RESP_SIZE batch: $BATCH_SIZE interval: $SEND_INTERVAL"
       start_server "$LOG_PATH/server_${workload}.log"
       # Evaluate
-      mpirun --bind-to none -x GRPC_PLATFORM_TYPE -x GRPC_PROFILING -x GRPC_BP_TIMEOUT \
+      mpirun --bind-to none -x GRPC_PLATFORM_TYPE -x GRPC_PROFILING -x GRPC_BP_TIMEOUT -x GRPC_BP_YIELD \
         --oversubscribe \
         -mca btl_tcp_if_include ib0 \
         -np "$NP" -hostfile "$tmp_host" \
         "$HELLOWORLD_HOME/$workload" \
         -host "$SERVER" \
+        -warmup 100000 \
         -threads "$CLIENT_THREADS" \
         -cqs "$CLIENT_THREADS" \
         -batch "$BATCH_SIZE" \
         -req "$REQ_SIZE" \
         -send_interval "$SEND_INTERVAL" | tee -a "${curr_log_path}.tmp" 2>&1
+      sleep 1
       if [[ $PROFILING != "" ]]; then
         ssh "$SERVER" "ps aux | pgrep greeter | xargs kill -SIGUSR1 2>/dev/null || true"
         sleep 1
       fi
-      kill_server
-      rm -f core.*
 
       row_count=$(grep -c "Throughput" <"${curr_log_path}.tmp")
       if [[ $row_count == "$N_REPEAT" ]]; then
         mv "${curr_log_path}.tmp" "${curr_log_path}"
         break
       fi
+      kill_server
     done
   fi
 done
