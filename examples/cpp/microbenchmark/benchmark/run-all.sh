@@ -1,6 +1,6 @@
 set -e
-export MB_HOME=/home/geng.161/.cache/clion/tmp/tmp.wFl8U4DvNn/examples/cpp/microbenchmark/cmake-build-release-ri2-head
-
+export MB_HOME=/home/geng.161/.cache/clion/tmp/tmp.uJwkbosFK5/examples/cpp/microbenchmark/cmake-build-release-ri2-head
+SERVER_CPU_CORES=28
 hostfile_template="hosts"
 hostfile_template=$(realpath "$hostfile_template")
 if [[ ! -f "$hostfile_template" ]]; then
@@ -19,22 +19,22 @@ function set_hostfile() {
 }
 
 function client_scalability() {
-  MODES=(bp bprr event bpev)
-  MODES=(bprr)
+  MODES=(bp bprr event)
   dir=bi
   for mode in "${MODES[@]}"; do
-    for interval in 0 5 100; do
-      for n_clients in 1 2 4 8 16 28 32 64 128; do
+    for interval in 0 50 200; do
+      for n_clients in 1 2 4 8 16 $SERVER_CPU_CORES 32 64 128; do
         set_hostfile $n_clients
-        th=28
+        th=$SERVER_CPU_CORES
         if [[ $mode == "bpev" ]]; then
           th=24
         elif [[ $mode == "bprr" ]]; then
-          th=28
+          th=$SERVER_CPU_CORES
         elif [[ $mode == "event" ]]; then
-          th=28
+          th=$SERVER_CPU_CORES
         fi
-#        if [[ $n_clients -lt 28 ]]; then
+        # Enable affinity when the number of clients is less than CPU cores.
+        if [[ $n_clients -lt $SERVER_CPU_CORES ]]; then
           ./run.sh --polling-thread=$th \
             --mode="${mode}" \
             --direction="${dir}" \
@@ -43,15 +43,15 @@ function client_scalability() {
             --client-timeout=-1 \
             --send-interval=$interval \
             --affinity
-#        else
-#          ./run.sh --polling-thread=$th \
-#            --mode="${mode}" \
-#            --direction="${dir}" \
-#            --batch=200000 \
-#            --server-timeout=-1 \
-#            --client-timeout=-1 \
-#            --send-interval=$interval
-#        fi
+        else
+          ./run.sh --polling-thread=$th \
+            --mode="${mode}" \
+            --direction="${dir}" \
+            --batch=200000 \
+            --server-timeout=-1 \
+            --client-timeout=-1 \
+            --send-interval=$interval
+        fi
       done
     done
   done

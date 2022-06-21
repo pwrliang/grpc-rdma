@@ -90,7 +90,6 @@ class RDMAClient {
 
     RDMASenderReceiverBP rdmasr;
     rdmasr.connect(sockfd_);
-    rdmasr.WaitConnect();
     set_should_work();
 
     if (config_.mpi_server) {
@@ -242,7 +241,6 @@ class RDMAClient {
   void RunEpoll() {
     RDMASenderReceiverEvent rdmasr;
     rdmasr.connect(sockfd_);
-    rdmasr.WaitConnect();
     set_should_work();
     // Waiting for all clients connected
     if (config_.mpi_server) {
@@ -516,7 +514,6 @@ class RDMAClient {
   void RunBPEV() {
     RDMASenderReceiverBPEV rdmasr;
     rdmasr.connect(sockfd_);
-    rdmasr.WaitConnect();
     set_should_work();
     // Waiting for all clients connected
     if (config_.mpi_server) {
@@ -568,7 +565,6 @@ class RDMAClient {
       while (!rdmasr.send(&msghdr_out, sizeof(data_out))) {
         gpr_log(GPR_ERROR, "Failed to send");
       }
-      //      gpr_log(GPR_INFO, "Sent %lu", data_out);
     };
 
     cycles_t iter_cycles = 0;

@@ -943,12 +943,9 @@ class RDMAServer {
         gpr_log(GPR_INFO, "There are %d clients are connected", client_id);
       }
     }
-
-    for (auto& conns : connections_per_thread_) {
-      for (auto& rdmasr : conns.rdma_conns) {
-        rdmasr->WaitConnect();
-      }
 #if 0
+    for (auto& conns : connections_per_thread_) {
+
       if (!conns.ranks.empty()) {
         std::stringstream ss;
         for (int rank : conns.ranks) {
@@ -956,9 +953,8 @@ class RDMAServer {
         }
         gpr_log(GPR_INFO, "TID: %d ranks: %s", conns.tid, ss.str().c_str());
       }
-#endif
     }
-
+#endif
     int n_working_clients = 0;
 
     for (int tid = 0; tid < connections_per_thread_.size(); tid++) {
