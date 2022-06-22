@@ -179,8 +179,8 @@ function client_scalability() {
 function mb() {
   N_CLIENTS=(1 2 4 8 16 32 64)
   GRPC_MODES=(TCP RDMA_EVENT RDMA_BPNV RDMA_BP RDMA_BPEV)
-  REQs=(128)
-  RESPs=(128)
+  REQs=(64)
+  RESPs=(64)
 
   for i in "${!REQs[@]}"; do
     REQ=${REQs[i]}
@@ -220,6 +220,7 @@ function mb() {
             thread=$n_cli
           else
             export GRPC_PLATFORM_TYPE=$grpc_mode
+            export GRPC_BP_YIELD="true"
           fi
 
           batch=500000
@@ -234,7 +235,7 @@ function mb() {
             --resp="$RESP" \
             --send-interval="$delay" \
             --batch=$batch \
-            --bp-timeout=$bp_to  # --profiling=milli
+            --bp-timeout=$bp_to # --profiling=milli
         done
       done
     done

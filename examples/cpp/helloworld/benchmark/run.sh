@@ -100,8 +100,13 @@ if [[ -n "$LOG_SUFFIX" ]]; then
 fi
 mkdir -p "$LOG_PATH"
 
+function kill_server() {
+  ssh "$SERVER" 'ps aux | pgrep greeter | xargs kill 2>/dev/null && while [[ $(ps aux | pgrep greeter) ]]; do sleep 1; done || true'
+}
+
 function start_server() {
-  mpirun --bind-to none -x GRPC_PLATFORM_TYPE -x GRPC_PROFILING -x GRPC_EXECUTOR -x GRPC_BP_TIMEOUT -x GRPC_RDMA_MAX_POLLER -x GRPC_BP_YIELD \
+  kill_server
+  mpirun --bind-to none -q -x GRPC_PLATFORM_TYPE -x GRPC_PROFILING -x GRPC_EXECUTOR -x GRPC_BP_TIMEOUT -x GRPC_RDMA_MAX_POLLER -x GRPC_BP_YIELD \
     -n 1 -host "$SERVER" \
     "$HELLOWORLD_HOME"/$SERVER_PROGRAM \
     -threads="$SERVER_THREADS" \
@@ -110,12 +115,6 @@ function start_server() {
     -affinity="$AFFINITY" |& tee "$1" &
 }
 
-function kill_server() {
-  ssh "$SERVER" "ps aux| pgrep greeter |xargs kill 2>/dev/null || true"
-  sleep 10 # cool down
-}
-
-WORKLOADS="greeter_async_client greeter_async_client2"
 WORKLOADS="greeter_async_client2"
 for workload in ${WORKLOADS}; do
   curr_log_path="$LOG_PATH/${workload}.log"
@@ -125,7 +124,6 @@ for workload in ${WORKLOADS}; do
   if [[ -f "$curr_log_path" ]]; then
     echo "$curr_log_path exists, skip"
   else
-    kill_server
     rm -f "${curr_log_path}.tmp"
     while true; do
       tmp_host="/tmp/clients.$RANDOM"
@@ -145,7 +143,9 @@ for workload in ${WORKLOADS}; do
         -batch "$BATCH_SIZE" \
         -req "$REQ_SIZE" \
         -send_interval "$SEND_INTERVAL" | tee -a "${curr_log_path}.tmp" 2>&1
-      sleep 1
+      sleep 1 # Wait for server print out
+      kill_server
+
       if [[ $PROFILING != "" ]]; then
         ssh "$SERVER" "ps aux | pgrep greeter | xargs kill -SIGUSR1 2>/dev/null || true"
         sleep 1
@@ -156,7 +156,11 @@ for workload in ${WORKLOADS}; do
         mv "${curr_log_path}.tmp" "${curr_log_path}"
         break
       fi
-      kill_server
     done
   fi
 done
+
+unset GRPC_PLATFORM_TYPE
+unset GRPC_PROFILING
+unset GRPC_BP_TIMEOUT
+unset GRPC_BP_YIELD
