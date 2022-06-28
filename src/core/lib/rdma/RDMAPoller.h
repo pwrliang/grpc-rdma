@@ -136,8 +136,6 @@ class RDMAPoller {
       rdmasr_slots_[i].reserve(4096);
       gpr_mu_init(&rdmasr_locks_[i]);
     }
-    int no_cpu_freq_fail = 0;
-    cpu_mhz_ = get_cpu_mhz(no_cpu_freq_fail);
   }
 
   void notifyWaiter(int slot_id) {
@@ -173,12 +171,7 @@ class RDMAPoller {
     bool readable = false;
 
     if (rdmasr->get_unread_data_size() == 0 && rdmasr->check_incoming() > 0) {
-      double read_lag =
-          (get_cycles() - rdmasr->get_last_recv_time()) / cpu_mhz_;
-      // We found that messages will not be read within 5us, we notify again
-      if (read_lag > 5) {
-        readable = true;
-      }
+      readable = true;
     }
     return readable;
   }
@@ -190,7 +183,6 @@ class RDMAPoller {
   std::atomic_uint32_t n_threads_;
   std::vector<std::thread> monitor_ths_;
   bool polling_;
-  double cpu_mhz_;
   std::atomic_bool pause_;
 };
 

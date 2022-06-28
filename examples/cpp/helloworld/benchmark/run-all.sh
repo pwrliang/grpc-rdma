@@ -46,8 +46,6 @@ function varying_data_size() {
   server_thread=1
   REQs=(128 256 512 1024 16384 32768 65536 131072 524288 1048576 2097152 4194304)
   RESPs=(128 256 512 1024 16384 32768 65536 131072 524288 1048576 2097152 4194304)
-  REQs=(128 256 512 1024)
-  RESPs=(128 256 512 1024)
   n_client=1
   set_hostfile "$n_client"
   GRPC_MODES=(RDMA_BPEV)
@@ -59,7 +57,7 @@ function varying_data_size() {
       bp_timeout=0
       if [[ $REQ -le 1024 ]]; then
         batch_size=200000
-        bp_timeout=500
+        bp_timeout=50
       elif [[ $REQ -le 131072 ]]; then
         batch_size=100000
         bp_timeout=500
