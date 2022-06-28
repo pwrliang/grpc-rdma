@@ -1136,8 +1136,6 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
       gpr_mu_lock(&p->rdma_mu);
       auto& fds = *p->rdma_fds;
 
-      r = epoll_wait(p->epfd, p->events, MAX_EPOLL_EVENTS, 0);
-
       for (size_t i = 0; i < fds.size() && r == 0; i++) {
         auto* fd = fds[i];
         auto* rdmasr = fd->rdmasr;
