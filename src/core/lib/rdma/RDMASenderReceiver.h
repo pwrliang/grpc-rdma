@@ -355,12 +355,9 @@ class RDMASenderReceiverBPEV : public RDMASenderReceiver {
 
   int get_index() const { return index_; }
 
-  cycles_t get_last_recv_time() const { return last_recv_time_; }
-
  private:
   // this need to sync in initialization
   int wakeup_fd_;
   int index_;
-  cycles_t last_recv_time_;
 };
 #endif

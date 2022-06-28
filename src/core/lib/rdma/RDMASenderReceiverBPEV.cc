@@ -34,7 +34,6 @@ RDMASenderReceiverBPEV::RDMASenderReceiverBPEV()
   n_outstanding_send_ = 0;
   wakeup_fd_ = eventfd(0, EFD_NONBLOCK);
   index_ = 0;
-  last_recv_time_ = 0;
 }
 
 RDMASenderReceiverBPEV::~RDMASenderReceiverBPEV() {
@@ -59,7 +58,16 @@ void RDMASenderReceiverBPEV::update_remote_metadata() {
   int n_entries =
       conn_->post_send(remote_metadata_recvbuf_mr_, 0, metadata_sendbuf_mr_, 0,
                        metadata_sendbuf_sz_, IBV_WR_RDMA_WRITE);
-  conn_->poll_send_completion(n_entries);
+  int ret = conn_->poll_send_completion(n_entries);
+
+  if (ret != 0) {
+    gpr_log(GPR_ERROR,
+            "poll_send_completion failed, code: %d "
+            "fd = %d, remote_ringbuf_tail = "
+            "%zu, post_num = %d",
+            ret, fd_, remote_ringbuf_tail_, n_outstanding_send_);
+    abort();
+  }
 
   if (GRPC_TRACE_FLAG_ENABLED(grpc_trace_sender_receiver_adaptive)) {
     gpr_log(GPR_INFO, "RDMASenderReceiver::update_remote_metadata, %zu, %zu",
@@ -97,7 +105,6 @@ size_t RDMASenderReceiverBPEV::recv(msghdr* msg) {
     update_remote_metadata();
   }
 
-  last_recv_time_ = get_cycles();
   return expected_len;
 }
 
