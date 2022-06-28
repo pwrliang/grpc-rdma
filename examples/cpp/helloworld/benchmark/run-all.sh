@@ -15,7 +15,7 @@ GRPC_MODES=(TCP RDMA_EVENT RDMA_BP RDMA_BPEV)
 function set_hostfile() {
   n_clients=$1
   name_prefix=$(basename "$hostfile_template")
-  hostfile="/tmp/$name_prefix"
+  hostfile="/tmp/grpc_mb_$name_prefix"
   ./gen_hostfile.py ./hosts "$n_clients" >"$hostfile"
   export HOSTS_PATH="$hostfile"
 }
@@ -43,11 +43,14 @@ function get_batch_size() {
 }
 
 function varying_data_size() {
-  server_thread=28
+  server_thread=1
   REQs=(128 256 512 1024 16384 32768 65536 131072 524288 1048576 2097152 4194304)
   RESPs=(128 256 512 1024 16384 32768 65536 131072 524288 1048576 2097152 4194304)
+  REQs=(128 256 512 1024)
+  RESPs=(128 256 512 1024)
   n_client=1
   set_hostfile "$n_client"
+  GRPC_MODES=(RDMA_BPEV)
 
   for grp_mode in "${GRPC_MODES[@]}"; do
     for i in "${!REQs[@]}"; do
@@ -56,7 +59,7 @@ function varying_data_size() {
       bp_timeout=0
       if [[ $REQ -le 1024 ]]; then
         batch_size=200000
-        bp_timeout=50
+        bp_timeout=500
       elif [[ $REQ -le 131072 ]]; then
         batch_size=100000
         bp_timeout=500
@@ -72,7 +75,48 @@ function varying_data_size() {
         --req="$REQ" \
         --resp="$RESP" \
         --bp-timeout=$bp_timeout \
-        --batch=$batch_size
+        --batch=$batch_size --warmup=10000 --overwrite
+    done
+  done
+}
+
+function varying_data_size_zero_cp() {
+  server_thread=1
+  REQs=(131072 262144) #524288 1048576 2097152 4194304
+  RESPs=(131072 262144)
+  GRPC_MODES=(RDMA_BP RDMA_BPEV)
+  n_client=1
+  set_hostfile "$n_client"
+
+  for grp_mode in "${GRPC_MODES[@]}"; do
+    for i in "${!REQs[@]}"; do
+      REQ=${REQs[i]}
+      RESP=${RESPs[i]}
+      bp_timeout=0
+      if [[ $REQ -le 1048576 ]]; then
+        batch_size=200000
+        bp_timeout=5000
+        n_warmup=100000
+      elif [[ $REQ -le 4194304 ]]; then
+        bp_timeout=5000
+        batch_size=50000
+        n_warmup=1000
+      fi
+
+      export GRPC_PLATFORM_TYPE=$grp_mode
+
+      for enable_zp in true false; do
+        export GRPC_RDMA_ZEROCOPY_ENABLE="$enable_zp"
+        export LOG_SUFFIX="${grp_mode}_${REQ}_${RESP}_zerocp_${enable_zp}"
+
+        ./run.sh --server_thread=$server_thread \
+          --client_thread=1 \
+          --req="$REQ" \
+          --resp="$RESP" \
+          --bp-timeout=$bp_timeout \
+          --batch=$batch_size \
+          --warmup=$n_warmup --overwrite
+      done
     done
   done
 }
@@ -98,7 +142,7 @@ function throughput() {
       fi
 
       export GRPC_PLATFORM_TYPE=$grp_mode
-      export LOG_SUFFIX="${grp_mode}_${REQ}_${RESP}_${poll_num}"
+      export LOG_SUFFIX="${grp_mode}_${REQ}_${RESP}"
       ./run.sh --server_thread=$server_thread \
         --client_thread=1 \
         --req="$REQ" \
@@ -178,14 +222,16 @@ function client_scalability() {
 
 function mb() {
   N_CLIENTS=(1 2 4 8 16 32 64)
+  N_CLIENTS=(32)
   GRPC_MODES=(TCP RDMA_EVENT RDMA_BPNV RDMA_BP RDMA_BPEV)
+  GRPC_MODES=(RDMA_BP)
   REQs=(64)
   RESPs=(64)
 
   for i in "${!REQs[@]}"; do
     REQ=${REQs[i]}
     RESP=${RESPs[i]}
-    for delay in 0 200; do
+    for delay in 0; do
       for grpc_mode in "${GRPC_MODES[@]}"; do
         for j in "${!N_CLIENTS[@]}"; do
           n_cli="${N_CLIENTS[j]}"
@@ -235,7 +281,7 @@ function mb() {
             --resp="$RESP" \
             --send-interval="$delay" \
             --batch=$batch \
-            --bp-timeout=$bp_to # --profiling=milli
+            --bp-timeout=$bp_to --overwrite # --profiling=milli
         done
       done
     done
@@ -283,6 +329,10 @@ for i in "$@"; do
     ;;
   --varying-data-size)
     varying_data_size
+    shift
+    ;;
+  --varying-data-size-zerocp)
+    varying_data_size_zero_cp
     shift
     ;;
   --throughput)

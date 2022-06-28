@@ -19,6 +19,7 @@ SEND_INTERVAL=0
 PROFILING=""
 AFFINITY="false"
 OVERWRITE=0
+N_WARMUP=100000
 
 if [[ ! -f "$HELLOWORLD_HOME/$SERVER_PROGRAM" ]]; then
   echo "Invalid HELLOWORLD_HOME"
@@ -74,6 +75,10 @@ for i in "$@"; do
     AFFINITY="${i#*=}"
     shift
     ;;
+  --warmup=*)
+    N_WARMUP="${i#*=}"
+    shift
+    ;;
   --overwrite)
     OVERWRITE=1
     shift
@@ -106,7 +111,7 @@ function kill_server() {
 
 function start_server() {
   kill_server
-  mpirun --bind-to none -q -x GRPC_PLATFORM_TYPE -x GRPC_PROFILING -x GRPC_EXECUTOR -x GRPC_BP_TIMEOUT -x GRPC_RDMA_MAX_POLLER -x GRPC_BP_YIELD \
+  mpirun --bind-to none -q -x GRPC_PLATFORM_TYPE -x GRPC_PROFILING -x GRPC_EXECUTOR -x GRPC_BP_TIMEOUT -x GRPC_RDMA_MAX_POLLER -x GRPC_BP_YIELD -x GRPC_RDMA_ZEROCOPY_ENABLE \
     -n 1 -host "$SERVER" \
     "$HELLOWORLD_HOME"/$SERVER_PROGRAM \
     -threads="$SERVER_THREADS" \
@@ -131,13 +136,13 @@ for workload in ${WORKLOADS}; do
       echo "============================= Running $workload with $NP clients, server threads: $SERVER_THREADS, req: $REQ_SIZE, resp: $RESP_SIZE batch: $BATCH_SIZE interval: $SEND_INTERVAL"
       start_server "$LOG_PATH/server_${workload}.log"
       # Evaluate
-      mpirun --bind-to none -x GRPC_PLATFORM_TYPE -x GRPC_PROFILING -x GRPC_BP_TIMEOUT -x GRPC_BP_YIELD \
+      mpirun --bind-to none -x GRPC_PLATFORM_TYPE -x GRPC_PROFILING -x GRPC_BP_TIMEOUT -x GRPC_BP_YIELD -x GRPC_RDMA_ZEROCOPY_ENABLE \
         --oversubscribe \
         -mca btl_tcp_if_include ib0 \
         -np "$NP" -hostfile "$tmp_host" \
         "$HELLOWORLD_HOME/$workload" \
         -host "$SERVER" \
-        -warmup 100000 \
+        -warmup "$N_WARMUP" \
         -threads "$CLIENT_THREADS" \
         -cqs "$CLIENT_THREADS" \
         -batch "$BATCH_SIZE" \
@@ -164,3 +169,4 @@ unset GRPC_PLATFORM_TYPE
 unset GRPC_PROFILING
 unset GRPC_BP_TIMEOUT
 unset GRPC_BP_YIELD
+unset GRPC_RDMA_ZEROCOPY_ENABLE

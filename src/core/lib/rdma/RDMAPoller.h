@@ -51,11 +51,9 @@ class RDMAPoller {
       monitor_ths_.emplace_back(
           [&, this](int thread_id) {
             size_t n_slots = rdmasr_slots_.size();
-            if (rdmasr_is_server) {
-              int num_cores = sysconf(_SC_NPROCESSORS_ONLN);
+            int num_cores = sysconf(_SC_NPROCESSORS_ONLN);
 
-              bind_thread_to_core(thread_id % num_cores);
-            }
+            bind_thread_to_core(thread_id % num_cores);
 
             pthread_setname_np(
                 pthread_self(),

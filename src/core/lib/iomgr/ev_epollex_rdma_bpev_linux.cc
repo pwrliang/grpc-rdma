@@ -1132,8 +1132,8 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
       polling_limit_us = std::min(timeout * 1000, polling_limit_us);
     }
 
-    gpr_mu_lock(&p->rdma_mu);
     do {
+      gpr_mu_lock(&p->rdma_mu);
       auto& fds = *p->rdma_fds;
 
       r = epoll_wait(p->epfd, p->events, MAX_EPOLL_EVENTS, 0);
@@ -1161,13 +1161,12 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
           r++;
         }
       }
-
+      gpr_mu_unlock(&p->rdma_mu);
       if (r == 0 && p->bp_yield) {
         std::this_thread::yield();
       }
       t_elapsed_us = ToInt64Microseconds((absl::Now() - t_begin_poll));
     } while (r == 0 && t_elapsed_us < polling_limit_us);
-    gpr_mu_unlock(&p->rdma_mu);
 
     if (timeout > 0) {
       timeout = std::max(0l, timeout - t_elapsed_us / 1000);
@@ -1183,7 +1182,7 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
     absl::Time last_epoll_time;
     do {
       auto now = absl::Now();
-      if ((now - last_epoll_time) > absl::Microseconds(100)) {
+      if ((now - last_epoll_time) > absl::Microseconds(1000)) {
         r = epoll_wait(p->epfd, p->events, MAX_EPOLL_EVENTS, 0);
         last_epoll_time = now;
       }
@@ -1214,10 +1213,6 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
           }
         }
         gpr_mu_unlock(&p->rdma_mu);
-      }
-
-      if (r == 0 && p->bp_yield) {
-        std::this_thread::yield();
       }
     } while ((r < 0 && errno == EINTR) ||
              (r == 0 && (timeout == -1 || (absl::Now() - t_begin_poll) <
