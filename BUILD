@@ -125,6 +125,7 @@ GRPC_PUBLIC_HDRS = [
     "include/grpc/status.h",
     "include/grpc/load_reporting.h",
     "include/grpc/support/workaround_list.h",
+    "include/grpcpp/stats_time.h",
 ]
 
 GRPC_PUBLIC_EVENT_ENGINE_HDRS = [
