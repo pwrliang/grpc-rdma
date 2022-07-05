@@ -803,7 +803,7 @@ grpc_cc_library(
         "src/core/lib/iomgr/ev_epollex_linux.cc",
         "src/core/lib/iomgr/ev_epollex_rdma_bp_linux.cc",
         "src/core/lib/iomgr/ev_epollex_rdma_event_linux.cc",
-        "src/core/lib/iomgr/ev_epollex_rdma_bpev_linux.cc"
+        "src/core/lib/iomgr/ev_epollex_rdma_bpev_linux.cc",
         "src/core/lib/iomgr/ev_poll_posix.cc",
         "src/core/lib/iomgr/ev_posix.cc",
         "src/core/lib/iomgr/ev_windows.cc",
