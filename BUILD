@@ -1095,7 +1095,7 @@ grpc_cc_library(
         "absl/container:flat_hash_map",
     ],
     language = "c++",
-    public_hdrs = GRPC_PUBLIC_HDRS + GRPC_PUBLIC_EVENT_ENGINE_HDRS + GRPCXX_PUBLIC_HDRS,
+    public_hdrs = GRPC_PUBLIC_HDRS + GRPC_PUBLIC_EVENT_ENGINE_HDRS,
     deps = [
         "dual_ref_counted",
         "gpr_base",
