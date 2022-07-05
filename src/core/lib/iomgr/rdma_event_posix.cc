@@ -17,7 +17,7 @@
 #include <grpc/slice.h>
 #include <grpc/support/log.h>
 #include <grpc/support/sync.h>
-#include <include/grpcpp/stats_time.h>
+#include "include/grpcpp/stats_time.h"
 
 #include "src/core/lib/address_utils/sockaddr_utils.h"
 #include "src/core/lib/channel/channel_args.h"
