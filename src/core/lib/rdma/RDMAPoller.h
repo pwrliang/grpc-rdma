@@ -88,7 +88,7 @@ class RDMAPoller {
   }
 
   void Unregister(RDMASenderReceiverBPEV* rdmasr) {
-    if (!rdmasr_is_server) {
+    if (!enable_poller_) {
       return;
     }
     int reg_id = rdmasr->get_index();
