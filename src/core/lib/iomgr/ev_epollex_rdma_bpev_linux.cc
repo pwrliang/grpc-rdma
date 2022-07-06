@@ -1121,10 +1121,10 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
     GRPC_SCHEDULING_START_BLOCKING_REGION;
   }
   int r = 0;
+  auto& rdma_poller = RDMAPoller::GetInstance();
   absl::Time t_begin_poll = absl::Now();
 
-  if (rdmasr_is_server) {
-    auto& rdma_poller = RDMAPoller::GetInstance();
+  if (rdma_poller.is_poller_enabled()) {
     int polling_limit_us = p->bp_timeout;
     int64_t t_elapsed_us;
 

@@ -14,6 +14,8 @@
 
 extern bool rdmasr_is_server;
 
+enum class RDMAPollerMode { kServer, kClient, kBoth, kNone };
+
 class RDMAPoller {
  public:
   ~RDMAPoller() {
@@ -33,7 +35,7 @@ class RDMAPoller {
   }
 
   void Register(RDMASenderReceiverBPEV* rdmasr) {
-    if (!rdmasr_is_server) {
+    if (!enable_poller_) {
       return;
     }
     int reg_id = reg_id_++;
@@ -86,7 +88,7 @@ class RDMAPoller {
   }
 
   void Unregister(RDMASenderReceiverBPEV* rdmasr) {
-    if (!rdmasr_is_server) {
+    if (!enable_poller_) {
       return;
     }
     int reg_id = rdmasr->get_index();
@@ -104,11 +106,35 @@ class RDMAPoller {
 
   int max_n_threads() const { return max_n_threads_; }
 
+  bool is_poller_enabled() const { return enable_poller_; }
+
  private:
   RDMAPoller() {
     max_n_threads_ = 1;
+    char* s_poller = getenv("GRPC_RDMA_POLLER");
+
+    if (s_poller == nullptr || strcmp(s_poller, "server") == 0) {
+      mode_ = RDMAPollerMode::kServer;
+    } else if (strcmp(s_poller, "client") == 0) {
+      mode_ = RDMAPollerMode::kClient;
+    } else if (strcmp(s_poller, "both") == 0) {
+      mode_ = RDMAPollerMode::kBoth;
+    } else if (strcmp(s_poller, "none") == 0) {
+      mode_ = RDMAPollerMode::kNone;
+    } else {
+      gpr_log(GPR_ERROR, "Invalid GRPC_RDMA_POLLER: %s", s_poller);
+      abort();
+    }
+
+    if (mode_ == RDMAPollerMode::kNone) {
+      enable_poller_ = false;
+    } else {
+      enable_poller_ = mode_ == RDMAPollerMode::kBoth ||
+                       mode_ == RDMAPollerMode::kServer && rdmasr_is_server ||
+                       mode_ == RDMAPollerMode::kClient && !rdmasr_is_server;
+    }
     // Only allowing server uses multiple pollers
-    if (rdmasr_is_server) {
+    if (enable_poller_) {
       char* s_nthreads = getenv("GRPC_RDMA_MAX_POLLER");
 
       if (s_nthreads != nullptr) {
@@ -176,6 +202,8 @@ class RDMAPoller {
     return readable;
   }
 
+  RDMAPollerMode mode_;
+  bool enable_poller_;
   int max_n_threads_;
   std::vector<gpr_mu> rdmasr_locks_;
   std::vector<std::vector<RDMASenderReceiverBPEV*>> rdmasr_slots_;
