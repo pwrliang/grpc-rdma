@@ -12,7 +12,7 @@
 #include "ringbuffer.h"
 //#define RDMA_DETECT_CONTENTION
 
-const size_t DEFAULT_RINGBUF_SZ = 1024ull * 1024 * 10;
+const size_t DEFAULT_RINGBUF_SZ = 1024ull * 1024 * 1024;
 const size_t DEFAULT_HEADBUF_SZ = 64;
 
 #ifdef RDMA_DETECT_CONTENTION
