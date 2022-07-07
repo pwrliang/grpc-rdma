@@ -115,21 +115,6 @@ bool RDMASenderReceiverBPEV::send(msghdr* msg, size_t mlen) {
   size_t remote_ringbuf_sz = remote_ringbuf_mr_.length();
   size_t len = mlen + sizeof(size_t) + 1;
 
-  if (n_outstanding_send_ > 0) {
-    GRPCProfiler profiler(GRPC_STATS_TIME_SEND_POLL);
-    int ret = conn_->poll_send_completion(n_outstanding_send_);
-    if (ret != 0) {
-      gpr_log(GPR_ERROR,
-              "poll_send_completion failed, code: %d "
-              "fd = %d, mlen = %zu, remote_ringbuf_tail = "
-              "%zu, ringbuf_sz = %zu, post_num = %d",
-              ret, fd_, mlen, remote_ringbuf_tail_, remote_ringbuf_sz,
-              n_outstanding_send_);
-      abort();
-    }
-    n_outstanding_send_ = 0;
-  }
-
   update_local_metadata();
 
   if (!is_writable(mlen)) {
@@ -187,6 +172,17 @@ bool RDMASenderReceiverBPEV::send(msghdr* msg, size_t mlen) {
           conn_->post_send(remote_ringbuf_mr_, remote_ringbuf_tail_,
                            sendbuf_mr_, 0, len, IBV_WR_RDMA_WRITE);
     }
+    int ret = conn_->poll_send_completion(n_outstanding_send_);
+    if (ret != 0) {
+      gpr_log(GPR_ERROR,
+              "poll_send_completion failed, code: %d "
+              "fd = %d, mlen = %zu, remote_ringbuf_tail = "
+              "%zu, ringbuf_sz = %zu, post_num = %d",
+              ret, fd_, mlen, remote_ringbuf_tail_, remote_ringbuf_sz,
+              n_outstanding_send_);
+      abort();
+    }
+    n_outstanding_send_ = 0;
   }
   remote_ringbuf_tail_ = (remote_ringbuf_tail_ + len) % remote_ringbuf_sz;
   total_send_size += mlen;
