@@ -1212,6 +1212,10 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
         }
         gpr_mu_unlock(&p->rdma_mu);
       }
+
+      if (r == 0 && p->bp_yield) {
+        std::this_thread::yield();
+      }
     } while ((r < 0 && errno == EINTR) ||
              (r == 0 && (timeout == -1 || (absl::Now() - t_begin_poll) <
                                               absl::Milliseconds(timeout))));
