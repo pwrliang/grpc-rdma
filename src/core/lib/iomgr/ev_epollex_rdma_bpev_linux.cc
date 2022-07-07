@@ -118,6 +118,7 @@ struct pollable {
   gpr_mu rdma_mu;
   bool bp_yield;
   int bp_timeout;
+  bool affinity;
 };
 
 static const char* pollable_type_string(pollable_type t) {
@@ -699,15 +700,18 @@ static grpc_error_handle pollable_create(pollable_type type, pollable** p) {
   (*p)->rdma_fds = new std::vector<grpc_fd*>();
   (*p)->rdma_fds->reserve(4096);
 
-  char* s_to = getenv("GRPC_BP_TIMEOUT");
-  if (s_to != nullptr) {
-    (*p)->bp_timeout = atoi(s_to);
+  char* s_val = getenv("GRPC_BP_TIMEOUT");
+  if (s_val != nullptr) {
+    (*p)->bp_timeout = atoi(s_val);
   } else {
     (*p)->bp_timeout = 0;
   }
 
-  s_to = getenv("GRPC_BP_YIELD");
-  (*p)->bp_yield = s_to == nullptr || strcmp(s_to, "true") == 0;
+  s_val = getenv("GRPC_BP_YIELD");
+
+  (*p)->bp_yield = s_val == nullptr || strcmp(s_val, "true") == 0;
+  s_val = getenv("GRPC_RDMA_AFFINITY");
+  (*p)->affinity = s_val == nullptr || strcmp(s_val, "true") == 0;
   gpr_mu_init(&(*p)->rdma_mu);
   return GRPC_ERROR_NONE;
 }
@@ -1402,43 +1406,6 @@ static grpc_error_handle pollset_work(grpc_pollset* pollset,
   static const char* err_desc = "pollset_work";
   grpc_error_handle error = GRPC_ERROR_NONE;
 
-  if (!grpc_rdma_bpev_affinity) {
-    int num_cores = sysconf(_SC_NPROCESSORS_ONLN);
-    pthread_t current_thread = pthread_self();
-    cpu_set_t cpuset;
-    int cpu_cnt = 0;
-    int r_val;
-
-    r_val = pthread_getaffinity_np(current_thread, sizeof(cpu_set_t), &cpuset);
-    if (r_val != 0) {
-      gpr_log(GPR_ERROR, "Get affinity failed, %s", strerror(r_val));
-      abort();
-    }
-
-    for (int i = 0; i < CPU_SETSIZE; i++) {
-      if (CPU_ISSET(i, &cpuset)) {
-        cpu_cnt++;
-      }
-    }
-
-    // Affinity is not set
-    if (cpu_cnt == num_cores) {
-      int begin_cpu = RDMAPoller::GetInstance().max_n_threads() % num_cores;
-
-      CPU_ZERO(&cpuset);
-      for (int cpu_id = begin_cpu; cpu_id < num_cores; cpu_id++) {
-        CPU_SET(cpu_id, &cpuset);
-      }
-      r_val =
-          pthread_setaffinity_np(current_thread, sizeof(cpu_set_t), &cpuset);
-      if (r_val != 0) {
-        gpr_log(GPR_ERROR, "Set affinity failed, %s", strerror(r_val));
-        abort();
-      }
-    }
-    grpc_rdma_bpev_affinity = true;
-  }
-
   if (pollset->kicked_without_poller) {
     pollset->kicked_without_poller = false;
   } else {
@@ -1446,6 +1413,45 @@ static grpc_error_handle pollset_work(grpc_pollset* pollset,
       gpr_tls_set(&g_current_thread_pollset, (intptr_t)pollset);
       gpr_tls_set(&g_current_thread_worker, (intptr_t)WORKER_PTR);
       GRPCProfiler profiler(GRPC_STATS_TIME_BEGIN_WORKER);
+
+      if (WORKER_PTR->pollable_obj->affinity && !grpc_rdma_bpev_affinity) {
+        int num_cores = sysconf(_SC_NPROCESSORS_ONLN);
+        pthread_t current_thread = pthread_self();
+        cpu_set_t cpuset;
+        int cpu_cnt = 0;
+        int r_val;
+
+        r_val =
+            pthread_getaffinity_np(current_thread, sizeof(cpu_set_t), &cpuset);
+        if (r_val != 0) {
+          gpr_log(GPR_ERROR, "Get affinity failed, %s", strerror(r_val));
+          abort();
+        }
+
+        for (int i = 0; i < CPU_SETSIZE; i++) {
+          if (CPU_ISSET(i, &cpuset)) {
+            cpu_cnt++;
+          }
+        }
+
+        // Affinity is not set
+        if (cpu_cnt == num_cores) {
+          int begin_cpu = RDMAPoller::GetInstance().max_n_threads() % num_cores;
+
+          CPU_ZERO(&cpuset);
+          for (int cpu_id = begin_cpu; cpu_id < num_cores; cpu_id++) {
+            CPU_SET(cpu_id, &cpuset);
+          }
+          r_val = pthread_setaffinity_np(current_thread, sizeof(cpu_set_t),
+                                         &cpuset);
+          if (r_val != 0) {
+            gpr_log(GPR_ERROR, "Set affinity failed, %s", strerror(r_val));
+            abort();
+          }
+        }
+        grpc_rdma_bpev_affinity = true;
+      }
+
       if (WORKER_PTR->pollable_obj->event_cursor ==
           WORKER_PTR->pollable_obj->event_count) {
         append_error(&error, pollable_epoll(WORKER_PTR->pollable_obj, deadline),
