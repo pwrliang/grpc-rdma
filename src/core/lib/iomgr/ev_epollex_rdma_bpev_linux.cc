@@ -1436,7 +1436,8 @@ static grpc_error_handle pollset_work(grpc_pollset* pollset,
 
         // Affinity is not set
         if (cpu_cnt == num_cores) {
-          int begin_cpu = RDMAPoller::GetInstance().max_n_threads() % num_cores;
+          int begin_cpu =
+              RDMAPoller::GetInstance().polling_thread_num() % num_cores;
 
           CPU_ZERO(&cpuset);
           for (int cpu_id = begin_cpu; cpu_id < num_cores; cpu_id++) {
@@ -1448,6 +1449,8 @@ static grpc_error_handle pollset_work(grpc_pollset* pollset,
             gpr_log(GPR_ERROR, "Set affinity failed, %s", strerror(r_val));
             abort();
           }
+          gpr_log(GPR_INFO, "Bind thread %lu to CPU %d-%d", current_thread,
+                  begin_cpu, num_cores - 1);
         }
         grpc_rdma_bpev_affinity = true;
       }

@@ -104,7 +104,7 @@ class RDMAPoller {
     gpr_mu_unlock(&rdmasr_locks_[slot_id]);
   }
 
-  int max_n_threads() const { return max_n_threads_; }
+  int polling_thread_num() const { return enable_poller_ ? max_n_threads_ : 0; }
 
   bool is_poller_enabled() const { return enable_poller_; }
 
@@ -148,6 +148,9 @@ class RDMAPoller {
         }
       }
     }
+
+    gpr_log(GPR_INFO, "ENABLE_RDMA_POLLER: %d max_thread: %d", enable_poller_,
+            max_n_threads_);
 
     int n_slots = max_n_threads_;
 
