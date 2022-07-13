@@ -15,7 +15,7 @@
 #include "grpcpp/get_clock.h"
 #include "netinet/tcp.h"
 #include "proc_parser.h"
-#include "src/core/lib/rdma/RDMASenderReceiver.h"
+#include "src/core/lib/rdma/rdma_sender_receiver.h"
 
 class RDMAClient {
  public:
@@ -88,7 +88,7 @@ class RDMAClient {
     msghdr_in.msg_iov = &iov_in;
     msghdr_in.msg_iovlen = 1;
 
-    RDMASenderReceiverBP rdmasr;
+    RDMASenderReceiverBP rdmasr(false);
     rdmasr.connect(sockfd_);
     set_should_work();
 
@@ -239,7 +239,7 @@ class RDMAClient {
   }
 
   void RunEpoll() {
-    RDMASenderReceiverEvent rdmasr;
+    RDMASenderReceiverEvent rdmasr(false);
     rdmasr.connect(sockfd_);
     set_should_work();
     // Waiting for all clients connected
@@ -512,7 +512,7 @@ class RDMAClient {
   }
 
   void RunBPEV() {
-    RDMASenderReceiverBPEV rdmasr;
+    RDMASenderReceiverBPEV rdmasr(false);
     rdmasr.connect(sockfd_);
     set_should_work();
     // Waiting for all clients connected

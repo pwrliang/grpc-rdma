@@ -1,6 +1,7 @@
-#ifndef _RDMAUTILS_H_
-#define _RDMAUTILS_H_
+#ifndef GRPC_CORE_LIB_RDMA_RDMA_UTILS_H
+#define GRPC_CORE_LIB_RDMA_RDMA_UTILS_H
 
+#include <grpc/support/log.h>
 #include <infiniband/verbs.h>
 #include <poll.h>
 #include <pthread.h>
@@ -13,6 +14,100 @@
 #include <mutex>
 #include <thread>
 #define IBV_DEV_NAME "mlx5_0"
+
+enum class RDMAPollerMode { kServer, kClient, kBoth, kNone };
+
+class RDMAConfig {
+  RDMAConfig() { init(); }
+
+ public:
+  static RDMAConfig& GetInstance() {
+    static RDMAConfig inst;
+    return inst;
+  }
+
+  RDMAPollerMode get_poller_mode() const { return poller_mode_; }
+
+  int get_polling_timeout() const { return polling_timeout_; }
+
+  int get_polling_thread_num() const { return polling_thread_num_; }
+
+  bool is_affinity() const { return affinity_; }
+
+  bool is_polling_yield() const { return polling_yield_; }
+
+  size_t get_ring_buffer_size() const { return ring_buffer_size_; }
+
+  bool is_zero_copy() const { return zero_copy_; }
+
+ private:
+  void init() {
+    // BPEV dedicated
+    char* s_val = getenv("GRPC_RDMA_BPEV_POLLER");
+
+    if (s_val == nullptr || strcmp(s_val, "server") == 0) {
+      poller_mode_ = RDMAPollerMode::kServer;
+    } else if (strcmp(s_val, "client") == 0) {
+      poller_mode_ = RDMAPollerMode::kClient;
+    } else if (strcmp(s_val, "both") == 0) {
+      poller_mode_ = RDMAPollerMode::kBoth;
+    } else if (strcmp(s_val, "none") == 0) {
+      poller_mode_ = RDMAPollerMode::kNone;
+    } else {
+      gpr_log(GPR_ERROR, "Invalid GRPC_RDMA_POLLER: %s", s_val);
+      abort();
+    }
+
+    s_val = getenv("GRPC_RDMA_BPEV_POLLING_THREAD");
+
+    if (s_val != nullptr) {
+      int num_cores = sysconf(_SC_NPROCESSORS_ONLN);
+
+      polling_thread_num_ = atoi(s_val);
+      if (polling_thread_num_ <= 0 || polling_thread_num_ > num_cores) {
+        gpr_log(GPR_ERROR, "Invalid env GRPC_RDMA_MAX_POLLER: %d",
+                polling_thread_num_);
+        abort();
+      }
+    } else {
+      polling_thread_num_ = 1;
+    }
+
+    s_val = getenv("GRPC_RDMA_BPEV_POLLING_TIMEOUT");
+    if (s_val != nullptr) {
+      polling_timeout_ = atoi(s_val);
+    } else {
+      polling_timeout_ = 0;
+    }
+
+    s_val = getenv("GRPC_RDMA_AFFINITY");
+    affinity_ = s_val == nullptr || strcmp(s_val, "true") == 0;
+
+    // BP, BPEV
+    s_val = getenv("GRPC_RDMA_POLLING_YIELD");
+    polling_yield_ = s_val == nullptr || strcmp(s_val, "true") == 0;
+
+    // For all
+    s_val = getenv("GRPC_RDMA_RING_BUFFER_SIZE");
+    if (s_val != nullptr) {
+      ring_buffer_size_ = atoll(s_val);
+    } else {
+      ring_buffer_size_ = 1024ull * 1024 * 10;
+    }
+
+    s_val = getenv("GRPC_RDMA_ZEROCOPY_ENABLE");
+    zero_copy_ = s_val == nullptr || strcmp(s_val, "true") == 0;
+  }
+
+  RDMAPollerMode poller_mode_;
+  int polling_timeout_;
+  int polling_thread_num_;
+  bool polling_yield_;
+  bool affinity_;
+  size_t ring_buffer_size_;
+  bool zero_copy_;
+};
+
 class MemRegion {
  public:
   const static int rw_flag =
@@ -108,4 +203,4 @@ int sync_data(int fd, const char* local, char* remote, const size_t sz);
 
 void barrier(int fd);
 
-#endif
+#endif // GRPC_CORE_LIB_RDMA_RDMA_UTILS_H

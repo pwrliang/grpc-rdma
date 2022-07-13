@@ -18,4 +18,5 @@ DECLARE_int32(send_interval);
 DECLARE_int32(executor);
 DECLARE_int32(node);
 DECLARE_int32(cpu);
+DECLARE_bool(server);
 #endif  // HELLOWORLD_FLAGS_H

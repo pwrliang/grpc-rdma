@@ -1,8 +1,8 @@
-#include "ringbuffer.h"
 #include "grpc/impl/codegen/log.h"
+
 #include "src/core/lib/debug/trace.h"
+#include "src/core/lib/rdma/ringbuffer.h"
 #define MIN3(a, b, c) MIN(a, MIN(b, c))
-#define MIN4(a, b, c, d) MIN(MIN(a, b), MIN(c, d))
 grpc_core::DebugOnlyTraceFlag grpc_trace_ringbuffer(false, "rdma_ringbuffer");
 
 // to reduce operation, the caller should guarantee the arguments are valid
@@ -67,19 +67,19 @@ bool RingBufferBP::read_to_msghdr(msghdr* msg, size_t& expected_mlens) {
 
   size_t iov_idx = 0, iov_offset = 0;
   size_t mlen = check_mlen(head), m_offset = 0;
-  size_t mlens = 0, lens = 0, buf_offset = (head + sizeof(size_t)) % capacity_;
+  size_t read_mlens = 0, read_lens = 0;
+  size_t buf_offset = (head + sizeof(size_t)) % capacity_;
   size_t msghdr_size = 0;
 
+  // calculate total space
   for (int i = 0; i < msg->msg_iovlen; i++) {
     msghdr_size += msg->msg_iov[i].iov_len;
   }
 
-  while (iov_idx < msg->msg_iovlen && mlen > 0) {
+  while (iov_idx < msg->msg_iovlen && mlen > 0 && mlen <= msghdr_size) {
     size_t iov_rlen = msg->msg_iov[iov_idx].iov_len -
-                      iov_offset;  // rest space of current slice
-    size_t m_rlen =
-        mlen -
-        m_offset;  // uncopied bytes for currecnt message (length of mlen)
+                      iov_offset;     // rest space of current slice
+    size_t m_rlen = mlen - m_offset;  // uncopied bytes of current message
     size_t n = MIN3(iov_rlen, m_rlen, capacity_ - buf_offset);
     auto* iov_rbase =
         static_cast<uint8_t*>(msg->msg_iov[iov_idx].iov_base) + iov_offset;
@@ -93,24 +93,28 @@ bool RingBufferBP::read_to_msghdr(msghdr* msg, size_t& expected_mlens) {
     buf_offset += n;
     iov_offset += n;
     m_offset += n;
+
+    // current slice is used up
     if (n == iov_rlen) {
       // all space of the current slice has been used up. move to next slice
       iov_idx++;
       iov_offset = 0;
     }
+
+    // current message is used up
     if (n == m_rlen) {
       // current message (length of mlen) has been copyied. move to next head
-      mlens += mlen;
-      lens += sizeof(size_t) + mlen + 1;
+      read_mlens += mlen;
+      read_lens += sizeof(size_t) + mlen + 1;
 
       // when we have chance to read, read greedily.
-      if (mlens >= expected_mlens) {
+      if (read_mlens >= expected_mlens) {
         break;
       }
       head =
           (head + sizeof(size_t) + mlen + 1) % capacity_;  // move to next head
-      mlen = check_mlen(head);           // check mlen of the new head
-      if (mlens + mlen > msghdr_size) {  // msghdr could not hold newf mlen
+      mlen = check_mlen(head);                // check mlen of the new head
+      if (read_mlens + mlen > msghdr_size) {  // msghdr could not hold new mlen
         break;
       }
       m_offset = 0;
@@ -122,10 +126,10 @@ bool RingBufferBP::read_to_msghdr(msghdr* msg, size_t& expected_mlens) {
     buf_offset = buf_offset % capacity_;
   }
 
-  expected_mlens = mlens;
-  reset_buf_and_update_head(lens);
+  expected_mlens = read_mlens;
+  reset_buf_and_update_head(read_lens);
 
-  garbage_ += lens;
+  garbage_ += read_lens;
   if (garbage_ >= capacity_ / 2) {
     garbage_ = 0;
     return true;

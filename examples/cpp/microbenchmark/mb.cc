@@ -13,9 +13,7 @@
 #include "mb_server.h"
 #include "proc_parser.h"
 
-extern bool rdmasr_is_server;
 void StartServer(const BenchmarkConfig& config, const CommSpec& comm_spec) {
-  rdmasr_is_server = true;
   RDMAServer server(config, comm_spec);
   int fd;
   ifreq ifr;
@@ -34,7 +32,6 @@ void StartServer(const BenchmarkConfig& config, const CommSpec& comm_spec) {
 }
 
 void StartClient(const BenchmarkConfig& config, const CommSpec& comm_spec) {
-  rdmasr_is_server = false;
   RDMAClient client(config, comm_spec);
 
   if (config.mpi_server) {

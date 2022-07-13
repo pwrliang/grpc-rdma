@@ -11,8 +11,8 @@
 #include "grpcpp/get_clock.h"
 #include "mb.h"
 #include "proc_parser.h"
-#include "src/core/lib/rdma/RDMAConn.h"
-#include "src/core/lib/rdma/RDMASenderReceiver.h"
+#include "src/core/lib/rdma/rdma_conn.h"
+#include "src/core/lib/rdma/rdma_sender_receiver.h"
 
 #define MAX_CONN_NUM 1024
 std::condition_variable cv;
@@ -36,7 +36,7 @@ struct Connections {
   ~Connections() { close(epfd); }
 
   void CreateBPConnection(int fd) {
-    auto conn = std::make_shared<RDMASenderReceiverBP>();
+    auto conn = std::make_shared<RDMASenderReceiverBP>(true);
     int rank;
 
     read_data(fd, reinterpret_cast<char*>(&rank), sizeof(rank));
@@ -47,7 +47,7 @@ struct Connections {
   }
 
   void CreateEventConnection(int fd) {
-    auto conn = std::make_shared<RDMASenderReceiverEvent>();
+    auto conn = std::make_shared<RDMASenderReceiverEvent>(true);
     int rank;
 
     read_data(fd, reinterpret_cast<char*>(&rank), sizeof(rank));
@@ -90,7 +90,7 @@ struct Connections {
   }
 
   void CreateBPEVConnection(int fd) {
-    auto conn = std::make_shared<RDMASenderReceiverBPEV>();
+    auto conn = std::make_shared<RDMASenderReceiverBPEV>(true);
     int rank;
 
     read_data(fd, reinterpret_cast<char*>(&rank), sizeof(rank));

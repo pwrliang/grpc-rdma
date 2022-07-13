@@ -41,7 +41,7 @@
 /* Create a rdma endpoint given a file desciptor and a read slice size.
    Takes ownership of fd. */
 grpc_endpoint* grpc_rdma_bp_create(grpc_fd* fd, const grpc_channel_args* args,
-                               const char* peer_string);
+                               const char* peer_string, bool server);
 
 /* Return the rdma endpoint's fd, or -1 if this is not available. Does not
    release the fd.

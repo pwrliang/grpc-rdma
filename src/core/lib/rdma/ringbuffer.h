@@ -1,5 +1,5 @@
-#ifndef _RINGBUFFER_H_
-#define _RINGBUFFER_H_
+#ifndef GRPC_CORE_LIB_RDMA_RINGBUFFER_H
+#define GRPC_CORE_LIB_RDMA_RINGBUFFER_H
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -39,6 +39,8 @@ class RingBuffer {
   virtual size_t get_sendbuf_size() const = 0;
 
   virtual size_t get_max_send_size() const = 0;
+
+  size_t get_garbage() const { return garbage_; }
 
   size_t get_capacity() const { return capacity_; }
 
@@ -111,4 +113,4 @@ class RingBufferEvent : public RingBuffer {
 
  private:
 };
-#endif
+#endif  // GRPC_CORE_LIB_RDMA_RINGBUFFER_H

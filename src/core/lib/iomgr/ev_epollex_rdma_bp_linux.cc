@@ -174,7 +174,6 @@ struct grpc_fd {
     // printf("fd %d is created\n", fd);
 
     std::string fd_name = absl::StrCat(name, " fd=", fd);
-    client = strncmp(name, "tcp-client", 10) == 0;
     grpc_iomgr_register_object(&iomgr_object, fd_name.c_str());
 #ifndef NDEBUG
     if (GRPC_TRACE_FLAG_ENABLED(grpc_trace_fd_refcount)) {
@@ -266,7 +265,6 @@ struct grpc_fd {
   // add it self to pollable during pollable_add_fd
   // del it self from pollables during fd_orphan
   RDMASenderReceiverBP* rdmasr = nullptr;
-  bool client;
   // fd is created by new, inside fd_create
 
   std::vector<pollable*>* polling_by;
@@ -680,8 +678,9 @@ static grpc_error_handle pollable_create(pollable_type type, pollable** p) {
   (*p)->rdma_fds = new std::vector<grpc_fd*>();
   gpr_mu_init(&(*p)->rdma_mu);
 
-  char* s_to = getenv("GRPC_BP_YIELD");
-  (*p)->bp_yield = s_to == nullptr || strcmp(s_to, "true") == 0;
+  auto& config = RDMAConfig::GetInstance();
+
+  (*p)->bp_yield = config.is_polling_yield();
 
   return GRPC_ERROR_NONE;
 }
@@ -717,7 +716,7 @@ static grpc_error_handle pollable_add_fd(pollable* p, grpc_fd* fd) {
     gpr_mu_lock(&fd->rdma_mu);
     size_t pollable_size = fd->polling_by->size();
 
-    if (fd->client || pollable_size == 0) {
+    if (!fd->rdmasr->is_server() || pollable_size == 0) {
       gpr_mu_lock(&p->rdma_mu);
       auto& fds = *p->rdma_fds;
       if (std::find(fds.begin(), fds.end(), fd) == fds.end()) {
@@ -1059,7 +1058,7 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
     GRPC_SCHEDULING_START_BLOCKING_REGION;
   }
 
-  int r;
+  int r = 0;
   gpr_mu_lock(&p->rdma_mu);
   bool has_rdma_fds = !p->rdma_fds->empty();
   gpr_mu_unlock(&p->rdma_mu);
@@ -1074,7 +1073,8 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
         last_epoll_time = absl::Now();
       }
 
-      if (r < MAX_EPOLL_EVENTS) {
+      if (r <= 0) {
+        r = 0;
         gpr_mu_lock(&p->rdma_mu);
         auto& fds = *p->rdma_fds;
         for (size_t i = 0; i < fds.size() && r < MAX_EPOLL_EVENTS; i++) {
@@ -1090,7 +1090,7 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
             events |= EPOLLIN;
           }
 
-          if (fd->rdmasr->if_write_again()) {
+          if (fd->rdmasr->has_pending_write()) {
             events |= EPOLLOUT;
           }
 

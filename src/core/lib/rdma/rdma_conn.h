@@ -1,5 +1,5 @@
-#ifndef _RDMACONN_H_
-#define _RDMACONN_H_
+#ifndef GRPC_CORE_LIB_RDMA_RDMA_CONN_H
+#define GRPC_CORE_LIB_RDMA_RDMA_CONN_H
 
 #include <infiniband/verbs.h>
 #include <poll.h>
@@ -13,8 +13,8 @@
 #include <iostream>
 #include <mutex>
 #include <thread>
-#include "RDMAUtils.h"
 #include "grpc/impl/codegen/log.h"
+#include "src/core/lib/rdma/rdma_utils.h"
 #define DEFAULT_MAX_SEND_WR 512
 #define DEFAULT_MAX_RECV_WR 512
 #define DEFAULT_MAX_SEND_SGE 20  // max is 30
@@ -134,4 +134,4 @@ class RDMAConn {
   }
 };
 
-#endif
+#endif  // GRPC_CORE_LIB_RDMA_RDMA_CONN_H

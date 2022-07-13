@@ -1899,11 +1899,11 @@ add_library(grpc
   src/core/lib/iomgr/rdma_bp_posix.cc
   src/core/lib/iomgr/rdma_bpev_posix.cc
   src/core/lib/rdma/ringbuffer.cc
-  src/core/lib/rdma/RDMAUtils.cc
-  src/core/lib/rdma/RDMAConn.cc
-  src/core/lib/rdma/RDMASenderReceiverBP.cc
-  src/core/lib/rdma/RDMASenderReceiverEvent.cc
-  src/core/lib/rdma/RDMASenderReceiverBPEV.cc
+  src/core/lib/rdma/rdma_utils.cc
+  src/core/lib/rdma/rdma_conn.cc
+  src/core/lib/rdma/rdma_sender_receiver_bp.cc
+  src/core/lib/rdma/rdma_sender_receiver_event.cc
+  src/core/lib/rdma/rdma_sender_receiver_bpev.cc
   src/core/lib/iomgr/tcp_server.cc
   src/core/lib/iomgr/tcp_server_custom.cc
   src/core/lib/iomgr/tcp_server_posix.cc
@@ -2533,11 +2533,11 @@ add_library(grpc_unsecure
   src/core/lib/iomgr/rdma_bp_posix.cc
   src/core/lib/iomgr/rdma_bpev_posix.cc
   src/core/lib/rdma/ringbuffer.cc
-  src/core/lib/rdma/RDMAUtils.cc
-  src/core/lib/rdma/RDMAConn.cc
-  src/core/lib/rdma/RDMASenderReceiverBP.cc
-  src/core/lib/rdma/RDMASenderReceiverEvent.cc
-  src/core/lib/rdma/RDMASenderReceiverBPEV.cc
+  src/core/lib/rdma/rdma_utils.cc
+  src/core/lib/rdma/rdma_conn.cc
+  src/core/lib/rdma/rdma_sender_receiver_bp.cc
+  src/core/lib/rdma/rdma_sender_receiver_event.cc
+  src/core/lib/rdma/rdma_sender_receiver_bpev.cc
   src/core/lib/iomgr/tcp_server.cc
   src/core/lib/iomgr/tcp_server_custom.cc
   src/core/lib/iomgr/tcp_server_posix.cc

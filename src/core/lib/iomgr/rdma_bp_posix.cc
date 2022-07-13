@@ -41,12 +41,11 @@
 #include "src/core/lib/iomgr/executor.h"
 #include "src/core/lib/iomgr/socket_utils_posix.h"
 #include "src/core/lib/profiling/timers.h"
-#include "src/core/lib/rdma/RDMASenderReceiver.h"
+#include "src/core/lib/rdma/rdma_sender_receiver.h"
 #include "src/core/lib/slice/slice_internal.h"
 #include "src/core/lib/slice/slice_string_helpers.h"
 
-#define PREALLOCATE_SIZE (128ul * 1024 * 1024)
-grpc_core::TraceFlag grpc_trace_transport_bp(false, "transport_event");
+grpc_core::TraceFlag grpc_trace_transport_bp(false, "transport_bp");
 
 namespace {
 struct grpc_rdma {
@@ -57,26 +56,18 @@ struct grpc_rdma {
   /* Used by the endpoint read function to distinguish the very first read call
    * from the rest */
   bool is_first_read;
-  // double target_length;
-  // double bytes_read_this_round;
   grpc_core::RefCount refcount;
   gpr_atm shutdown_count;
 
   RDMASenderReceiverBP* rdmasr;
-
-  // int min_read_chunk_size;
-  // int max_read_chunk_size;
 
   /* garbage after the last read */
   grpc_slice_buffer last_read_buffer;
 
   grpc_slice_buffer* incoming_buffer;
   size_t total_recv_bytes = 0;
-  // int inq;          /* bytes pending on the socket from the last read. */
-  // bool inq_capable; /* cache whether kernel supports inq */
 
   grpc_slice_buffer* outgoing_buffer;
-  size_t total_send_bytes = 0;
   /* byte within outgoing_buffer->slices[0] to write next */
   size_t outgoing_byte_idx;
 
@@ -96,34 +87,6 @@ struct grpc_rdma {
   grpc_resource_user* resource_user;
   grpc_resource_user_slice_allocator slice_allocator;
   bool final_read;
-  bool preallocate;
-
-  cycles_t last_read_time;
-  cycles_t last_write_time;
-  // grpc_core::TracedBuffer* tb_head; /* List of traced buffers */
-  // gpr_mu tb_mu; /* Lock for access to list of traced buffers */
-
-  /* grpc_endpoint_write takes an argument which if non-null means that the
-   * transport layer wants the TCP layer to collect timestamps for this write.
-   * This arg is forwarded to the timestamps callback function when the ACK
-   * timestamp is received from the kernel. This arg is a (void *) which allows
-   * users of this API to pass in a pointer to any kind of structure. This
-   * structure could actually be a tag or any book-keeping object that the user
-   * can use to distinguish between different traced writes. The only
-   * requirement from the TCP endpoint layer is that this arg should be non-null
-   * if the user wants timestamps for the write. */
-  // void* outgoing_buffer_arg;
-  // /* A counter which starts at 0. It is initialized the first time the socket
-  //  * options for collecting timestamps are set, and is incremented with each
-  //  * byte sent. */
-  // int bytes_counter;
-  // bool socket_ts_enabled; /* True if timestamping options are set on the
-  // socket
-  //                          */
-  // bool ts_capable;        /* Cache whether we can set timestamping options */
-  // gpr_atm stop_error_notification; /* Set to 1 if we do not want to be
-  // notified
-  //                                     on errors anymore */
 };
 
 }  // namespace
@@ -226,7 +189,6 @@ static void rdma_do_read(grpc_rdma* rdma) {
   msg.msg_iovlen = iov_len;
 
   size_t read_bytes = rdma->rdmasr->recv(&msg);
-  GPR_ASSERT(read_bytes > 0);
   rdma->total_recv_bytes += read_bytes;
   if (GRPC_TRACE_FLAG_ENABLED(grpc_trace_transport_bp)) {
     gpr_log(GPR_INFO, "rdma_do_read recv %zu bytes", read_bytes);
@@ -244,27 +206,18 @@ static void rdma_do_read(grpc_rdma* rdma) {
 
 static void rdma_continue_read(grpc_rdma* rdma) {
   GRPCProfiler profiler(GRPC_STATS_TIME_TRANSPORT_CONTINUE_READ);
-  size_t mlen = rdma->rdmasr->get_unread_data_size();
-  GPR_ASSERT(mlen > 0);
-  if (rdma->incoming_buffer->length < mlen) {
-    size_t target_size = mlen - rdma->incoming_buffer->length;
+  size_t target_read_size = rdma->rdmasr->get_unread_data_size();
+
+  if (rdma->incoming_buffer->length < target_read_size &&
+      rdma->incoming_buffer->count < MAX_READ_IOVEC) {
     if (GRPC_TRACE_FLAG_ENABLED(grpc_trace_transport_bp)) {
-      gpr_log(
-          GPR_INFO,
-          "rdma_continue_read, data size = %zu, incoming buffer size = %zu, "
-          "allocate %zu bytes",
-          mlen, rdma->incoming_buffer->length, target_size);
+      gpr_log(GPR_INFO, "rdma allocate slice: %zu", target_read_size);
     }
-    if (GPR_UNLIKELY(!grpc_resource_user_alloc_slices(
-            &rdma->slice_allocator, target_size, 1, rdma->incoming_buffer))) {
+    if (GPR_UNLIKELY(!grpc_resource_user_alloc_slices(&rdma->slice_allocator,
+                                                      target_read_size, 1,
+                                                      rdma->incoming_buffer))) {
       return;
     }
-  }
-  if (GRPC_TRACE_FLAG_ENABLED(grpc_trace_transport_bp)) {
-    gpr_log(GPR_INFO,
-            "rdma_continue_read, data size = %zu, incoming buffer size = %zu, "
-            "call rdma_do_read",
-            mlen, rdma->incoming_buffer->length);
   }
   rdma_do_read(rdma);
 }
@@ -284,10 +237,6 @@ static void rdma_read_allocation_done(void* rdmap, grpc_error_handle error) {
           "= %zu, call rdma_do_read",
           rdma->rdmasr->get_unread_data_size(), rdma->incoming_buffer->length);
     }
-    //    printf("rdma_read_allocation_done, msg %zu, incoming_buffer %zu, fd:
-    //    %d\n",
-    //           rdma->rdmasr->get_unread_data_size(),
-    //           rdma->incoming_buffer->length, rdma->fd);
     rdma_do_read(rdma);
   }
 }
@@ -309,7 +258,6 @@ int tcp_do_read(grpc_rdma* rdma) {
 
   return ret;
 }
-
 
 static void rdma_handle_read(void* arg /* grpc_rdma */,
                              grpc_error_handle error) {
@@ -449,10 +397,8 @@ static bool rdma_flush(grpc_rdma* rdma, grpc_error_handle* error) {
       for (size_t idx = 0; idx < unwind_slice_idx; idx++) {
         grpc_slice_buffer_remove_first(rdma->outgoing_buffer);
       }
-      rdma->rdmasr->write_again();
       return false;
     }
-    rdma->rdmasr->write_again_done();
 
     if (outgoing_slice_idx == rdma->outgoing_buffer->count) {
       *error = GRPC_ERROR_NONE;
@@ -581,7 +527,7 @@ static const grpc_endpoint_vtable vtable = {rdma_read,
                                             rdma_can_track_err};
 grpc_endpoint* grpc_rdma_bp_create(grpc_fd* em_fd,
                                    const grpc_channel_args* channel_args,
-                                   const char* peer_string) {
+                                   const char* peer_string, bool server) {
   grpc_resource_quota* resource_quota = grpc_resource_quota_create(nullptr);
   if (channel_args != nullptr) {
     for (size_t i = 0; i < channel_args->num_args; i++) {
@@ -626,12 +572,9 @@ grpc_endpoint* grpc_rdma_bp_create(grpc_fd* em_fd,
                     grpc_schedule_on_exec_ctx);
   GRPC_CLOSURE_INIT(&rdma->write_done_closure, rdma_handle_write, rdma,
                     grpc_schedule_on_exec_ctx);
-  rdma->rdmasr = new RDMASenderReceiverBP();
+  rdma->rdmasr = new RDMASenderReceiverBP(server);
   rdma->rdmasr->connect(rdma->fd);
   rdma->final_read = false;
-  rdma->preallocate = true;
-  rdma->last_read_time = 0;
-  rdma->last_write_time = 0;
   grpc_fd_set_rdmasr_bp(em_fd, rdma->rdmasr);
   return &rdma->base;
 }

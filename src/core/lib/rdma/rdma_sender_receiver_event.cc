@@ -1,21 +1,16 @@
 #include <fcntl.h>
 #include <infiniband/verbs.h>
-#include <thread>
-#include "RDMASenderReceiver.h"
 #include "include/grpcpp/stats_time.h"
-#include "src/core/lib/debug/trace.h"
-#ifndef EPOLLEXCLUSIVE
-#define EPOLLEXCLUSIVE (1 << 28)
-#endif
-#define RDMA_MAX_WRITE_IOVEC 1024
+#include "src/core/lib/rdma/rdma_sender_receiver.h"
+grpc_core::TraceFlag grpc_rdma_sr_event_trace(false, "rdma_sr_event");
 
-grpc_core::TraceFlag grpc_trace_sender_receiver_event(false, "sender_receiver");
-
-RDMASenderReceiverEvent::RDMASenderReceiverEvent()
-    : RDMASenderReceiver(new RDMAConn(&RDMANode::GetInstance(), true),
-                         new RingBufferEvent(DEFAULT_RINGBUF_SZ)) {
+RDMASenderReceiverEvent::RDMASenderReceiverEvent(bool server)
+    : RDMASenderReceiver(
+          new RDMAConn(&RDMANode::GetInstance(), true),
+          new RDMAConn(&RDMANode::GetInstance(), true),
+          new RingBufferEvent(RDMAConfig::GetInstance().get_ring_buffer_size()),
+          server) {
   auto& node = RDMANode::GetInstance();
-  conn_metadata_ = new RDMAConn(&node, true);
   auto pd = node.get_pd();
   if (local_ringbuf_mr_.local_reg(pd, ringbuf_->get_buf(),
                                   ringbuf_->get_capacity())) {
@@ -36,7 +31,7 @@ void RDMASenderReceiverEvent::Shutdown() {
   update_local_metadata();
   if (remote_exit_ == 1) return;
   reinterpret_cast<size_t*>(metadata_sendbuf_)[0] = ringbuf_->get_head();
-  reinterpret_cast<size_t*>(metadata_sendbuf_)[1] = conn_->get_rr_tail();
+  reinterpret_cast<size_t*>(metadata_sendbuf_)[1] = conn_data_->get_rr_tail();
   reinterpret_cast<size_t*>(metadata_sendbuf_)[2] = 1;
   int n_entries = conn_metadata_->post_send(
       remote_metadata_recvbuf_mr_, 0, metadata_sendbuf_mr_, 0,
@@ -52,27 +47,38 @@ RDMASenderReceiverEvent::~RDMASenderReceiverEvent() {
 
 void RDMASenderReceiverEvent::connect(int fd) {
   fd_ = fd;
-  conn_->SyncQP(fd);
-  conn_->SyncMR(fd, local_ringbuf_mr_, remote_ringbuf_mr_);
-  conn_->SyncMR(fd, local_metadata_recvbuf_mr_, remote_metadata_recvbuf_mr_);
+  conn_data_->SyncQP(fd);
+  conn_data_->SyncMR(fd, local_ringbuf_mr_, remote_ringbuf_mr_);
+  conn_data_->SyncMR(fd, local_metadata_recvbuf_mr_,
+                     remote_metadata_recvbuf_mr_);
   conn_metadata_->SyncQP(fd);
   barrier(fd);
   // there are at most DEFAULT_MAX_POST_RECV - 1 outstanding recv requests
   conn_metadata_->post_recvs(DEFAULT_MAX_POST_RECV - 1);
-  conn_->post_recvs(DEFAULT_MAX_POST_RECV - 1);
+  conn_data_->post_recvs(DEFAULT_MAX_POST_RECV - 1);
   update_remote_metadata();  // set remote_rr_tail
 }
 
 void RDMASenderReceiverEvent::update_remote_metadata() {
   reinterpret_cast<size_t*>(metadata_sendbuf_)[0] = ringbuf_->get_head();
-  reinterpret_cast<size_t*>(metadata_sendbuf_)[1] = conn_->get_rr_tail();
+  reinterpret_cast<size_t*>(metadata_sendbuf_)[1] = conn_data_->get_rr_tail();
   reinterpret_cast<size_t*>(metadata_sendbuf_)[2] = 0;
   int n_entries = conn_metadata_->post_send(
       remote_metadata_recvbuf_mr_, 0, metadata_sendbuf_mr_, 0,
       metadata_sendbuf_sz_, IBV_WR_RDMA_WRITE_WITH_IMM);
-  conn_metadata_->poll_send_completion(n_entries);
-  if (GRPC_TRACE_FLAG_ENABLED(grpc_trace_sender_receiver_event)) {
-    gpr_log(GPR_INFO, "RDMASenderReceiver::update_remote_metadata, %zu, %zu",
+  int ret = conn_metadata_->poll_send_completion(n_entries);
+
+  if (ret != 0) {
+    gpr_log(GPR_ERROR,
+            "poll_send_completion failed, code: %d "
+            "fd = %d, remote_ringbuf_tail = "
+            "%zu, post_num = %d",
+            ret, fd_, remote_ringbuf_tail_, n_outstanding_send_);
+    abort();
+  }
+
+  if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_sr_event_trace)) {
+    gpr_log(GPR_INFO, "update_remote_metadata, head: %zu, exit: %zu",
             reinterpret_cast<size_t*>(metadata_sendbuf_)[0],
             reinterpret_cast<size_t*>(metadata_sendbuf_)[1]);
   }
@@ -93,9 +99,9 @@ size_t RDMASenderReceiverEvent::check_and_ack_incomings_locked() {
 #else
   if (check_data_.exchange(false)) {
 #endif
-    auto new_mlen = conn_->get_recv_events_locked();
+    auto new_mlen = conn_data_->get_recv_events_locked();
     // GPR_ASSERT(new_mlen > 0);
-    if (conn_->post_recvs_lazy()) {
+    if (conn_data_->post_recvs_lazy()) {
       update_remote_metadata();
     }
     ret = unread_mlens_.fetch_add(new_mlen) + new_mlen;
@@ -114,7 +120,13 @@ size_t RDMASenderReceiverEvent::check_and_ack_incomings_locked() {
     conn_metadata_->post_recvs(finsihed_rr);
     conn_metadata_->set_rr_garbage(0);
     update_local_metadata();
+
+    if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_sr_event_trace)) {
+      gpr_log(GPR_INFO, "check_and_ack_incomings_locked, unread_mlens: %zu",
+              ret);
+    }
   }
+
   return ret;
 }
 
@@ -123,6 +135,10 @@ size_t RDMASenderReceiverEvent::recv(msghdr* msg) {
   size_t expected_len = unread_mlens_;
   bool should_recycle = ringbuf_->read_to_msghdr(msg, expected_len);
   GPR_ASSERT(expected_len > 0);
+
+  if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_sr_event_trace)) {
+    gpr_log(GPR_INFO, "recv, unread_mlens: %zu", expected_len);
+  }
 
   unread_mlens_ -= expected_len;
 
@@ -136,12 +152,21 @@ bool RDMASenderReceiverEvent::send(msghdr* msg, size_t mlen) {
   ContentAssertion cass(write_counter_);
   size_t remote_ringbuf_sz = remote_ringbuf_mr_.length();
 
-  if (mlen > ringbuf_->get_max_send_size()) {
-    gpr_log(GPR_ERROR, "RDMASenderReceiverEvent::send, mlen > sendbuf size");
-    return false;
+  if (mlen == 0 || mlen > ringbuf_->get_max_send_size()) {
+    gpr_log(GPR_ERROR, "Invalid mlen, expected (0, %zu] actually size: %zu",
+            ringbuf_->get_max_send_size(), mlen);
+    abort();
   }
 
+  if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_sr_event_trace)) {
+    gpr_log(GPR_INFO, "send, mlen: %zu", mlen);
+  }
+
+  update_local_metadata();
   if (!is_writable(mlen)) {
+    if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_sr_event_trace)) {
+      gpr_log(GPR_INFO, "ring buffer is full, with mlen: %zu", mlen);
+    }
     last_failed_send_size_ = mlen;
     return false;
   }
@@ -186,15 +211,15 @@ bool RDMASenderReceiverEvent::send(msghdr* msg, size_t mlen) {
   {
     GRPCProfiler profiler(GRPC_STATS_TIME_SEND_IBV);
     if (!zerocopy) {
-      last_n_post_send_ =
-          conn_->post_send(remote_ringbuf_mr_, remote_ringbuf_tail_,
-                           sendbuf_mr_, 0, mlen, IBV_WR_RDMA_WRITE_WITH_IMM);
+      last_n_post_send_ = conn_data_->post_send(
+          remote_ringbuf_mr_, remote_ringbuf_tail_, sendbuf_mr_, 0, mlen,
+          IBV_WR_RDMA_WRITE_WITH_IMM);
     } else {
       last_n_post_send_ =
-          conn_->post_sends(remote_ringbuf_mr_, remote_ringbuf_tail_, sges,
-                            sge_idx + 1, mlen, IBV_WR_RDMA_WRITE_WITH_IMM);
+          conn_data_->post_sends(remote_ringbuf_mr_, remote_ringbuf_tail_, sges,
+                                 sge_idx + 1, mlen, IBV_WR_RDMA_WRITE_WITH_IMM);
     }
-    int ret = conn_->poll_send_completion(last_n_post_send_);
+    int ret = conn_data_->poll_send_completion(last_n_post_send_);
     if (ret != 0) {
       gpr_log(GPR_ERROR,
               "poll_send_completion failed, code: %d "
@@ -204,11 +229,12 @@ bool RDMASenderReceiverEvent::send(msghdr* msg, size_t mlen) {
               last_n_post_send_);
       abort();
     }
-    last_n_post_send_ = 0;
+    // last_n_post_send_ = 0;
   }
   total_send_size += mlen;
   remote_rr_head_ =
       (remote_rr_head_ + last_n_post_send_) % DEFAULT_MAX_POST_RECV;
+  last_n_post_send_ = 0;
 
   remote_ringbuf_tail_ = (remote_ringbuf_tail_ + mlen) % remote_ringbuf_sz;
   last_failed_send_size_ = 0;

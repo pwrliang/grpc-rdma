@@ -22,7 +22,7 @@
 #include <set>
 #include "include/grpcpp/stats_time.h"
 #include "src/core/lib/iomgr/port.h"
-#include "src/core/lib/rdma/RDMAPoller.h"
+#include "src/core/lib/rdma/rdma_poller.h"
 
 /* This polling engine is only relevant on linux kernels supporting epoll() */
 #ifdef GRPC_LINUX_EPOLL_CREATE1
@@ -429,11 +429,6 @@ static void fd_destroy(void* arg, grpc_error_handle /*error*/) {
   fd->freelist_next = fd_freelist;
   fd_freelist = fd;
   gpr_mu_unlock(&fd_freelist_mu);
-  if (rdmasr_is_server) {
-    if (fd->rdmasr != nullptr) {
-      printf("fd_destroy: %p idx: %d\n", fd, fd->rdmasr->get_index());
-    }
-  }
 }
 
 #ifndef NDEBUG
@@ -528,17 +523,21 @@ static void fd_orphan(grpc_fd* fd, grpc_closure* on_done, int* release_fd,
     memset(&ev_fd, 0, sizeof(ev_fd));
     if (pollable_obj != nullptr) {  // For PO_FD.
       epoll_ctl(pollable_obj->epfd, EPOLL_CTL_DEL, fd->fd, &ev_fd);
-      if (fd->rdmasr) {  // never reach here before, bugs may happen if you
-                         // reach here
+      if (fd->rdmasr) {
+        gpr_log(GPR_INFO, "remove fd %d from epfd %d",
+                fd->rdmasr->get_wakeup_fd(), pollable_obj->epfd);
         epoll_ctl(pollable_obj->epfd, EPOLL_CTL_DEL,
                   fd->rdmasr->get_wakeup_fd(), &ev_fd);
       }
     }
+
     for (size_t i = 0; i < fd->pollset_fds.size(); ++i) {  // For PO_MULTI.
       const int epfd = fd->pollset_fds[i];
       epoll_ctl(epfd, EPOLL_CTL_DEL, fd->fd, &ev_fd);
       if (fd->rdmasr) {  // never reach here before, bugs may happen if you
                          // reach here
+        gpr_log(GPR_INFO, "remove fd %d from epfd %d",
+                fd->rdmasr->get_wakeup_fd(), pollable_obj->epfd);
         epoll_ctl(epfd, EPOLL_CTL_DEL, fd->rdmasr->get_wakeup_fd(), &ev_fd);
       }
     }
@@ -700,18 +699,11 @@ static grpc_error_handle pollable_create(pollable_type type, pollable** p) {
   (*p)->rdma_fds = new std::vector<grpc_fd*>();
   (*p)->rdma_fds->reserve(4096);
 
-  char* s_val = getenv("GRPC_BP_TIMEOUT");
-  if (s_val != nullptr) {
-    (*p)->bp_timeout = atoi(s_val);
-  } else {
-    (*p)->bp_timeout = 0;
-  }
+  auto& config = RDMAConfig::GetInstance();
 
-  s_val = getenv("GRPC_BP_YIELD");
-
-  (*p)->bp_yield = s_val == nullptr || strcmp(s_val, "true") == 0;
-  s_val = getenv("GRPC_RDMA_AFFINITY");
-  (*p)->affinity = s_val == nullptr || strcmp(s_val, "true") == 0;
+  (*p)->bp_timeout = config.get_polling_timeout();
+  (*p)->bp_yield = config.is_polling_yield();
+  (*p)->affinity = config.is_affinity();
   gpr_mu_init(&(*p)->rdma_mu);
   return GRPC_ERROR_NONE;
 }
@@ -764,6 +756,7 @@ static grpc_error_handle pollable_add_fd(pollable* p, grpc_fd* fd) {
           static_cast<uint32_t>(EPOLLIN | EPOLLET | EPOLLEXCLUSIVE);
       wakeup_ep_ev.data.ptr = reinterpret_cast<void*>(
           reinterpret_cast<intptr_t>(reinterpret_cast<intptr_t>(fd) | 3));
+
       if (epoll_ctl(epfd, EPOLL_CTL_ADD, wakeup_fd, &wakeup_ep_ev) != 0) {
         switch (errno) {
           case EEXIST:
@@ -773,6 +766,8 @@ static grpc_error_handle pollable_add_fd(pollable* p, grpc_fd* fd) {
             abort();
           }
         }
+      } else {
+        gpr_log(GPR_INFO, "add fd %d to epfd %d", wakeup_fd, epfd);
       }
     }
     gpr_mu_unlock(&fd->rdma_mu);
@@ -1027,14 +1022,10 @@ static grpc_error_handle pollable_process_events(grpc_pollset* pollset,
     int n = pollable_obj->event_cursor++;
     struct epoll_event* ev = &pollable_obj->events[n];
     void* data_ptr = ev->data.ptr;
+
     if ((reinterpret_cast<intptr_t>(data_ptr) & 3) == 3) {
       grpc_fd* fd = reinterpret_cast<grpc_fd*>(
           ~static_cast<intptr_t>(3) & reinterpret_cast<intptr_t>(ev->data.ptr));
-      if (fd->rdmasr == nullptr) {  // this fd may have been shutdown
-        printf("fd = %lld\n", grpc_fd_wrapped_fd(fd));
-        continue;
-      }
-
       GPR_ASSERT(fd->rdmasr);
       if ((ev->events & EPOLLIN) != 0) {
         // consume wakeup
@@ -1043,7 +1034,15 @@ static grpc_error_handle pollable_process_events(grpc_pollset* pollset,
         do {
           sz = read(fd->rdmasr->get_wakeup_fd(), &val, sizeof(val));
         } while (sz < 0 && errno == EAGAIN);
-        fd_become_readable(fd);
+
+        if (fd->rdmasr->get_unread_data_size() == 0 &&
+            fd->rdmasr->check_incoming() > 0) {
+          fd_become_readable(fd);
+        }
+
+        if (fd->rdmasr->has_pending_write()) {
+          fd_become_writable(fd);
+        }
       }
     } else if (1 & reinterpret_cast<intptr_t>(data_ptr)) {
       if (GRPC_TRACE_FLAG_ENABLED(grpc_polling_trace)) {
@@ -1125,85 +1124,39 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
     GRPC_SCHEDULING_START_BLOCKING_REGION;
   }
   int r = 0;
-  auto& rdma_poller = RDMAPoller::GetInstance();
-  absl::Time t_begin_poll = absl::Now();
+  gpr_mu_lock(&p->rdma_mu);
+  bool has_rdma_fds = !p->rdma_fds->empty();
+  gpr_mu_unlock(&p->rdma_mu);
 
-  if (rdma_poller.is_poller_enabled()) {
-    int polling_limit_us = p->bp_timeout;
-    int64_t t_elapsed_us;
+  if (has_rdma_fds) {
+    auto& rdma_poller = RDMAPoller::GetInstance();
+    absl::Time t_begin_poll = absl::Now();
 
-    if (timeout >= 0) {
-      polling_limit_us = std::min(timeout * 1000, polling_limit_us);
-    }
+    if (rdma_poller.polling_thread_num() > 0) {
+      int polling_limit_us = p->bp_timeout;
+      int64_t t_elapsed_us;
 
-    do {
-      gpr_mu_lock(&p->rdma_mu);
-      auto& fds = *p->rdma_fds;
-
-      for (size_t i = 0; i < fds.size() && r == 0; i++) {
-        auto* fd = fds[i];
-        auto* rdmasr = fd->rdmasr;
-        GPR_DEBUG_ASSERT(rdmasr != nullptr);
-
-        uint32_t events = 0;
-
-        if (rdmasr->get_unread_data_size() == 0 &&
-            rdmasr->check_incoming() > 0) {
-          events |= EPOLLIN;
-        }
-
-        if (fd->rdmasr->is_writable()) {
-          events |= EPOLLOUT;
-        }
-
-        if (events > 0) {
-          p->events[r].events = events;
-          p->events[r].data.ptr = reinterpret_cast<void*>(
-              reinterpret_cast<intptr_t>(fd) | (fd->track_err ? 2 : 0));
-          r++;
-        }
+      if (timeout >= 0) {
+        polling_limit_us = std::min(timeout * 1000, polling_limit_us);
       }
-      gpr_mu_unlock(&p->rdma_mu);
-      if (r == 0 && p->bp_yield) {
-        std::this_thread::yield();
-      }
-      t_elapsed_us = ToInt64Microseconds((absl::Now() - t_begin_poll));
-    } while (r == 0 && t_elapsed_us < polling_limit_us);
 
-    if (timeout > 0) {
-      timeout = std::max(0l, timeout - t_elapsed_us / 1000);
-    }
-
-    if (r <= 0) {
       do {
-        GRPC_STATS_INC_SYSCALL_POLL();
-        r = epoll_wait(p->epfd, p->events, MAX_EPOLL_EVENTS, timeout);
-      } while (r < 0 && errno == EINTR);
-    }
-  } else {
-    absl::Time last_epoll_time;
-    do {
-      auto now = absl::Now();
-      if ((now - last_epoll_time) > absl::Microseconds(1000)) {
-        r = epoll_wait(p->epfd, p->events, MAX_EPOLL_EVENTS, 0);
-        last_epoll_time = now;
-      }
-
-      if (r < MAX_EPOLL_EVENTS) {
         gpr_mu_lock(&p->rdma_mu);
         auto& fds = *p->rdma_fds;
+
         for (size_t i = 0; i < fds.size() && r < MAX_EPOLL_EVENTS; i++) {
           auto* fd = fds[i];
-
-          GPR_ASSERT(fd->rdmasr != nullptr);
+          auto* rdmasr = fd->rdmasr;
+          GPR_DEBUG_ASSERT(rdmasr != nullptr);
 
           uint32_t events = 0;
-          if (fd->rdmasr->get_unread_data_size() == 0 &&
-              fd->rdmasr->check_incoming() > 0) {
+
+          if (rdmasr->get_unread_data_size() == 0 &&
+              rdmasr->check_incoming() > 0) {
             events |= EPOLLIN;
           }
 
-          if (fd->rdmasr->is_writable()) {
+          if (fd->rdmasr->has_pending_write()) {
             events |= EPOLLOUT;
           }
 
@@ -1215,14 +1168,77 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
           }
         }
         gpr_mu_unlock(&p->rdma_mu);
+        if (r == 0 && p->bp_yield) {
+          std::this_thread::yield();
+        }
+        t_elapsed_us = ToInt64Microseconds((absl::Now() - t_begin_poll));
+      } while (r == 0 && t_elapsed_us < polling_limit_us);
+
+      if (timeout > 0) {
+        timeout = std::max(0l, timeout - t_elapsed_us / 1000);
       }
 
-      if (r == 0 && p->bp_yield) {
-        std::this_thread::yield();
+      if (r <= 0) {
+        do {
+          GRPC_STATS_INC_SYSCALL_POLL();
+          r = epoll_wait(p->epfd, p->events, MAX_EPOLL_EVENTS, timeout);
+        } while (r < 0 && errno == EINTR);
       }
-    } while ((r < 0 && errno == EINTR) ||
-             (r == 0 && (timeout == -1 || (absl::Now() - t_begin_poll) <
-                                              absl::Milliseconds(timeout))));
+    } else {
+      absl::Time last_epoll_time;
+      do {
+        auto now = absl::Now();
+        if ((now - last_epoll_time) > absl::Microseconds(1000)) {
+          r = epoll_wait(p->epfd, p->events, MAX_EPOLL_EVENTS, 0);
+          last_epoll_time = now;
+        }
+
+        if (r == 0) {
+          gpr_mu_lock(&p->rdma_mu);
+          auto& fds = *p->rdma_fds;
+          for (size_t i = 0; i < fds.size() && r < MAX_EPOLL_EVENTS; i++) {
+            auto* fd = fds[i];
+
+            GPR_ASSERT(fd->rdmasr != nullptr);
+
+            uint32_t events = 0;
+            if (fd->rdmasr->get_unread_data_size() == 0 &&
+                fd->rdmasr->check_incoming() > 0) {
+              events |= EPOLLIN;
+            }
+
+            if (fd->rdmasr->has_pending_write()) {
+              events |= EPOLLOUT;
+            }
+
+            if (events > 0) {
+              p->events[r].events = events;
+              p->events[r].data.ptr = reinterpret_cast<void*>(
+                  reinterpret_cast<intptr_t>(fd) | (fd->track_err ? 2 : 0));
+              r++;
+            }
+          }
+          gpr_mu_unlock(&p->rdma_mu);
+        }
+
+        if (r == 0 && p->bp_yield) {
+          std::this_thread::yield();
+        }
+      } while ((r < 0 && errno == EINTR) ||
+               (r == 0 && (timeout == -1 || (absl::Now() - t_begin_poll) <
+                                                absl::Milliseconds(timeout))));
+    }
+  } else {
+    if (timeout != 0) {
+      GRPC_SCHEDULING_START_BLOCKING_REGION;
+    }
+    do {
+      GRPC_STATS_INC_SYSCALL_POLL();
+      r = epoll_wait(p->epfd, p->events, MAX_EPOLL_EVENTS, timeout);
+    } while (r < 0 && errno == EINTR);
+    if (timeout != 0) {
+      GRPC_SCHEDULING_END_BLOCKING_REGION;
+    }
   }
   if (timeout != 0) {
     GRPC_SCHEDULING_END_BLOCKING_REGION;

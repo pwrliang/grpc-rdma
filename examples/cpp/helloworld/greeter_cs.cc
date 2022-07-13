@@ -29,7 +29,8 @@
 #else
 #include "helloworld.grpc.pb.h"
 #endif
-
+#include "flags.h"
+#include "gflags/gflags.h"
 using grpc::Channel;
 using grpc::ClientAsyncResponseReader;
 using grpc::ClientContext;
@@ -181,7 +182,7 @@ class CallData : public CallBase {
       new CallData(service_, cq_);
 
       //        std::string prefix("Hello ");
-      reply_.mutable_message()->resize(rand() % 4096);
+      reply_.mutable_message()->resize(rand() % FLAGS_resp);
       status_ = FINISH;
       responder_.Finish(reply_, Status::OK, this);
     } else {
@@ -211,7 +212,7 @@ class CallData1 : public CallBase {
       new CallData1(service_, cq_);
 
       //        std::string prefix("Hello ");
-      reply_.mutable_message()->resize(rand() % 4096);
+      reply_.mutable_message()->resize(rand() % FLAGS_resp);
       status_ = FINISH;
       responder_.Finish(reply_, Status::OK, this);
     } else {
@@ -241,7 +242,7 @@ class CallData2 : public CallBase {
       new CallData2(service_, cq_);
 
       //        std::string prefix("Hello ");
-      reply_.mutable_message()->resize(rand() % 4096);
+      reply_.mutable_message()->resize(rand() % FLAGS_resp);
       status_ = FINISH;
       responder_.Finish(reply_, Status::OK, this);
     } else {
@@ -271,7 +272,7 @@ class CallData3 : public CallBase {
       new CallData3(service_, cq_);
 
       //        std::string prefix("Hello ");
-      reply_.mutable_message()->resize(rand() % 4096);
+      reply_.mutable_message()->resize(rand() % FLAGS_resp);
       status_ = FINISH;
       responder_.Finish(reply_, Status::OK, this);
     } else {
@@ -303,7 +304,7 @@ class ServerImpl final {
         grpc::MakeChannelArgumentOption(GRPC_ARG_ALLOW_REUSEPORT, 0));
     builder.AddListeningPort(server_address, grpc::InsecureServerCredentials());
     builder.RegisterService(&service_);
-    for (int i = 0; i < 28; i++) {
+    for (int i = 0; i < FLAGS_threads; i++) {
       cqs_.emplace_back(builder.AddCompletionQueue());
     }
     server_ = builder.BuildAndStart();
@@ -319,6 +320,8 @@ class ServerImpl final {
     for (int i = 0; i < cqs_.size(); i++) {
       ths.emplace_back(
           [this](int idx) {
+            pthread_setname_np(pthread_self(),
+                               ("server_thread" + std::to_string(idx)).c_str());
             auto& cq = cqs_[idx];
             new CallData(&service_, cq.get());
             new CallData1(&service_, cq.get());
@@ -348,40 +351,24 @@ class ServerImpl final {
 int main(int argc, char** argv) {
   ServerImpl server;
 
-  std::string target_str;
-  std::string arg_str("--target");
-
-  if (argc > 1) {
-    std::string arg_val = argv[1];
-    size_t start_pos = arg_val.find(arg_str);
-    if (start_pos != std::string::npos) {
-      start_pos += arg_str.size();
-      if (arg_val[start_pos] == '=') {
-        target_str = arg_val.substr(start_pos + 1);
-      } else {
-        std::cout << "The only correct argument syntax is --target="
-                  << std::endl;
-        return 0;
-      }
-    } else {
-      std::cout << "The only acceptable argument is --target=" << std::endl;
-      return 0;
-    }
-  } else {
-    target_str = "0.0.0.0:50051";
+  gflags::SetUsageMessage("Usage: mpiexec [mpi_opts] ./main [main_opts]");
+  if (argc == 1) {
+    gflags::ShowUsageWithFlagsRestrict(argv[0], "main");
+    exit(1);
   }
+  gflags::ParseCommandLineFlags(&argc, &argv, true);
 
-  GreeterClient greeter(
-      grpc::CreateChannel(target_str, grpc::InsecureChannelCredentials()));
+  GreeterClient greeter(grpc::CreateChannel(
+      FLAGS_host + ":50051", grpc::InsecureChannelCredentials()));
 
-  int rpc_count = 20000;
+  int rpc_count = FLAGS_batch;
   std::vector<std::thread> ths;
 
   ths.emplace_back([rpc_count, &greeter]() {
     CompletionQueue cq;
     for (int i = 0; i < rpc_count; i++) {
       std::string user;
-      user.resize(128);
+      user.resize(rand() % FLAGS_req);
 
       greeter.SayHello(cq, user);
     }
@@ -391,7 +378,7 @@ int main(int argc, char** argv) {
     CompletionQueue cq;
     for (int i = 0; i < rpc_count; i++) {
       std::string user;
-      user.resize(128);
+      user.resize(rand() % FLAGS_req);
 
       greeter.SayHello1(cq, user);
     }
@@ -401,7 +388,7 @@ int main(int argc, char** argv) {
     CompletionQueue cq;
     for (int i = 0; i < rpc_count; i++) {
       std::string user;
-      user.resize(128);
+      user.resize(rand() % FLAGS_req);
 
       greeter.SayHello2(cq, user);
     }
@@ -412,6 +399,7 @@ int main(int argc, char** argv) {
     for (int i = 0; i < rpc_count; i++) {
       std::string user;
 
+      user.resize(rand() % FLAGS_req);
       greeter.SayHello3(cq, user);
     }
     std::cout << "Exit3 " << getpid() << std::endl;

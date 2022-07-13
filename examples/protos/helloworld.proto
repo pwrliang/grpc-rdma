@@ -33,44 +33,44 @@ service Greeter {
 
 // The request message containing the user's name.
 message HelloRequest {
-  string name = 1;
+  bytes name = 1;
   optional bool start_benchmark = 2;
 }
 
 // The response message containing the greetings
 message HelloReply {
-  string message = 1;
+  bytes message = 1;
 }
 
 
 message HelloRequest1 {
-  string name = 1;
+  bytes name = 1;
 }
 
 message HelloReply1 {
-  string message = 1;
+  bytes message = 1;
 }
 
 
 message HelloRequest2 {
-  string name = 1;
+  bytes name = 1;
 }
 
 message HelloReply2 {
-  string message = 1;
+  bytes message = 1;
 }
 
 message HelloRequest3 {
-  string name = 1;
+  bytes name = 1;
 }
 
 message HelloReply3 {
-  string message = 1;
+  bytes message = 1;
 }
 
 message HelloRequest4 {
 }
 
 message HelloReply4 {
-  string message = 1;
+  bytes message = 1;
 }

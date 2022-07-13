@@ -41,7 +41,7 @@
 /* Create a rdma endpoint given a file desciptor and a read slice size.
    Takes ownership of fd. */
 grpc_endpoint* grpc_rdma_bpev_create(grpc_fd* fd, const grpc_channel_args* args,
-                               const char* peer_string);
+                                     const char* peer_string, bool server);
 
 /* Return the rdma endpoint's fd, or -1 if this is not available. Does not
    release the fd.
@@ -53,7 +53,7 @@ int grpc_rdma_bpev_fd(grpc_endpoint* ep);
  * will be called when the endpoint is destroyed.
  * Requires: ep must be a rdma endpoint and fd must not be NULL. */
 void grpc_rdma_bpev_destroy_and_release_fd(grpc_endpoint* ep, int* fd,
-                                     grpc_closure* done);
+                                           grpc_closure* done);
 
 void* grpc_rdma_bpev_require_zerocopy_sendspace(grpc_endpoint* ep, size_t size);
 

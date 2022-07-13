@@ -34,7 +34,6 @@
 #include "src/core/lib/iomgr/exec_ctx.h"
 #include "src/core/lib/iomgr/iomgr.h"
 #include "src/core/lib/iomgr/iomgr_internal.h"
-#include "src/core/lib/rdma/RDMAPoller.h"
 #define MAX_DEPTH 2
 
 #define EXECUTOR_TRACE(format, ...)                       \
