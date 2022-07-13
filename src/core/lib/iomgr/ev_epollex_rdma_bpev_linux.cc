@@ -63,6 +63,7 @@
 #include "src/core/lib/iomgr/timer.h"
 #include "src/core/lib/iomgr/wakeup_fd_posix.h"
 #include "src/core/lib/profiling/timers.h"
+#include "src/core/lib/rdma/rdma_sender_receiver.h"
 
 // debug aid: create workers on the heap (allows asan to spot
 // use-after-destruction)
@@ -628,14 +629,6 @@ static void fd_add_pollset(grpc_fd* fd, grpc_pollset* pollset) {
   const int epfd = pollset->active_pollable->epfd;
   grpc_core::MutexLockForGprMu lock(&fd->pollable_mu);
   fd->pollset_fds.push_back(epfd);
-}
-
-void grpc_fd_set_rdmasr_bpev(grpc_fd* fd, RDMASenderReceiverBPEV* rdmasr) {
-  fd->rdmasr = rdmasr;
-}
-
-RDMASenderReceiverBPEV* grpc_fd_get_rdmasr_bpev(grpc_fd* fd) {
-  return fd->rdmasr;
 }
 
 /*******************************************************************************

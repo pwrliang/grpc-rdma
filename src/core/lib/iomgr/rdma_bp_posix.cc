@@ -575,7 +575,6 @@ grpc_endpoint* grpc_rdma_bp_create(grpc_fd* em_fd,
   rdma->rdmasr = new RDMASenderReceiverBP(server);
   rdma->rdmasr->connect(rdma->fd);
   rdma->final_read = false;
-  grpc_fd_set_rdmasr_bp(em_fd, rdma->rdmasr);
   return &rdma->base;
 }
 
