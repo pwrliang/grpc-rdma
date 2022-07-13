@@ -215,8 +215,9 @@ static void rdma_continue_read(grpc_rdma* rdma) {
     if (GRPC_TRACE_FLAG_ENABLED(grpc_trace_transport_bpev)) {
       gpr_log(GPR_INFO, "rdma allocate slice: %zu", target_read_size);
     }
-    if (GPR_UNLIKELY(!grpc_resource_user_alloc_slices(
-            &rdma->slice_allocator, target_read_size, 1, rdma->incoming_buffer))) {
+    if (GPR_UNLIKELY(!grpc_resource_user_alloc_slices(&rdma->slice_allocator,
+                                                      target_read_size, 1,
+                                                      rdma->incoming_buffer))) {
       return;
     }
   }
@@ -236,7 +237,8 @@ static void rdma_read_allocation_done(void* rdmap, grpc_error_handle error) {
           GPR_INFO,
           "rdma_read_allocation_done, data size = %zu, incoming buffer size "
           "= %zu, call rdma_do_read",
-          rdma->rdmasr->get_unread_message_length(), rdma->incoming_buffer->length);
+          rdma->rdmasr->get_unread_message_length(),
+          rdma->incoming_buffer->length);
     }
     rdma_do_read(rdma);
   }
@@ -577,6 +579,7 @@ grpc_endpoint* grpc_rdma_bpev_create(grpc_fd* em_fd,
   rdma->rdmasr->Connect(rdma->fd);
   rdma->final_read = false;
   grpc_fd_set_rdmasr(em_fd, rdma->rdmasr);
+
   return &rdma->base;
 }
 
