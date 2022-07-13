@@ -52,10 +52,10 @@ class RingBuffer {
    * variable will be changed to actual read size.
    * @return Return true if the size of garbage exceeds half of ring buffer.
    */
-  virtual bool read_to_msghdr(msghdr* msg, size_t& expected_lens) = 0;
+  virtual bool Read(msghdr* msg, size_t& expected_lens) = 0;
 
  protected:
-  size_t update_head(size_t inc) {
+  size_t updateHead(size_t inc) {
     head_ = (head_ + inc) % capacity_;
     return head_;
   }
@@ -70,10 +70,11 @@ class RingBufferBP : public RingBuffer {
  public:
   explicit RingBufferBP(size_t capacity) : RingBuffer(capacity) {}
 
-  size_t check_mlens() const { return check_mlens(head_); }
-  size_t check_mlen() const { return check_mlen(head_); }
+  size_t CheckMessageLength() const { return checkFirstMessageLength(head_); }
 
-  bool read_to_msghdr(msghdr* msg, size_t& expected_lens) override;
+  size_t CheckFirstMessageLength() const { return checkMessageLength(head_); }
+
+  bool Read(msghdr* msg, size_t& expected_lens) override;
 
   size_t get_sendbuf_size() const override {
     /*
@@ -87,20 +88,22 @@ class RingBufferBP : public RingBuffer {
   }
 
  protected:
-  uint8_t check_tail(size_t head, size_t mlen) const;
-  size_t check_mlen(size_t head) const;
-  size_t check_mlens(size_t head) const;
-
   // reset buf first then update head. Otherswise new head may read the old data
   // from unupdated space.
-  size_t reset_buf_and_update_head(size_t lens);
+  size_t resetBufAndUpdateHead(size_t lens);
+
+  uint8_t checkTail(size_t head, size_t mlen) const;
+
+  size_t checkMessageLength(size_t head) const;
+
+  size_t checkFirstMessageLength(size_t head) const;
 };
 
 class RingBufferEvent : public RingBuffer {
  public:
   explicit RingBufferEvent(size_t capcatiy) : RingBuffer(capcatiy) {}
 
-  bool read_to_msghdr(msghdr* msg, size_t& size) override;
+  bool Read(msghdr* msg, size_t& size) override;
 
   size_t get_sendbuf_size() const override {
     /*
@@ -110,7 +113,5 @@ class RingBufferEvent : public RingBuffer {
   }
 
   size_t get_max_send_size() const override { return get_sendbuf_size(); }
-
- private:
 };
 #endif  // GRPC_CORE_LIB_RDMA_RINGBUFFER_H

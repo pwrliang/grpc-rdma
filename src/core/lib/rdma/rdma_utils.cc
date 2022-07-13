@@ -5,7 +5,7 @@
 #include "grpc/impl/codegen/log.h"
 
 // -----< MemRegion >-----
-int MemRegion::remote_reg(void* mem, uint32_t rkey, size_t len) {
+int MemRegion::RegisterRemote(void* mem, uint32_t rkey, size_t len) {
   dereg();
 
   remote = true;
@@ -15,23 +15,23 @@ int MemRegion::remote_reg(void* mem, uint32_t rkey, size_t len) {
   return 0;
 }
 
-int MemRegion::local_reg(std::shared_ptr<ibv_pd> pd, void* mem, size_t size,
-                         const int f) {
+int MemRegion::RegisterLocal(std::shared_ptr<ibv_pd> pd, void* mem, size_t size,
+                         int flag) {
   dereg();
 
   remote = false;
-  flag = f;
+  flag = flag;
 
   local_mr = std::shared_ptr<ibv_mr>(
       ibv_reg_mr(pd.get(), mem, size, flag), [](ibv_mr* p) {
         if (ibv_dereg_mr(p)) {
           gpr_log(GPR_ERROR,
-                  "MemRegion::local_reg, failed to deregister memory region!");
+                  "MemRegion::RegisterLocal, failed to deregister memory region!");
         }
       });
   if (!local_mr) {
     gpr_log(GPR_ERROR,
-            "MemRegion::local_reg, failed to register memory region!");
+            "MemRegion::RegisterLocal, failed to register memory region!");
     dereg();
     return -1;
   }

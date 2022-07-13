@@ -33,21 +33,22 @@ class RDMAConn {
   explicit RDMAConn(RDMANode* node, bool event_mode = false);
   virtual ~RDMAConn();
 
-  int poll_send_completion(int expected_num_entries);
+  int PollSendCompletion(int expected_num_entries);
 
-  int post_send(MemRegion& remote_mr, size_t remote_tail, MemRegion& local_mr,
-                size_t local_offset, size_t sz, ibv_wr_opcode opcode);
+  int PostSendRequest(MemRegion& remote_mr, size_t remote_tail,
+                      MemRegion& local_mr, size_t local_offset, size_t sz,
+                      ibv_wr_opcode opcode);
 
-  int post_sends(MemRegion& remote_mr, size_t remote_tail,
-                 struct ibv_sge* sg_list, size_t num_sge, size_t sz,
-                 ibv_wr_opcode opcode);
+  int PostSendRequests(MemRegion& remote_mr, size_t remote_tail,
+                       struct ibv_sge* sg_list, size_t num_sge, size_t sz,
+                       ibv_wr_opcode opcode);
 
-  size_t get_recv_events_locked(int& n_comp);
+  size_t GetRecvEvents(int& n_comp);
 
-  size_t get_recv_events_locked() {
+  size_t GetRecvEvents() {
     int n_comp;
 
-    return get_recv_events_locked(n_comp);
+    return GetRecvEvents(n_comp);
   }
 
   /**
@@ -55,7 +56,7 @@ class RDMAConn {
    * @param n the number of requests
    * @return return True if
    */
-  void post_recvs(size_t n);
+  void PostRecvRequests(size_t n);
 
   // after qp was created, sync data with remote
   int SyncQP(int fd);
@@ -75,9 +76,9 @@ class RDMAConn {
    * exceeded a threshold
    * @return return true if post receive happened
    */
-  bool post_recvs_lazy() {
+  bool PostRecvRequestsLazy() {
     if (rr_garbage_ >= DEFAULT_MAX_POST_RECV / 2) {
-      post_recvs(rr_garbage_);
+      PostRecvRequests(rr_garbage_);
       rr_garbage_ = 0;
       return true;
     }
@@ -85,6 +86,14 @@ class RDMAConn {
   }
 
  private:
+  size_t PollRecvCompletion(int& n_comp);
+
+  size_t PollRecvCompletion() {
+    int n_comp;
+
+    return PollRecvCompletion(n_comp);
+  }
+
   state_t state_;
   RDMANode* node_;
 
@@ -123,14 +132,6 @@ class RDMAConn {
     }
 
     return ret;
-  }
-
-  size_t poll_recv_completion(int& n_comp);
-
-  size_t poll_recv_completion() {
-    int n_comp;
-
-    return poll_recv_completion(n_comp);
   }
 };
 

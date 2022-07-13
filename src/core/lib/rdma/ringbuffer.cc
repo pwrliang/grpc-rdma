@@ -6,11 +6,11 @@
 grpc_core::DebugOnlyTraceFlag grpc_trace_ringbuffer(false, "rdma_ringbuffer");
 
 // to reduce operation, the caller should guarantee the arguments are valid
-uint8_t RingBufferBP::check_tail(size_t head, size_t mlen) const {
+uint8_t RingBufferBP::checkTail(size_t head, size_t mlen) const {
   return buf_[(head + mlen + sizeof(size_t) + capacity_) % capacity_];
 }
 
-size_t RingBufferBP::check_mlen(size_t head) const {
+size_t RingBufferBP::checkMessageLength(size_t head) const {
   GPR_ASSERT(head < capacity_);
   size_t mlen;
 
@@ -19,7 +19,7 @@ size_t RingBufferBP::check_mlen(size_t head) const {
     if (mlen == 0) {
       return 0;
     }
-    if (mlen + sizeof(size_t) + 1 < capacity_ && check_tail(head, mlen) != 1) {
+    if (mlen + sizeof(size_t) + 1 < capacity_ && checkTail(head, mlen) != 1) {
       return 0;
     }
     // need read again, since mlen is read before tag = 1
@@ -32,7 +32,7 @@ size_t RingBufferBP::check_mlen(size_t head) const {
   memcpy(reinterpret_cast<uint8_t*>(&mlen) + r, buf_, l);
   if (mlen == 0) return 0;
   if (mlen && mlen + sizeof(size_t) + 1 < capacity_ &&
-      check_tail(head, mlen) != 1) {
+      checkTail(head, mlen) != 1) {
     return 0;
   }
   memcpy(&mlen, buf_ + head, r);
@@ -41,32 +41,32 @@ size_t RingBufferBP::check_mlen(size_t head) const {
   return mlen;
 }
 
-size_t RingBufferBP::check_mlens(size_t head) const {
+size_t RingBufferBP::checkFirstMessageLength(size_t head) const {
   size_t mlen, mlens = 0;
-  while ((mlen = check_mlen(head)) > 0) {
+  while ((mlen = checkMessageLength(head)) > 0) {
     mlens += mlen;
     head = (head + mlen + sizeof(size_t) + 1) % capacity_;
   }
   return mlens;
 }
 
-size_t RingBufferBP::reset_buf_and_update_head(size_t lens) {
+size_t RingBufferBP::resetBufAndUpdateHead(size_t lens) {
   if (head_ + lens > capacity_) {
     memset(buf_ + head_, 0, capacity_ - head_);
     memset(buf_, 0, lens + head_ - capacity_);
   } else {
     memset(buf_ + head_, 0, lens);
   }
-  return update_head(lens);
+  return updateHead(lens);
 }
 
-bool RingBufferBP::read_to_msghdr(msghdr* msg, size_t& expected_mlens) {
+bool RingBufferBP::Read(msghdr* msg, size_t& expected_mlens) {
   auto head = head_;
   GPR_ASSERT(expected_mlens > 0 && expected_mlens < capacity_);
   GPR_ASSERT(head < capacity_);
 
   size_t iov_idx = 0, iov_offset = 0;
-  size_t mlen = check_mlen(head), m_offset = 0;
+  size_t mlen = checkMessageLength(head), m_offset = 0;
   size_t read_mlens = 0, read_lens = 0;
   size_t buf_offset = (head + sizeof(size_t)) % capacity_;
   size_t msghdr_size = 0;
@@ -113,7 +113,7 @@ bool RingBufferBP::read_to_msghdr(msghdr* msg, size_t& expected_mlens) {
       }
       head =
           (head + sizeof(size_t) + mlen + 1) % capacity_;  // move to next head
-      mlen = check_mlen(head);                // check mlen of the new head
+      mlen = checkMessageLength(head);                // check mlen of the new head
       if (read_mlens + mlen > msghdr_size) {  // msghdr could not hold new mlen
         break;
       }
@@ -127,7 +127,7 @@ bool RingBufferBP::read_to_msghdr(msghdr* msg, size_t& expected_mlens) {
   }
 
   expected_mlens = read_mlens;
-  reset_buf_and_update_head(read_lens);
+  resetBufAndUpdateHead(read_lens);
 
   garbage_ += read_lens;
   if (garbage_ >= capacity_ / 2) {
@@ -139,7 +139,7 @@ bool RingBufferBP::read_to_msghdr(msghdr* msg, size_t& expected_mlens) {
 
 // -----< RingBufferEvent >-----
 
-bool RingBufferEvent::read_to_msghdr(msghdr* msg, size_t& expected_read_size) {
+bool RingBufferEvent::Read(msghdr* msg, size_t& expected_read_size) {
   auto head = head_;
   GPR_ASSERT(expected_read_size > 0 && expected_read_size < capacity_);
   GPR_ASSERT(head < capacity_);
@@ -170,7 +170,7 @@ bool RingBufferEvent::read_to_msghdr(msghdr* msg, size_t& expected_read_size) {
     head = head % capacity_;
   }
 
-  update_head(lens);
+  updateHead(lens);
   expected_read_size = lens;
 
   garbage_ += lens;

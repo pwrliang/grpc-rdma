@@ -1051,7 +1051,7 @@ static grpc_error_handle pollable_process_events(grpc_pollset* pollset,
       GPR_ASSERT(fd->rdmasr);
       if ((ev->events & EPOLLIN) != 0) {
         // printf("fd %d become readable, data\n", fd->fd);
-        fd->rdmasr->check_data();
+        fd->rdmasr->CheckData();
         fd_become_readable(fd);
       }
     } else if ((reinterpret_cast<intptr_t>(data_ptr) & 3) ==
@@ -1065,7 +1065,7 @@ static grpc_error_handle pollable_process_events(grpc_pollset* pollset,
       GPR_ASSERT(fd->rdmasr);
       if ((ev->events & EPOLLIN) != 0) {
         // printf("fd %d become readable, metadata\n", fd->fd);
-        fd->rdmasr->check_metadata();
+        fd->rdmasr->CheckMetadata();
         fd_become_readable(fd);
       }
     } else if (1 & reinterpret_cast<intptr_t>(data_ptr)) {

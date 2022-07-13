@@ -92,7 +92,7 @@ int RDMAConn::SyncMR(int fd, MemRegion& local, MemRegion& remote) {
     exit(1);
   }
 
-  return remote.remote_reg(rt.addr, rt.rkey, rt.length);
+  return remote.RegisterRemote(rt.addr, rt.rkey, rt.length);
 }
 
 int RDMAConn::SyncQP(int fd) {
@@ -146,7 +146,7 @@ void RDMAConn::Sync(int fd) {
   }
 }
 
-int RDMAConn::post_send(MemRegion& remote_mr, size_t remote_tail,
+int RDMAConn::PostSendRequest(MemRegion& remote_mr, size_t remote_tail,
                         MemRegion& local_mr, size_t local_offset, size_t sz,
                         ibv_wr_opcode opcode) {
   GPR_DEBUG_ASSERT(!remote_mr.is_local() && !local_mr.is_remote());
@@ -192,7 +192,7 @@ int RDMAConn::post_send(MemRegion& remote_mr, size_t remote_tail,
   return 2;
 }
 
-int RDMAConn::post_sends(MemRegion& remote_mr, size_t remote_tail,
+int RDMAConn::PostSendRequests(MemRegion& remote_mr, size_t remote_tail,
                          struct ibv_sge* sg_list, size_t num_sge, size_t sz,
                          ibv_wr_opcode opcode) {
   size_t remote_cap = remote_mr.length();
@@ -248,17 +248,17 @@ int RDMAConn::post_sends(MemRegion& remote_mr, size_t remote_tail,
   sz -= nwritten;
 
   if (sz == 0) return 1;
-  return 1 + post_sends(remote_mr, remote_tail, next_sg_list, next_num_sge, sz,
-                        opcode);
+  return 1 + PostSendRequests(remote_mr, remote_tail, next_sg_list,
+                              next_num_sge, sz, opcode);
 }
 
-int RDMAConn::poll_send_completion(int expected_num_entries) {
+int RDMAConn::PollSendCompletion(int expected_num_entries) {
   if (expected_num_entries == 0) {
     return -1;
   } else if (expected_num_entries > DEFAULT_MAX_POST_SEND) {
     gpr_log(
         GPR_ERROR,
-        "RDMAConn::poll_send_completion, expected_num_entries is too large");
+        "RDMAConn::PollSendCompletion, expected_num_entries is too large");
     return -1;
   }
 
@@ -269,7 +269,7 @@ int RDMAConn::poll_send_completion(int expected_num_entries) {
     int n = ibv_poll_cq(scq_.get(), rest_num_entries,
                         wc + expected_num_entries - rest_num_entries);
     if (n < 0) {
-      gpr_log(GPR_ERROR, "RDMAConn::poll_send_completion, failed to poll scq");
+      gpr_log(GPR_ERROR, "RDMAConn::PollSendCompletion, failed to poll scq");
       return n;
     }
     rest_num_entries -= n;
@@ -278,7 +278,7 @@ int RDMAConn::poll_send_completion(int expected_num_entries) {
   for (int i = 0; i < expected_num_entries; i++) {
     if (wc[i].status != IBV_WC_SUCCESS) {
       gpr_log(GPR_ERROR,
-              "RDMAConn::poll_send_completion, failed to poll scq, status %d",
+              "RDMAConn::PollSendCompletion, failed to poll scq, status %d",
               wc[i].status);
       return wc[i].status;
     }
@@ -286,7 +286,7 @@ int RDMAConn::poll_send_completion(int expected_num_entries) {
   return 0;
 }
 
-void RDMAConn::post_recvs(size_t n) {
+void RDMAConn::PostRecvRequests(size_t n) {
   if (n == 0) return;
   struct ibv_recv_wr* bad_wr = nullptr;
 
@@ -305,7 +305,7 @@ void RDMAConn::post_recvs(size_t n) {
   }
 }
 
-size_t RDMAConn::poll_recv_completion(int& n_comp) {
+size_t RDMAConn::PollRecvCompletion(int& n_comp) {
   int recv_bytes = 0;
   ibv_wc wc[DEFAULT_MAX_POST_RECV];
 
@@ -315,21 +315,21 @@ poll:
 
   if (completed < 0) {
     gpr_log(GPR_ERROR,
-            "RDMAConnEvent::poll_recv_completion, ibv_poll_cq return %d",
+            "RDMAConnEvent::PollRecvCompletion, ibv_poll_cq return %d",
             completed);
     exit(-1);
   }
   if (completed == 0) {
     if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_conn_trace)) {
       gpr_log(GPR_INFO,
-              "RDMAConnEvent::poll_recv_completion, ibv_poll_cq return 0");
+              "RDMAConnEvent::PollRecvCompletion, ibv_poll_cq return 0");
     }
     return 0;
   }
   for (int i = 0; i < completed; i++) {
     if (wc[i].status != IBV_WC_SUCCESS) {
       gpr_log(GPR_ERROR,
-              "RDMAConnEvent::poll_recv_completion, wc[%d] status = %d", i,
+              "RDMAConnEvent::PollRecvCompletion, wc[%d] status = %d", i,
               wc[i].status);
     }
     recv_bytes += wc[i].byte_len;
@@ -350,7 +350,7 @@ poll:
   return recv_bytes;
 }
 
-size_t RDMAConn::get_recv_events_locked(int& n_comp) {
+size_t RDMAConn::GetRecvEvents(int& n_comp) {
   ibv_cq* cq = nullptr;
   void* ev_ctx = nullptr;
   if (ibv_get_cq_event(recv_channel_.get(), &cq, &ev_ctx) == -1) {
@@ -358,12 +358,12 @@ size_t RDMAConn::get_recv_events_locked(int& n_comp) {
   }
   if (cq != rcq_.get()) {
     gpr_log(GPR_ERROR,
-            "RDMAConnEvent::get_recv_events_locked, unknown CQ got event");
+            "RDMAConnEvent::GetRecvEvents, unknown CQ got event");
     exit(-1);
   }
   if (ibv_req_notify_cq(cq, 0)) {
     gpr_log(GPR_ERROR,
-            "RDMAConnEvent::get_recv_events_locked, require notifcation on "
+            "RDMAConnEvent::GetRecvEvents, require notifcation on "
             "rcq failed");
     exit(-1);
   }
@@ -371,5 +371,5 @@ size_t RDMAConn::get_recv_events_locked(int& n_comp) {
     ibv_ack_cq_events(rcq_.get(), unacked_recv_events_num_);
     unacked_recv_events_num_ = 0;
   }
-  return poll_recv_completion(n_comp);
+  return PollRecvCompletion(n_comp);
 }
