@@ -188,7 +188,7 @@ static void rdma_do_read(grpc_rdma* rdma) {
   msg.msg_controllen = 0;
   msg.msg_flags = 0;
 
-  size_t read_bytes = rdma->rdmasr->Recv(&msg);
+  size_t read_bytes = rdma->rdmasr->recv(&msg);
   GPR_ASSERT(read_bytes != 0);
   rdma->total_recv_size += read_bytes;
 
@@ -209,7 +209,7 @@ static void rdma_do_read(grpc_rdma* rdma) {
 
 static void rdma_continue_read(grpc_rdma* rdma) {
   GRPCProfiler profiler(GRPC_STATS_TIME_TRANSPORT_CONTINUE_READ);
-  size_t target_read_size = rdma->rdmasr->get_unread_message_length();
+  size_t target_read_size = rdma->rdmasr->get_unread_data_size();
 
   /* Wait for allocation only when there is no buffer left. */
   if (rdma->incoming_buffer->length == 0 &&
@@ -239,7 +239,7 @@ static void rdma_read_allocation_done(void* rdmap, grpc_error_handle error) {
           GPR_INFO,
           "rdma_read_allocation_done, data size = %zu, incoming buffer size "
           "= %zu, call rdma_do_read",
-          rdma->rdmasr->get_unread_message_length(), rdma->incoming_buffer->length);
+          rdma->rdmasr->get_unread_data_size(), rdma->incoming_buffer->length);
     }
     rdma_do_read(rdma);
   }
@@ -268,9 +268,9 @@ static void rdma_handle_read(void* arg /* grpc_rdma */,
     call_read_cb(rdma, GRPC_ERROR_REF(error));
     RDMA_UNREF(rdma, "read");
   } else {
-    auto mlen = rdma->rdmasr->MarkMessageLength();
+    auto mlen = rdma->rdmasr->check_and_ack_incomings_locked();
     if (mlen == 0) {
-      if (rdma->rdmasr->HasPendingWrite()) {
+      if (rdma->rdmasr->has_pending_write()) {
         grpc_fd_set_writable(rdma->em_fd);
       }
       int ret = tcp_do_read(rdma);
@@ -298,7 +298,7 @@ static void rdma_handle_read(void* arg /* grpc_rdma */,
         gpr_log(GPR_INFO,
                 "rdma_handle_read, data found, call rdma_continue_read");
       }
-      if (rdma->rdmasr->HasPendingWrite()) {
+      if (rdma->rdmasr->has_pending_write()) {
         grpc_fd_set_writable(rdma->em_fd);
       }
       if (tcp_do_read(rdma) == 0) {
@@ -328,7 +328,7 @@ static void rdma_read(grpc_endpoint* ep, grpc_slice_buffer* incoming_buffer,
       gpr_log(GPR_INFO, "rdma_read, is_first_read, call notify_on_read");
     }
     notify_on_read(rdma);
-  } else if (!urgent && rdma->rdmasr->get_unread_message_length() == 0) {
+  } else if (!urgent && rdma->rdmasr->get_unread_data_size() == 0) {
     if (GRPC_TRACE_FLAG_ENABLED(grpc_trace_transport_event)) {
       gpr_log(GPR_INFO, "rdma_read, urgent, call notify_on_read");
     }
@@ -394,7 +394,7 @@ static bool rdma_flush(grpc_rdma* rdma, grpc_error_handle* error) {
     }
     // printf("thread %lld try to send %ld bytes data\n", getpid(),
     // sending_length);
-    bool send_ok = rdma->rdmasr->Send(&msg, sending_length);
+    bool send_ok = rdma->rdmasr->send(&msg, sending_length);
     if (send_ok) {
       grpc_stats_time_add_custom(GRPC_STATS_TIME_SEND_SIZE, sending_length);
     }
@@ -585,7 +585,7 @@ grpc_endpoint* grpc_rdma_event_create(grpc_fd* em_fd,
                     grpc_schedule_on_exec_ctx);
 
   rdma->rdmasr = new RDMASenderReceiverEvent(server);
-  rdma->rdmasr->Connect(rdma->fd);
+  rdma->rdmasr->connect(rdma->fd);
   rdma->final_read = false;
   return &rdma->base;
 }
@@ -610,7 +610,7 @@ void* grpc_rdma_event_require_zerocopy_sendspace(grpc_endpoint* ep,
                                                  size_t size) {
   grpc_rdma* rdma = reinterpret_cast<grpc_rdma*>(ep);
   GPR_ASSERT(ep->vtable == &vtable);
-  return rdma->rdmasr->RequireZerocopySendSpace(size);
+  return rdma->rdmasr->require_zerocopy_sendspace(size);
 }
 
 #endif /* GRPC_POSIX_SOCKET_TCP */
