@@ -51,7 +51,8 @@ class RDMASenderReceiver {
         n_outstanding_send_(0),
         last_failed_send_size_(0),
         read_counter_(0),
-        write_counter_(0) {
+        write_counter_(0),
+        debug_(false) {
     auto& node = RDMANode::GetInstance();
     auto pd = node.get_pd();
     size_t sendbuf_size = ringbuf->get_sendbuf_size();
@@ -214,6 +215,8 @@ class RDMASenderReceiver {
   int fd_;
   // for debugging
   std::atomic_int read_counter_, write_counter_;
+  std::atomic_bool debug_;
+  std::thread debug_thread_;
 
  private:
   bool server_;
@@ -288,8 +291,6 @@ class RDMASenderReceiverBPEV : public RDMASenderReceiver {
   // this need to sync in initialization
   int wakeup_fd_;
   int index_;
-  std::atomic_bool debug_;
-  std::thread debug_thread_;
 
   bool isWritable(size_t mlen) const override {
     size_t len = mlen + sizeof(size_t) + 1;

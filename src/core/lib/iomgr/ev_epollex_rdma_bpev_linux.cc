@@ -492,6 +492,10 @@ static grpc_fd* fd_create(int fd, const char* name, bool track_err) {
   return new_fd;
 }
 
+static void fd_set_rdmasr(grpc_fd* fd, RDMASenderReceiver* rdmasr) {
+  fd->rdmasr = dynamic_cast<RDMASenderReceiverBPEV*>(rdmasr);
+}
+
 static int fd_wrapped_fd(grpc_fd* fd) {
   int ret_fd = fd->fd;
   return (gpr_atm_acq_load(&fd->refst) & 1) ? ret_fd : -1;
@@ -1952,7 +1956,7 @@ static const grpc_event_engine_vtable vtable = {
     shutdown_background_closure,
     shutdown_engine,
     add_closure_to_background_poller,
-};
+    fd_set_rdmasr};
 
 const grpc_event_engine_vtable* grpc_init_epollex_rdma_bpev_linux(
     bool /*explicitly_requested*/) {

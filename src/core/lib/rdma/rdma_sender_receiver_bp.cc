@@ -6,6 +6,7 @@
 #include "src/core/lib/rdma/rdma_sender_receiver.h"
 
 grpc_core::TraceFlag grpc_rdma_sr_bp_trace(false, "rdma_sr_bp");
+grpc_core::TraceFlag grpc_rdma_sr_bp_debug_trace(false, "rdma_sr_bpev_debug");
 
 RDMASenderReceiverBP::RDMASenderReceiverBP(bool server)
     : RDMASenderReceiver(
@@ -23,6 +24,10 @@ RDMASenderReceiverBP::RDMASenderReceiverBP(bool server)
 }
 
 RDMASenderReceiverBP::~RDMASenderReceiverBP() {
+  if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_sr_bp_debug_trace)) {
+    debug_ = false;
+    debug_thread_.join();
+  }
   delete conn_data_;
   delete ringbuf_;
 }
@@ -35,6 +40,35 @@ void RDMASenderReceiverBP::Connect(int fd) {
                      remote_metadata_recvbuf_mr_);
   conn_metadata_->SyncQP(fd);
   barrier(fd);
+  if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_sr_bp_debug_trace)) {
+    debug_ = true;
+    debug_thread_ = std::thread([this]() {
+      char last_buffer[1024];
+      while (debug_) {
+        char buffer[1024];
+        size_t remote_ringbuf_sz = remote_ringbuf_mr_.length();
+        size_t used =
+            (remote_ringbuf_sz + remote_ringbuf_tail_ - remote_ringbuf_head_) %
+            remote_ringbuf_sz;
+        std::sprintf(
+            buffer,
+            "%c cap: %zu max send: %zu head: %zu unread: %zu curr mlens: "
+            "%zu garbage: %zu remote head: %zu remote tail: %zu pending send: "
+            "%u used: %zu remain: %zu",
+            is_server() ? 'S' : 'C', ringbuf_->get_capacity(),
+            ringbuf_->get_max_send_size(), ringbuf_->get_head(),
+            get_unread_message_length(),
+            dynamic_cast<RingBufferBP*>(ringbuf_)->CheckMessageLength(),
+            ringbuf_->get_garbage(), remote_ringbuf_head_, remote_ringbuf_tail_,
+            last_failed_send_size_.load(), used, remote_ringbuf_sz - 8 - used);
+        if (strcmp(last_buffer, buffer) != 0) {
+          gpr_log(GPR_INFO, "%s", buffer);
+          strcpy(last_buffer, buffer);
+        }
+        sleep(1);
+      }
+    });
+  }
 }
 
 bool RDMASenderReceiverBP::HasMessage() const {

@@ -485,6 +485,10 @@ static grpc_fd* fd_create(int fd, const char* name, bool track_err) {
   return new_fd;
 }
 
+static void fd_set_rdmasr(grpc_fd* fd, RDMASenderReceiver* rdmasr) {
+  fd->rdmasr = dynamic_cast<RDMASenderReceiverEvent*>(rdmasr);
+}
+
 static int fd_wrapped_fd(grpc_fd* fd) {
   int ret_fd = fd->fd;
   return (gpr_atm_acq_load(&fd->refst) & 1) ? ret_fd : -1;
@@ -1044,7 +1048,7 @@ static grpc_error_handle pollable_process_events(grpc_pollset* pollset,
       // printf("pollable %d process_events, %p, %p, %lld, %lld, %lld\n",
       // pollable_obj->epfd, data_ptr, fd, ev->data.fd, ev->data.u32,
       // ev->data.u64);
-      if (fd->rdmasr == nullptr) { // this fd may have been shutdown
+      if (fd->rdmasr == nullptr) {  // this fd may have been shutdown
         // printf("fd = %lld\n", grpc_fd_wrapped_fd(fd));
         continue;
       }
@@ -1058,7 +1062,7 @@ static grpc_error_handle pollable_process_events(grpc_pollset* pollset,
                3) {  // pollable_add_rdma_channel_fd
       grpc_fd* fd = reinterpret_cast<grpc_fd*>(
           ~static_cast<intptr_t>(3) & reinterpret_cast<intptr_t>(ev->data.ptr));
-      if (fd->rdmasr == nullptr) { // this fd may have been shutdown
+      if (fd->rdmasr == nullptr) {  // this fd may have been shutdown
         // printf("fd = %lld\n", grpc_fd_wrapped_fd(fd));
         continue;
       }
@@ -1831,7 +1835,7 @@ static const grpc_event_engine_vtable vtable = {
     shutdown_background_closure,
     shutdown_engine,
     add_closure_to_background_poller,
-};
+    fd_set_rdmasr};
 
 const grpc_event_engine_vtable* grpc_init_epollex_rdma_event_linux(
     bool /*explicitly_requested*/) {

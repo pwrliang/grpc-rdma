@@ -10,7 +10,7 @@ uint8_t RingBufferBP::checkTail(size_t head, size_t mlen) const {
   return buf_[(head + mlen + sizeof(size_t) + capacity_) % capacity_];
 }
 
-size_t RingBufferBP::checkMessageLength(size_t head) const {
+size_t RingBufferBP::checkFirstMesssageLength(size_t head) const {
   GPR_ASSERT(head < capacity_);
   size_t mlen;
 
@@ -41,9 +41,9 @@ size_t RingBufferBP::checkMessageLength(size_t head) const {
   return mlen;
 }
 
-size_t RingBufferBP::checkFirstMessageLength(size_t head) const {
+size_t RingBufferBP::checkMessageLength(size_t head) const {
   size_t mlen, mlens = 0;
-  while ((mlen = checkMessageLength(head)) > 0) {
+  while ((mlen = checkFirstMesssageLength(head)) > 0) {
     mlens += mlen;
     head = (head + mlen + sizeof(size_t) + 1) % capacity_;
   }
@@ -66,7 +66,7 @@ bool RingBufferBP::Read(msghdr* msg, size_t& expected_mlens) {
   GPR_ASSERT(head < capacity_);
 
   size_t iov_idx = 0, iov_offset = 0;
-  size_t mlen = checkMessageLength(head), m_offset = 0;
+  size_t mlen = checkFirstMesssageLength(head), m_offset = 0;
   size_t read_mlens = 0, read_lens = 0;
   size_t buf_offset = (head + sizeof(size_t)) % capacity_;
   size_t msghdr_size = 0;
@@ -113,7 +113,7 @@ bool RingBufferBP::Read(msghdr* msg, size_t& expected_mlens) {
       }
       head =
           (head + sizeof(size_t) + mlen + 1) % capacity_;  // move to next head
-      mlen = checkMessageLength(head);                // check mlen of the new head
+      mlen = checkFirstMesssageLength(head);                // check mlen of the new head
       if (read_mlens + mlen > msghdr_size) {  // msghdr could not hold new mlen
         break;
       }

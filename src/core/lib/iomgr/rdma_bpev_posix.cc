@@ -576,6 +576,7 @@ grpc_endpoint* grpc_rdma_bpev_create(grpc_fd* em_fd,
   rdma->rdmasr = new RDMASenderReceiverBPEV(server);
   rdma->rdmasr->Connect(rdma->fd);
   rdma->final_read = false;
+  grpc_fd_set_rdmasr(em_fd, rdma->rdmasr);
   return &rdma->base;
 }
 

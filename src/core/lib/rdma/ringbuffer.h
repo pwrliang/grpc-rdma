@@ -70,9 +70,9 @@ class RingBufferBP : public RingBuffer {
  public:
   explicit RingBufferBP(size_t capacity) : RingBuffer(capacity) {}
 
-  size_t CheckMessageLength() const { return checkFirstMessageLength(head_); }
+  size_t CheckMessageLength() const { return checkMessageLength(head_); }
 
-  size_t CheckFirstMessageLength() const { return checkMessageLength(head_); }
+  size_t CheckFirstMessageLength() const { return checkFirstMesssageLength(head_); }
 
   bool Read(msghdr* msg, size_t& expected_lens) override;
 
@@ -94,9 +94,9 @@ class RingBufferBP : public RingBuffer {
 
   uint8_t checkTail(size_t head, size_t mlen) const;
 
-  size_t checkMessageLength(size_t head) const;
+  size_t checkFirstMesssageLength(size_t head) const;
 
-  size_t checkFirstMessageLength(size_t head) const;
+  size_t checkMessageLength(size_t head) const;
 };
 
 class RingBufferEvent : public RingBuffer {

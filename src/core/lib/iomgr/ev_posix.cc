@@ -35,10 +35,10 @@
 #include "src/core/lib/gprpp/global_config.h"
 #include "src/core/lib/iomgr/ev_epoll1_linux.h"
 #include "src/core/lib/iomgr/ev_epollex_linux.h"
-#include "src/core/lib/iomgr/ev_poll_posix.h"
-#include "src/core/lib/iomgr/ev_epollex_rdma_event_linux.h"
 #include "src/core/lib/iomgr/ev_epollex_rdma_bp_linux.h"
 #include "src/core/lib/iomgr/ev_epollex_rdma_bpev_linux.h"
+#include "src/core/lib/iomgr/ev_epollex_rdma_event_linux.h"
+#include "src/core/lib/iomgr/ev_poll_posix.h"
 #include "src/core/lib/iomgr/internal_errqueue.h"
 #include "src/core/lib/iomgr/iomgr_internal.h"
 
@@ -131,13 +131,17 @@ const grpc_event_engine_vtable* init_non_polling(bool explicit_request) {
 // environment variable if that variable is set (which should be a
 // comma-separated list of one or more event engine names)
 static event_engine_factory g_factories[] = {
-    {ENGINE_HEAD_CUSTOM, nullptr},        {ENGINE_HEAD_CUSTOM, nullptr},
-    {ENGINE_HEAD_CUSTOM, nullptr},        {ENGINE_HEAD_CUSTOM, nullptr},
-    {"epollex", grpc_init_epollex_linux}, {"epoll1", grpc_init_epoll1_linux},
-    {"poll", grpc_init_poll_posix},       {"none", init_non_polling},
-    {"epollex_rdma_event", grpc_init_epollex_rdma_event_linux},        
+    {ENGINE_HEAD_CUSTOM, nullptr},
+    {ENGINE_HEAD_CUSTOM, nullptr},
+    {ENGINE_HEAD_CUSTOM, nullptr},
+    {ENGINE_HEAD_CUSTOM, nullptr},
+    {"epollex", grpc_init_epollex_linux},
+    {"epoll1", grpc_init_epoll1_linux},
+    {"poll", grpc_init_poll_posix},
+    {"none", init_non_polling},
+    {"epollex_rdma_event", grpc_init_epollex_rdma_event_linux},
     {"epollex_rdma_bp", grpc_init_epollex_rdma_bp_linux},
-    {"epollex_rdma_bpev", grpc_init_epollex_rdma_bpev_linux},        
+    {"epollex_rdma_bpev", grpc_init_epollex_rdma_bpev_linux},
     {ENGINE_TAIL_CUSTOM, nullptr},
 };
 
@@ -269,6 +273,10 @@ grpc_fd* grpc_fd_create(int fd, const char* name, bool track_err) {
   GRPC_FD_TRACE("fd_create(%d, %s, %d)", fd, name, track_err);
   return g_event_engine->fd_create(
       fd, name, track_err && grpc_event_engine_can_track_errors());
+}
+
+void grpc_fd_set_rdmasr(grpc_fd* fd, RDMASenderReceiver* rdmasr) {
+  g_event_engine->fd_set_rdmasr(fd, rdmasr);
 }
 
 int grpc_fd_wrapped_fd(grpc_fd* fd) {
