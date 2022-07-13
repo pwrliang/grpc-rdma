@@ -66,6 +66,7 @@
 #include "src/core/lib/iomgr/timer.h"
 #include "src/core/lib/iomgr/wakeup_fd_posix.h"
 #include "src/core/lib/profiling/timers.h"
+#include "src/core/lib/rdma/rdma_sender_receiver.h"
 
 // debug aid: create workers on the heap (allows asan to spot
 // use-after-destruction)
@@ -615,13 +616,6 @@ static void fd_add_pollset(grpc_fd* fd, grpc_pollset* pollset) {
   grpc_core::MutexLockForGprMu lock(&fd->pollable_mu);
   fd->pollset_fds.push_back(epfd);
 }
-
-void grpc_fd_set_rdmasr_bp(grpc_fd* fd, RDMASenderReceiverBP* rdmasr) {
-  //  printf("fd: %d, grpc_fd: %p set rdmasr: %p\n", fd->fd, fd, rdmasr);
-  fd->rdmasr = rdmasr;
-}
-
-RDMASenderReceiverBP* grpc_fd_get_rdmasr_bp(grpc_fd* fd) { return fd->rdmasr; }
 
 /*******************************************************************************
  * Pollable Definitions

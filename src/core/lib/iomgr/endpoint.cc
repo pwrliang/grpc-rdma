@@ -18,6 +18,7 @@
 
 #include <grpc/support/port_platform.h>
 #include <map>
+#include <mutex>
 
 #include "src/core/lib/iomgr/endpoint.h"
 #include "src/core/lib/iomgr/ev_posix.h"

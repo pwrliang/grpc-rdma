@@ -62,7 +62,7 @@
 #include "src/core/lib/iomgr/timer.h"
 #include "src/core/lib/iomgr/wakeup_fd_posix.h"
 #include "src/core/lib/profiling/timers.h"
-
+#include "src/core/lib/rdma/rdma_sender_receiver.h"
 // debug aid: create workers on the heap (allows asan to spot
 // use-after-destruction)
 //#define GRPC_EPOLLEX_CREATE_WORKERS_ON_HEAP 1
@@ -629,10 +629,6 @@ static void fd_add_pollset(grpc_fd* fd, grpc_pollset* pollset) {
 
 void grpc_fd_set_rdmasr_event(grpc_fd* fd, RDMASenderReceiverEvent* rdmasr) {
   fd->rdmasr = rdmasr;
-}
-
-RDMASenderReceiverEvent* grpc_fd_get_rdmasr_event(grpc_fd* fd) {
-  return fd->rdmasr;
 }
 
 /*******************************************************************************

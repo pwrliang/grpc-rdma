@@ -27,9 +27,4 @@
 const grpc_event_engine_vtable* grpc_init_epollex_rdma_bpev_linux(
     bool explicitly_requested);
 
-void grpc_fd_set_rdmasr_bpev(grpc_fd* fd, RDMASenderReceiverBPEV* rdmasr);
-
-RDMASenderReceiverBPEV* grpc_fd_get_rdmasr_bpev(grpc_fd* fd);
-
-
 #endif /* GRPC_CORE_LIB_IOMGR_EV_EPOLLEX_RDMA_BPEV_LINUX_H */

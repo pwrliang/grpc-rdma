@@ -27,9 +27,4 @@
 const grpc_event_engine_vtable* grpc_init_epollex_rdma_bp_linux(
     bool explicitly_requested);
 
-void grpc_fd_set_rdmasr_bp(grpc_fd* fd, RDMASenderReceiverBP* rdmasr);
-
-RDMASenderReceiverBP* grpc_fd_get_rdmasr_bp(grpc_fd* fd);
-
-
 #endif /* GRPC_CORE_LIB_IOMGR_EV_EPOLLEX_RDMA_BP_LINUX_H */
