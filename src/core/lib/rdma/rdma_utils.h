@@ -118,35 +118,39 @@ class MemRegion {
   virtual ~MemRegion() { dereg(); }
 
   // register local_mr from ibv_reg_mr, 0 means successful, -1 means failure.
-  int local_reg(std::shared_ptr<ibv_pd> pd, void* mem, size_t size,
-                int flag = rw_flag);
+  int RegisterLocal(std::shared_ptr<ibv_pd> pd, void* mem, size_t size,
+                    int flag = rw_flag);
 
   // set remote_mr, return 0.
-  int remote_reg(void* mem, uint32_t rkey, size_t len);
-
-  // if it is local_mr, deregister its mr, set remote as true
-  void dereg();
+  int RegisterRemote(void* mem, uint32_t rkey, size_t len);
 
   uint32_t rkey() const {
     return remote ? remote_mr.rkey : (local_mr ? local_mr->rkey : 0);
   }
+
   uint32_t lkey() const {
     return remote ? remote_mr.lkey : (local_mr ? local_mr->lkey : 0);
   }
+
   void* addr() const {
     return remote ? remote_mr.addr : (local_mr ? local_mr->addr : 0);
   }
+
   size_t length() const {
     return remote ? remote_mr.length : (local_mr ? local_mr->length : 0);
   }
+
   bool is_remote() const { return remote; }
+
   bool is_local() const { return !remote; }
 
  private:
+  // if it is local_mr, deregister its mr, set remote as true
+  void dereg();
+
   std::shared_ptr<ibv_mr> local_mr;  // local memory region
   ibv_mr remote_mr;                  // remote memory region
   int flag;                          // either w_flag or rw_flag
-
   bool remote;
 };
 
@@ -203,4 +207,4 @@ int sync_data(int fd, const char* local, char* remote, const size_t sz);
 
 void barrier(int fd);
 
-#endif // GRPC_CORE_LIB_RDMA_RDMA_UTILS_H
+#endif  // GRPC_CORE_LIB_RDMA_RDMA_UTILS_H

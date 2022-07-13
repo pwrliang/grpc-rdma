@@ -15,9 +15,9 @@ RDMASenderReceiverBP::RDMASenderReceiverBP(bool server)
           server) {
   auto pd = RDMANode::GetInstance().get_pd();
   auto& node = RDMANode::GetInstance();
-  if (local_ringbuf_mr_.local_reg(pd, ringbuf_->get_buf(),
-                                  ringbuf_->get_capacity())) {
-    gpr_log(GPR_ERROR, "failed to local_reg local_ringbuf_mr");
+  if (local_ringbuf_mr_.RegisterLocal(pd, ringbuf_->get_buf(),
+                                      ringbuf_->get_capacity())) {
+    gpr_log(GPR_ERROR, "failed to RegisterLocal local_ringbuf_mr");
     exit(-1);
   }
 }
@@ -27,7 +27,7 @@ RDMASenderReceiverBP::~RDMASenderReceiverBP() {
   delete ringbuf_;
 }
 
-void RDMASenderReceiverBP::connect(int fd) {
+void RDMASenderReceiverBP::Connect(int fd) {
   fd_ = fd;
   conn_data_->SyncQP(fd);
   conn_data_->SyncMR(fd, local_ringbuf_mr_, remote_ringbuf_mr_);
@@ -37,15 +37,16 @@ void RDMASenderReceiverBP::connect(int fd) {
   barrier(fd);
 }
 
-bool RDMASenderReceiverBP::check_incoming() const {
-  return dynamic_cast<RingBufferBP*>(ringbuf_)->check_mlen() > 0;
+bool RDMASenderReceiverBP::HasMessage() const {
+  return dynamic_cast<RingBufferBP*>(ringbuf_)->CheckFirstMessageLength() > 0;
 }
 
-size_t RDMASenderReceiverBP::check_and_ack_incomings_locked() {
-  return unread_mlens_ = dynamic_cast<RingBufferBP*>(ringbuf_)->check_mlens();
+size_t RDMASenderReceiverBP::MarkMessageLength() {
+  return unread_mlens_ =
+             dynamic_cast<RingBufferBP*>(ringbuf_)->CheckMessageLength();
 }
 
-size_t RDMASenderReceiverBP::recv(msghdr* msg) {
+size_t RDMASenderReceiverBP::Recv(msghdr* msg) {
   ContentAssertion cass(read_counter_);
   // the actual read size is unread_data_size
   size_t mlens = unread_mlens_;
@@ -57,16 +58,16 @@ size_t RDMASenderReceiverBP::recv(msghdr* msg) {
 
   // since we may read more data than unread_mlens_, mlens will be updated to
   // the real mlens we have read
-  bool should_recycle = ringbuf_->read_to_msghdr(msg, mlens);
+  bool should_recycle = ringbuf_->Read(msg, mlens);
   unread_mlens_ -= mlens;
   if (should_recycle) {
-    update_remote_metadata();
+    updateRemoteMetadata();
   }
 
   return mlens;
 }
 
-bool RDMASenderReceiverBP::send(msghdr* msg, size_t mlen) {
+bool RDMASenderReceiverBP::Send(msghdr* msg, size_t mlen) {
   ContentAssertion cass(write_counter_);
   size_t remote_ringbuf_sz = remote_ringbuf_mr_.length();
   size_t len = mlen + sizeof(size_t) + 1;
@@ -81,8 +82,8 @@ bool RDMASenderReceiverBP::send(msghdr* msg, size_t mlen) {
     gpr_log(GPR_INFO, "send, mlen: %zu", mlen);
   }
 
-  update_local_metadata();
-  if (!is_writable(mlen)) {
+  updateLocalMetadata();
+  if (!isWritable(mlen)) {
     if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_sr_bp_trace)) {
       gpr_log(GPR_INFO, "ring buffer is full, with mlen: %zu", mlen);
     }
@@ -104,7 +105,7 @@ bool RDMASenderReceiverBP::send(msghdr* msg, size_t mlen) {
     while (iov_idx < msg->msg_iovlen && nwritten < mlen) {
       void* iov_base = msg->msg_iov[iov_idx].iov_base;
       size_t iov_len = msg->msg_iov[iov_idx].iov_len;
-      if (zerocopy_sendbuf_contains(iov_base)) {
+      if (ZerocopySendbufContains(iov_base)) {
         zerocopy = true;
         init_sge(&sges[++sge_idx], iov_base, iov_len,
                  zerocopy_sendbuf_mr_.lkey());
@@ -133,18 +134,18 @@ bool RDMASenderReceiverBP::send(msghdr* msg, size_t mlen) {
   {
     GRPCProfiler profiler(GRPC_STATS_TIME_SEND_POST);
     if (zerocopy) {
-      n_outstanding_send_ =
-          conn_data_->post_sends(remote_ringbuf_mr_, remote_ringbuf_tail_, sges,
-                                 sge_idx + 1, len, IBV_WR_RDMA_WRITE);
+      n_outstanding_send_ = conn_data_->PostSendRequests(
+          remote_ringbuf_mr_, remote_ringbuf_tail_, sges, sge_idx + 1, len,
+          IBV_WR_RDMA_WRITE);
     } else {
       n_outstanding_send_ =
-          conn_data_->post_send(remote_ringbuf_mr_, remote_ringbuf_tail_,
-                                sendbuf_mr_, 0, len, IBV_WR_RDMA_WRITE);
+          conn_data_->PostSendRequest(remote_ringbuf_mr_, remote_ringbuf_tail_,
+                                      sendbuf_mr_, 0, len, IBV_WR_RDMA_WRITE);
     }
-    int ret = conn_data_->poll_send_completion(n_outstanding_send_);
+    int ret = conn_data_->PollSendCompletion(n_outstanding_send_);
     if (ret != 0) {
       gpr_log(GPR_ERROR,
-              "poll_send_completion failed, code: %d "
+              "PollSendCompletion failed, code: %d "
               "fd = %d, mlen = %zu, remote_ringbuf_tail = "
               "%zu, ringbuf_sz = %zu, post_num = %d",
               ret, fd_, mlen, remote_ringbuf_tail_, remote_ringbuf_sz,

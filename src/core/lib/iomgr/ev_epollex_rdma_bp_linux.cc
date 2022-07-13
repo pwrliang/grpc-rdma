@@ -1079,12 +1079,12 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
           uint32_t events = 0;
           // FIXME: We may implement this with Edeg-Trigger, but last time
           // that causes tensorflow-lenet to suck
-          if (fd->rdmasr->get_unread_data_size() == 0 &&
-              fd->rdmasr->check_incoming() > 0) {
+          if (fd->rdmasr->get_unread_message_length() == 0 &&
+              fd->rdmasr->HasMessage() > 0) {
             events |= EPOLLIN;
           }
 
-          if (fd->rdmasr->has_pending_write()) {
+          if (fd->rdmasr->HasPendingWrite()) {
             events |= EPOLLOUT;
           }
 

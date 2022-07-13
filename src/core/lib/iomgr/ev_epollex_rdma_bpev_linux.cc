@@ -1028,12 +1028,12 @@ static grpc_error_handle pollable_process_events(grpc_pollset* pollset,
           sz = read(fd->rdmasr->get_wakeup_fd(), &val, sizeof(val));
         } while (sz < 0 && errno == EAGAIN);
 
-        if (fd->rdmasr->get_unread_data_size() == 0 &&
-            fd->rdmasr->check_incoming() > 0) {
+        if (fd->rdmasr->get_unread_message_length() == 0 &&
+            fd->rdmasr->HasMessage() > 0) {
           fd_become_readable(fd);
         }
 
-        if (fd->rdmasr->has_pending_write()) {
+        if (fd->rdmasr->HasPendingWrite()) {
           fd_become_writable(fd);
         }
       }
@@ -1125,7 +1125,7 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
     auto& rdma_poller = RDMAPoller::GetInstance();
     absl::Time t_begin_poll = absl::Now();
 
-    if (rdma_poller.polling_thread_num() > 0) {
+    if (rdma_poller.get_polling_thread_num() > 0) {
       int polling_limit_us = p->bp_timeout;
       int64_t t_elapsed_us;
 
@@ -1144,12 +1144,12 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
 
           uint32_t events = 0;
 
-          if (rdmasr->get_unread_data_size() == 0 &&
-              rdmasr->check_incoming() > 0) {
+          if (rdmasr->get_unread_message_length() == 0 &&
+              rdmasr->HasMessage() > 0) {
             events |= EPOLLIN;
           }
 
-          if (fd->rdmasr->has_pending_write()) {
+          if (fd->rdmasr->HasPendingWrite()) {
             events |= EPOLLOUT;
           }
 
@@ -1195,12 +1195,12 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
             GPR_ASSERT(fd->rdmasr != nullptr);
 
             uint32_t events = 0;
-            if (fd->rdmasr->get_unread_data_size() == 0 &&
-                fd->rdmasr->check_incoming() > 0) {
+            if (fd->rdmasr->get_unread_message_length() == 0 &&
+                fd->rdmasr->HasMessage() > 0) {
               events |= EPOLLIN;
             }
 
-            if (fd->rdmasr->has_pending_write()) {
+            if (fd->rdmasr->HasPendingWrite()) {
               events |= EPOLLOUT;
             }
 
@@ -1446,7 +1446,7 @@ static grpc_error_handle pollset_work(grpc_pollset* pollset,
         // Affinity is not set
         if (cpu_cnt == num_cores) {
           int begin_cpu =
-              RDMAPoller::GetInstance().polling_thread_num() % num_cores;
+              RDMAPoller::GetInstance().get_polling_thread_num() % num_cores;
 
           CPU_ZERO(&cpuset);
           for (int cpu_id = begin_cpu; cpu_id < num_cores; cpu_id++) {

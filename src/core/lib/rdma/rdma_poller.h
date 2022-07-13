@@ -49,7 +49,7 @@ class RDMAPoller {
               size_t n_slots = rdmasr_slots_.size();
               int num_cores = sysconf(_SC_NPROCESSORS_ONLN);
 
-              bind_thread_to_core(thread_id % num_cores);
+              bindThreadToCore(thread_id % num_cores);
 
               pthread_setname_np(
                   pthread_self(),
@@ -109,7 +109,7 @@ class RDMAPoller {
     }
   }
 
-  int polling_thread_num() const {
+  int get_polling_thread_num() const {
     return n_threads_ > 0 ? polling_thread_num_ : 0;
   }
 
@@ -159,7 +159,7 @@ class RDMAPoller {
     for (int i = 0; i < rdmasr_slots_[slot_id].size(); i++) {
       auto* rdmasr = rdmasr_slots_[slot_id][i];
 
-      if (is_readable(rdmasr) || is_writable(rdmasr)) {
+      if (isReadable(rdmasr) || isWritable(rdmasr)) {
         do {
           sz = write(rdmasr->get_wakeup_fd(), &val, sizeof(val));
         } while (sz < 0 && errno == EAGAIN);
@@ -168,7 +168,7 @@ class RDMAPoller {
     gpr_mu_unlock(&rdmasr_locks_[slot_id]);
   }
 
-  int bind_thread_to_core(int core_id) {
+  int bindThreadToCore(int core_id) {
     int num_cores = sysconf(_SC_NPROCESSORS_ONLN);
     if (core_id < 0 || core_id >= num_cores) {
       return EINVAL;
@@ -182,25 +182,24 @@ class RDMAPoller {
     return pthread_setaffinity_np(current_thread, sizeof(cpu_set_t), &cpuset);
   }
 
-  bool is_readable(RDMASenderReceiverBPEV* rdmasr) {
+  bool isReadable(RDMASenderReceiverBPEV* rdmasr) {
     bool has_event = false;
 
-    if (rdmasr->get_unread_data_size() == 0 && rdmasr->check_incoming() > 0) {
+    if (rdmasr->get_unread_message_length() == 0 && rdmasr->HasMessage() > 0) {
       has_event = true;
     }
     return has_event;
   }
 
-  bool is_writable(RDMASenderReceiverBPEV* rdmasr) {
+  bool isWritable(RDMASenderReceiverBPEV* rdmasr) {
     bool has_event = false;
 
-    if (rdmasr->has_pending_write()) {
+    if (rdmasr->HasPendingWrite()) {
       has_event = true;
     }
     return has_event;
   }
 
- private:
   RDMAPollerMode mode_;
   int polling_thread_num_;
   std::vector<gpr_mu> rdmasr_locks_;
