@@ -29,6 +29,7 @@
 #include "src/core/lib/iomgr/tcp_posix.h"
 
 grpc_core::TraceFlag grpc_tcp_trace(false, "tcp");
+grpc_core::TraceFlag grpc_rdma_trace(false, "rdma");
 std::map<std::string, grpc_endpoint*> peer2endpoint;
 std::mutex peer2endpoint_mtx;
 std::atomic_size_t global_endpoint_count;

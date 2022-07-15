@@ -156,8 +156,7 @@ static void pollable_unref(pollable* p, const grpc_core::DebugLocation& dbg_loc,
  */
 
 struct grpc_fd {
-  grpc_fd(int fd, const char* name, bool track_err, int)
-      : fd(fd), track_err(track_err) {
+  grpc_fd(int fd, const char* name, bool track_err, int) : fd(fd) {
     gpr_mu_init(&orphan_mu);
     gpr_mu_init(&pollable_mu);
     read_closure.InitEvent();
@@ -168,7 +167,6 @@ struct grpc_fd {
     gpr_mu_init(&rdma_mu);
 
     std::string fd_name = absl::StrCat(name, " fd=", fd);
-    client = strncmp(name, "tcp-client", 10) == 0;
     grpc_iomgr_register_object(&iomgr_object, fd_name.c_str());
 #ifndef NDEBUG
     if (GRPC_TRACE_FLAG_ENABLED(grpc_trace_fd_refcount)) {
@@ -221,7 +219,6 @@ struct grpc_fd {
     pollable_obj = nullptr;
     on_done_closure = nullptr;
     memset(&iomgr_object, -1, sizeof(iomgr_object));
-    track_err = false;
   }
 #else
   void invalidate() {}
@@ -251,15 +248,11 @@ struct grpc_fd {
 
   grpc_iomgr_object iomgr_object;
 
-  // Do we need to track EPOLLERR events separately?
-  bool track_err;
-
   // set to nullptr inside fd constructor and fd_create
   // set value inside grpc_rdma_event_create
   // add its channel fd to epfd during pollable_add_fd
   // del its channel fd from epfd during fd_orphan
   RDMASenderReceiverEvent* rdmasr = nullptr;
-  bool client;
   std::vector<pollable*>* polling_by;
 
   gpr_mu rdma_mu;
@@ -521,8 +514,7 @@ static void fd_orphan(grpc_fd* fd, grpc_closure* on_done, int* release_fd,
     memset(&ev_fd, 0, sizeof(ev_fd));
     if (pollable_obj != nullptr) {  // For PO_FD.
       epoll_ctl(pollable_obj->epfd, EPOLL_CTL_DEL, fd->fd, &ev_fd);
-      if (fd->rdmasr) {  // never reach here before, bugs may happen if you
-                         // reach here
+      if (fd->rdmasr) {
         epoll_ctl(pollable_obj->epfd, EPOLL_CTL_DEL,
                   fd->rdmasr->get_recv_channel_fd(), &ev_fd);
         epoll_ctl(pollable_obj->epfd, EPOLL_CTL_DEL,
@@ -531,10 +523,8 @@ static void fd_orphan(grpc_fd* fd, grpc_closure* on_done, int* release_fd,
     }
     for (size_t i = 0; i < fd->pollset_fds.size(); ++i) {  // For PO_MULTI.
       const int epfd = fd->pollset_fds[i];
-      // printf("fd %d orphan from epfd %d\n", fd->fd, epfd);
       epoll_ctl(epfd, EPOLL_CTL_DEL, fd->fd, &ev_fd);
-      if (fd->rdmasr) {  // never reach here before, bugs may happen if you
-                         // reach here
+      if (fd->rdmasr) {
         epoll_ctl(epfd, EPOLL_CTL_DEL, fd->rdmasr->get_recv_channel_fd(),
                   &ev_fd);
         epoll_ctl(epfd, EPOLL_CTL_DEL,
@@ -543,25 +533,24 @@ static void fd_orphan(grpc_fd* fd, grpc_closure* on_done, int* release_fd,
     }
     *release_fd = fd->fd;
   } else {
-    // printf("fd %d orphan B\n", fd->fd);
     close(fd->fd);
-    if (fd->rdmasr != nullptr) {
-      gpr_mu_lock(&fd->rdma_mu);
-      auto pollables = *fd->polling_by;
-      gpr_mu_unlock(&fd->rdma_mu);
-
-      for (auto p : pollables) {
-        gpr_mu_lock(&p->rdma_mu);
-        p->rdma_fds->erase(
-            std::remove(p->rdma_fds->begin(), p->rdma_fds->end(), fd),
-            p->rdma_fds->end());
-        gpr_mu_unlock(&p->rdma_mu);
-      }
-      // close(fd->rdmasr->get_recv_channel_fd());
-      // close(fd->rdmasr->get_metadata_recv_channel_fd());
-    }
     is_fd_closed = true;
   }
+
+  if (fd->rdmasr != nullptr) {
+    gpr_mu_lock(&fd->rdma_mu);
+    auto pollables = *fd->polling_by;
+    gpr_mu_unlock(&fd->rdma_mu);
+
+    for (auto p : pollables) {
+      gpr_mu_lock(&p->rdma_mu);
+      p->rdma_fds->erase(
+          std::remove(p->rdma_fds->begin(), p->rdma_fds->end(), fd),
+          p->rdma_fds->end());
+      gpr_mu_unlock(&p->rdma_mu);
+    }
+  }
+
   // TODO(sreek): handle fd removal (where is_fd_closed=false)
   if (!is_fd_closed) {
     GRPC_FD_TRACE("epoll_fd %p (%d) was orphaned but not closed.", fd, fd->fd);
@@ -631,10 +620,6 @@ static void fd_add_pollset(grpc_fd* fd, grpc_pollset* pollset) {
   fd->pollset_fds.push_back(epfd);
 }
 
-void grpc_fd_set_rdmasr_event(grpc_fd* fd, RDMASenderReceiverEvent* rdmasr) {
-  fd->rdmasr = rdmasr;
-}
-
 /*******************************************************************************
  * Pollable Definitions
  */
@@ -662,12 +647,6 @@ static grpc_error_handle pollable_create(pollable_type type, pollable** p) {
   ev.events = static_cast<uint32_t>(EPOLLIN | EPOLLET);
   ev.data.ptr =
       reinterpret_cast<void*>(1 | reinterpret_cast<intptr_t>(&(*p)->wakeup));
-  if ((reinterpret_cast<intptr_t>(ev.data.ptr) & 5) == 5) {
-    gpr_log(GPR_ERROR,
-            "pollable_create, wakeup address %p is incomptable with rdma",
-            &(*p)->wakeup);
-    abort();
-  }
   if (epoll_ctl(epfd, EPOLL_CTL_ADD, (*p)->wakeup.read_fd, &ev) != 0) {
     err = GRPC_OS_ERROR(errno, "epoll_ctl");
     GRPC_FD_TRACE(
@@ -698,12 +677,25 @@ static grpc_error_handle pollable_create(pollable_type type, pollable** p) {
   return GRPC_ERROR_NONE;
 }
 
-// caller should avoid fd->rdmasr == nullptr
 static grpc_error_handle pollable_add_rdma_channel_fd(pollable* p,
                                                       grpc_fd* fd) {
   grpc_error_handle error = GRPC_ERROR_NONE;
   static const char* err_desc = "pollable_add_fd";
   const int epfd = p->epfd;
+
+  int rdma_recv_channel_fd = fd->rdmasr->get_recv_channel_fd();
+  struct epoll_event recv_ev_fd;
+  recv_ev_fd.events = static_cast<uint32_t>(EPOLLIN | EPOLLET | EPOLLEXCLUSIVE);
+  recv_ev_fd.data.ptr =
+      reinterpret_cast<void*>(reinterpret_cast<intptr_t>(fd) | 2);
+  if (epoll_ctl(epfd, EPOLL_CTL_ADD, rdma_recv_channel_fd, &recv_ev_fd) != 0) {
+    switch (errno) {
+      case EEXIST:
+        break;
+      default:
+        append_error(&error, GRPC_OS_ERROR(errno, "epoll_ctl"), err_desc);
+    }
+  }
 
   int rdma_meta_recv_channel_fd = fd->rdmasr->get_metadata_recv_channel_fd();
   struct epoll_event meta_recv_ev_fd;
@@ -720,25 +712,6 @@ static grpc_error_handle pollable_add_rdma_channel_fd(pollable* p,
         append_error(&error, GRPC_OS_ERROR(errno, "epoll_ctl"), err_desc);
     }
   }
-  // printf("pollable_add_rdma_channel_fd 1 %d to epfd %d\n",
-  // rdma_meta_recv_channel_fd, epfd);
-
-  int rdma_recv_channel_fd = fd->rdmasr->get_recv_channel_fd();
-  struct epoll_event recv_ev_fd;
-  recv_ev_fd.events = static_cast<uint32_t>(EPOLLIN | EPOLLET | EPOLLEXCLUSIVE);
-  recv_ev_fd.data.ptr =
-      reinterpret_cast<void*>(reinterpret_cast<intptr_t>(fd) | 4);
-  if (epoll_ctl(epfd, EPOLL_CTL_ADD, rdma_recv_channel_fd, &recv_ev_fd) != 0) {
-    switch (errno) {
-      case EEXIST:
-        break;
-      default:
-        append_error(&error, GRPC_OS_ERROR(errno, "epoll_ctl"), err_desc);
-    }
-  }
-  // printf("pollable_add_rdma_channel_fd 2 %d to epfd %d\n",
-  // rdma_recv_channel_fd, epfd);
-
   return error;
 }
 
@@ -757,8 +730,7 @@ static grpc_error_handle pollable_add_fd(pollable* p, grpc_fd* fd) {
    * to avoid synchronization issues when accessing it after receiving an event.
    * Accessing fd would be a data race there because the fd might have been
    * returned to the free list at that point. */
-  ev_fd.data.ptr = reinterpret_cast<void*>(reinterpret_cast<intptr_t>(fd) |
-                                           (fd->track_err ? 2 : 0));
+  ev_fd.data.ptr = reinterpret_cast<void*>(fd);
   GRPC_STATS_INC_SYSCALL_EPOLL_CTL();
   if (epoll_ctl(epfd, EPOLL_CTL_ADD, fd->fd, &ev_fd) != 0) {
     switch (errno) {
@@ -768,17 +740,12 @@ static grpc_error_handle pollable_add_fd(pollable* p, grpc_fd* fd) {
         append_error(&error, GRPC_OS_ERROR(errno, "epoll_ctl"), err_desc);
     }
   }
-  // printf("pollable_add_fd %d to epfd %d\n", fd->fd, epfd);
 
-  if (error == GRPC_ERROR_NONE && fd->rdmasr) {
+  if (fd->rdmasr != nullptr) {
     gpr_mu_lock(&fd->rdma_mu);
     size_t pollable_size = fd->polling_by->size();
-    gpr_mu_unlock(&fd->rdma_mu);
 
-    //    printf("pollable_add_fd, pollable: %p fd: %p, cnt: %zu\n", p, fd,
-    //    fd->polling_by->size());
-
-    if (fd->client || pollable_size == 0) {
+    if (!fd->rdmasr->is_server() || pollable_size == 0) {
       gpr_mu_lock(&p->rdma_mu);
       auto& fds = *p->rdma_fds;
       if (std::find(fds.begin(), fds.end(), fd) == fds.end()) {
@@ -786,11 +753,10 @@ static grpc_error_handle pollable_add_fd(pollable* p, grpc_fd* fd) {
       }
       gpr_mu_unlock(&p->rdma_mu);
 
-      gpr_mu_lock(&fd->rdma_mu);
       fd->polling_by->push_back(p);
       GPR_ASSERT(pollable_add_rdma_channel_fd(p, fd) == GRPC_ERROR_NONE);
-      gpr_mu_unlock(&fd->rdma_mu);
     }
+    gpr_mu_unlock(&fd->rdma_mu);
   }
 
   return error;
@@ -1042,88 +1008,73 @@ static grpc_error_handle pollable_process_events(grpc_pollset* pollset,
     int n = pollable_obj->event_cursor++;
     struct epoll_event* ev = &pollable_obj->events[n];
     void* data_ptr = ev->data.ptr;
-    if ((reinterpret_cast<intptr_t>(data_ptr) & 4) == 4) {
-      grpc_fd* fd = reinterpret_cast<grpc_fd*>(
-          ~static_cast<intptr_t>(4) & reinterpret_cast<intptr_t>(ev->data.ptr));
-      // printf("pollable %d process_events, %p, %p, %lld, %lld, %lld\n",
-      // pollable_obj->epfd, data_ptr, fd, ev->data.fd, ev->data.u32,
-      // ev->data.u64);
-      if (fd->rdmasr == nullptr) {  // this fd may have been shutdown
-        // printf("fd = %lld\n", grpc_fd_wrapped_fd(fd));
-        continue;
-      }
-      GPR_ASSERT(fd->rdmasr);
-      if ((ev->events & EPOLLIN) != 0) {
-        // printf("fd %d become readable, data\n", fd->fd);
-        fd->rdmasr->CheckData();
-        fd_become_readable(fd);
-      }
-    } else if ((reinterpret_cast<intptr_t>(data_ptr) & 3) ==
-               3) {  // pollable_add_rdma_channel_fd
-      grpc_fd* fd = reinterpret_cast<grpc_fd*>(
-          ~static_cast<intptr_t>(3) & reinterpret_cast<intptr_t>(ev->data.ptr));
-      if (fd->rdmasr == nullptr) {  // this fd may have been shutdown
-        // printf("fd = %lld\n", grpc_fd_wrapped_fd(fd));
-        continue;
-      }
-      GPR_ASSERT(fd->rdmasr);
-      if ((ev->events & EPOLLIN) != 0) {
-        // printf("fd %d become readable, metadata\n", fd->fd);
-        fd->rdmasr->CheckMetadata();
-        fd_become_readable(fd);
-      }
-    } else if (1 & reinterpret_cast<intptr_t>(data_ptr)) {
-      if (GRPC_TRACE_FLAG_ENABLED(grpc_polling_trace)) {
-        gpr_log(GPR_INFO, "PS:%p got pollset_wakeup %p", pollset, data_ptr);
-      }
-      append_error(
-          &error,
-          grpc_wakeup_fd_consume_wakeup(reinterpret_cast<grpc_wakeup_fd*>(
-              ~static_cast<intptr_t>(1) &
-              reinterpret_cast<intptr_t>(data_ptr))),
-          err_desc);
-    } else {
-      grpc_fd* fd =
-          reinterpret_cast<grpc_fd*>(reinterpret_cast<intptr_t>(data_ptr) & ~2);
-      bool track_err = reinterpret_cast<intptr_t>(data_ptr) & 2;
-      bool cancel = (ev->events & EPOLLHUP) != 0;
-      bool error = (ev->events & EPOLLERR) != 0;
-      bool read_ev = (ev->events & (EPOLLIN | EPOLLPRI)) != 0;
-      bool write_ev = (ev->events & EPOLLOUT) != 0;
-      bool err_fallback = error && !track_err;
+    int ev_src = reinterpret_cast<intptr_t>(data_ptr) & 3;
 
-      if (GRPC_TRACE_FLAG_ENABLED(grpc_polling_trace)) {
-        gpr_log(GPR_INFO,
-                "PS:%p got fd %p: cancel=%d read=%d "
-                "write=%d",
-                pollset, fd, cancel, read_ev, write_ev);
+    switch (ev_src) {
+      case 1: {
+        if (GRPC_TRACE_FLAG_ENABLED(grpc_polling_trace)) {
+          gpr_log(GPR_INFO, "PS:%p got pollset_wakeup %p", pollset, data_ptr);
+        }
+        append_error(
+            &error,
+            grpc_wakeup_fd_consume_wakeup(reinterpret_cast<grpc_wakeup_fd*>(
+                ~static_cast<intptr_t>(1) &
+                reinterpret_cast<intptr_t>(data_ptr))),
+            err_desc);
+        break;
       }
-      if (error && !err_fallback) {
+      case 2: {
+        grpc_fd* fd = reinterpret_cast<grpc_fd*>(
+            ~static_cast<intptr_t>(2) &
+            reinterpret_cast<intptr_t>(ev->data.ptr));
+        GPR_ASSERT(fd->rdmasr);
+        if ((ev->events & EPOLLIN) != 0) {
+          fd->rdmasr->SetDataReady();
+          fd_become_readable(fd);
+        }
+        break;
+      }
+      case 3: {
+        grpc_fd* fd = reinterpret_cast<grpc_fd*>(
+            ~static_cast<intptr_t>(3) &
+            reinterpret_cast<intptr_t>(ev->data.ptr));
+        GPR_ASSERT(fd->rdmasr);
+        if ((ev->events & EPOLLIN) != 0) {
+          fd->rdmasr->SetMetadataReady();
+          fd_become_readable(fd);
+        }
+        break;
+      }
+      default: {
+        grpc_fd* fd = reinterpret_cast<grpc_fd*>(data_ptr);
+        bool cancel = (ev->events & EPOLLHUP) != 0;
+        bool read_ev = (ev->events & (EPOLLIN | EPOLLPRI)) != 0;
+        bool write_ev = (ev->events & EPOLLOUT) != 0;
+
         if (GRPC_TRACE_FLAG_ENABLED(grpc_polling_trace)) {
           gpr_log(GPR_INFO,
-                  "pollable_process_event, epfd = %d, event[%d] is tcp error, "
-                  "fd = %d",
-                  pollable_obj->epfd, n, fd->fd);
+                  "PS:%p got fd %p: cancel=%d read=%d "
+                  "write=%d",
+                  pollset, fd, cancel, read_ev, write_ev);
         }
-        fd_has_errors(fd);
-      }
-      if (read_ev || cancel || err_fallback) {
-        if (GRPC_TRACE_FLAG_ENABLED(grpc_polling_trace)) {
-          gpr_log(GPR_INFO,
-                  "pollable_process_event, epfd = %d, event[%d] is tcp "
-                  "readable, fd = %d",
-                  pollable_obj->epfd, n, fd->fd);
+        if (read_ev || cancel) {
+          if (GRPC_TRACE_FLAG_ENABLED(grpc_polling_trace)) {
+            gpr_log(GPR_INFO,
+                    "pollable_process_event, epfd = %d, event[%d] is tcp "
+                    "readable, fd = %d",
+                    pollable_obj->epfd, n, fd->fd);
+          }
+          fd_become_readable(fd);
         }
-        fd_become_readable(fd);
-      }
-      if (write_ev || cancel || err_fallback) {
-        if (GRPC_TRACE_FLAG_ENABLED(grpc_polling_trace)) {
-          gpr_log(GPR_INFO,
-                  "pollable_process_event, epfd = %d, event[%d] is tcp "
-                  "writable, fd = %d",
-                  pollable_obj->epfd, n, fd->fd);
+        if (write_ev || cancel) {
+          if (GRPC_TRACE_FLAG_ENABLED(grpc_polling_trace)) {
+            gpr_log(GPR_INFO,
+                    "pollable_process_event, epfd = %d, event[%d] is tcp "
+                    "writable, fd = %d",
+                    pollable_obj->epfd, n, fd->fd);
+          }
+          fd_become_writable(fd);
         }
-        fd_become_writable(fd);
       }
     }
   }

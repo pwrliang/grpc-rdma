@@ -1,4 +1,3 @@
-#define SENDER_RECEIVER_NON_ATOMIC
 #include "mb.h"
 #include <arpa/inet.h>
 #include <net/if.h>

@@ -162,8 +162,7 @@ static void pollable_unref(pollable* p, const grpc_core::DebugLocation& dbg_loc,
  */
 
 struct grpc_fd {
-  grpc_fd(int fd, const char* name, bool track_err, bool)
-      : fd(fd), track_err(track_err) {
+  grpc_fd(int fd, const char* name, bool track_err, bool) : fd(fd) {
     gpr_mu_init(&orphan_mu);
     gpr_mu_init(&pollable_mu);
     read_closure.InitEvent();
@@ -172,7 +171,6 @@ struct grpc_fd {
     rdmasr = nullptr;
     polling_by = new std::vector<pollable*>();
     gpr_mu_init(&rdma_mu);
-    // printf("fd %d is created\n", fd);
 
     std::string fd_name = absl::StrCat(name, " fd=", fd);
     grpc_iomgr_register_object(&iomgr_object, fd_name.c_str());
@@ -210,7 +208,6 @@ struct grpc_fd {
     rdmasr = nullptr;
     delete polling_by;
     gpr_mu_destroy(&rdma_mu);
-    // printf("fd %d is destroyed\n", fd);
 
     invalidate();
   }
@@ -228,7 +225,6 @@ struct grpc_fd {
     pollable_obj = nullptr;
     on_done_closure = nullptr;
     memset(&iomgr_object, -1, sizeof(iomgr_object));
-    track_err = false;
   }
 #else
   void invalidate() {}
@@ -257,9 +253,6 @@ struct grpc_fd {
   grpc_closure* on_done_closure = nullptr;
 
   grpc_iomgr_object iomgr_object;
-
-  // Do we need to track EPOLLERR events separately?
-  bool track_err;
 
   // set to nullptr inside fd constructor and fd_create
   // set value inside grpc_rdma_bp_create
@@ -698,12 +691,12 @@ static grpc_error_handle pollable_add_fd(pollable* p, grpc_fd* fd) {
    * to avoid synchronization issues when accessing it after receiving an event.
    * Accessing fd would be a data race there because the fd might have been
    * returned to the free list at that point. */
-  ev_fd.data.ptr = reinterpret_cast<void*>(reinterpret_cast<intptr_t>(fd) |
-                                           (fd->track_err ? 2 : 0));
+  ev_fd.data.ptr = reinterpret_cast<void*>(fd);
   GRPC_STATS_INC_SYSCALL_EPOLL_CTL();
   if (epoll_ctl(epfd, EPOLL_CTL_ADD, fd->fd, &ev_fd) != 0) {
     switch (errno) {
       case EEXIST:
+        gpr_log(GPR_ERROR, "exist fd: %d", fd->fd);
         break;
       default:
         append_error(&error, GRPC_OS_ERROR(errno, "epoll_ctl"), err_desc);
@@ -1004,14 +997,10 @@ static grpc_error_handle pollable_process_events(grpc_pollset* pollset,
               reinterpret_cast<intptr_t>(data_ptr))),
           err_desc);
     } else {
-      grpc_fd* fd =
-          reinterpret_cast<grpc_fd*>(reinterpret_cast<intptr_t>(data_ptr) & ~2);
-      bool track_err = reinterpret_cast<intptr_t>(data_ptr) & 2;
+      grpc_fd* fd = reinterpret_cast<grpc_fd*>(data_ptr);
       bool cancel = (ev->events & EPOLLHUP) != 0;
-      bool error = (ev->events & EPOLLERR) != 0;
       bool read_ev = (ev->events & (EPOLLIN | EPOLLPRI)) != 0;
       bool write_ev = (ev->events & EPOLLOUT) != 0;
-      bool err_fallback = error && !track_err;
 
       if (GRPC_TRACE_FLAG_ENABLED(grpc_polling_trace)) {
         gpr_log(GPR_INFO,
@@ -1019,13 +1008,10 @@ static grpc_error_handle pollable_process_events(grpc_pollset* pollset,
                 "write=%d",
                 pollset, fd, cancel, read_ev, write_ev);
       }
-      if (error && !err_fallback) {
-        fd_has_errors(fd);
-      }
-      if (read_ev || cancel || err_fallback) {
+      if (read_ev || cancel) {
         fd_become_readable(fd);
       }
-      if (write_ev || cancel || err_fallback) {
+      if (write_ev || cancel) {
         fd_become_writable(fd);
       }
     }
@@ -1033,8 +1019,6 @@ static grpc_error_handle pollable_process_events(grpc_pollset* pollset,
 
   return error;
 }
-
-extern bool server_node;
 
 /* pollset_shutdown is guaranteed to be called before pollset_destroy. */
 static void pollset_destroy(grpc_pollset* pollset) {
@@ -1080,22 +1064,11 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
 
           GPR_ASSERT(fd->rdmasr != nullptr);
 
-          uint32_t events = 0;
-          // FIXME: We may implement this with Edeg-Trigger, but last time
-          // that causes tensorflow-lenet to suck
-          if (fd->rdmasr->get_unread_message_length() == 0 &&
-              fd->rdmasr->HasMessage() > 0) {
-            events |= EPOLLIN;
-          }
-
-          if (fd->rdmasr->HasPendingWrite()) {
-            events |= EPOLLOUT;
-          }
+          uint32_t events = fd->rdmasr->ToEpollEvent();
 
           if (events > 0) {
             p->events[r].events = events;
-            p->events[r].data.ptr = reinterpret_cast<void*>(
-                reinterpret_cast<intptr_t>(fd) | (fd->track_err ? 2 : 0));
+            p->events[r].data.ptr = reinterpret_cast<void*>(fd);
             r++;
           }
         }
@@ -1119,9 +1092,9 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
     if (timeout != 0) {
       GRPC_SCHEDULING_END_BLOCKING_REGION;
     }
-  }
 
-  if (r < 0) return GRPC_OS_ERROR(errno, "epoll_wait");
+    if (r < 0) return GRPC_OS_ERROR(errno, "epoll_wait");
+  }
 
   if (GRPC_TRACE_FLAG_ENABLED(grpc_polling_trace)) {
     gpr_log(GPR_INFO, "POLLABLE:%p got %d events", p, r);

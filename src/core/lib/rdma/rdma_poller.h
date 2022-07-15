@@ -159,7 +159,7 @@ class RDMAPoller {
     for (int i = 0; i < rdmasr_slots_[slot_id].size(); i++) {
       auto* rdmasr = rdmasr_slots_[slot_id][i];
 
-      if (isReadable(rdmasr) || isWritable(rdmasr)) {
+      if (rdmasr->ToEpollEvent() != 0) {
         do {
           sz = write(rdmasr->get_wakeup_fd(), &val, sizeof(val));
         } while (sz < 0 && errno == EAGAIN);
@@ -180,24 +180,6 @@ class RDMAPoller {
 
     pthread_t current_thread = pthread_self();
     return pthread_setaffinity_np(current_thread, sizeof(cpu_set_t), &cpuset);
-  }
-
-  bool isReadable(RDMASenderReceiverBPEV* rdmasr) {
-    bool has_event = false;
-
-    if (rdmasr->get_unread_message_length() == 0 && rdmasr->HasMessage() > 0) {
-      has_event = true;
-    }
-    return has_event;
-  }
-
-  bool isWritable(RDMASenderReceiverBPEV* rdmasr) {
-    bool has_event = false;
-
-    if (rdmasr->HasPendingWrite()) {
-      has_event = true;
-    }
-    return has_event;
   }
 
   RDMAPollerMode mode_;

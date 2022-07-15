@@ -30,10 +30,13 @@ class RDMASenderReceiverEvent;
 class RDMAConn {
  public:
   typedef enum { UNINIT = 0, RESET, INIT, RTR, RTS, SQD, SQE, ERROR } state_t;
-  explicit RDMAConn(RDMANode* node, bool event_mode = false);
+  explicit RDMAConn(int fd, RDMANode* node, bool event_mode = false);
   virtual ~RDMAConn();
 
   int PollSendCompletion(int expected_num_entries);
+
+  int PostSendRequest(MemRegion& remote_mr, MemRegion& local_mr, size_t sz,
+                      ibv_wr_opcode opcode);
 
   int PostSendRequest(MemRegion& remote_mr, size_t remote_tail,
                       MemRegion& local_mr, size_t local_offset, size_t sz,
@@ -43,13 +46,7 @@ class RDMAConn {
                        struct ibv_sge* sg_list, size_t num_sge, size_t sz,
                        ibv_wr_opcode opcode);
 
-  size_t GetRecvEvents(int& n_comp);
-
-  size_t GetRecvEvents() {
-    int n_comp;
-
-    return GetRecvEvents(n_comp);
-  }
+  size_t GetRecvEvents();
 
   /**
    * Post n receive requests
@@ -59,9 +56,9 @@ class RDMAConn {
   void PostRecvRequests(size_t n);
 
   // after qp was created, sync data with remote
-  int SyncQP(int fd);
-  int SyncMR(int fd, MemRegion& local, MemRegion& remote);
-  void Sync(int fd);
+  int SyncQP();
+
+  int SyncMR(MemRegion& local, MemRegion& remote);
 
   int get_recv_channel_fd() const { return recv_channel_->fd; }
 
@@ -85,16 +82,22 @@ class RDMAConn {
     return false;
   }
 
- private:
-  size_t PollRecvCompletion(int& n_comp);
+  bool IsPeerAlive() const {
+    uint8_t buf;
+    int ret;
 
-  size_t PollRecvCompletion() {
-    int n_comp;
+    do {
+      ret = recv(fd_, &buf, 0, 0);
+    } while (ret < 0 && errno == EINTR);
 
-    return PollRecvCompletion(n_comp);
+    return ret != 0;
   }
 
+ private:
+  size_t PollRecvCompletion();
+
   state_t state_;
+  int fd_;
   RDMANode* node_;
 
   std::shared_ptr<ibv_cq> scq_;
@@ -108,7 +111,7 @@ class RDMAConn {
   std::shared_ptr<ibv_comp_channel> recv_channel_;
   // rr stands for receive request
   size_t rr_tail_ = 0, rr_garbage_ = 0;
-  size_t unacked_recv_events_num_ = 0;
+  size_t unack_cqe_ = 0;
 
   int modify_state(state_t st) {
     int ret = 0;
@@ -128,7 +131,7 @@ class RDMAConn {
         break;
       default:
         gpr_log(GPR_ERROR, "RDMAConn::modify_state, Unsupported state %d", st);
-        exit(1);
+        abort();
     }
 
     return ret;
