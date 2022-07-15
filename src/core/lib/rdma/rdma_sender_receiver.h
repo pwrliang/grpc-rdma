@@ -256,9 +256,6 @@ class RDMASenderReceiverBP : public RDMASenderReceiver {
         metadata_sendbuf_sz_, IBV_WR_RDMA_WRITE);
     int ret = conn_metadata_->PollSendCompletion(n_entries);
 
-    gpr_log(GPR_INFO, "updateRemoteMetadata, %d, conn: %p", ret,
-            conn_metadata_);
-
     if (ret != 0) {
       gpr_log(GPR_ERROR,
               "updateRemoteMetadata failed, code: %d "
