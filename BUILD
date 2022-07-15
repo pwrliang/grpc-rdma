@@ -894,7 +894,7 @@ grpc_cc_library(
         "src/core/lib/rdma/rdma_sender_receiver_bp.cc",
         "src/core/lib/rdma/rdma_sender_receiver_event.cc",
         "src/core/lib/rdma/rdma_sender_receiver_bpev.cc",
-        "src/core/lib/rdma/rdma_tils.cc",
+        "src/core/lib/rdma/rdma_utils.cc",
         "src/core/lib/rdma/ringbuffer.cc",
         "src/core/lib/slice/b64.cc",
         "src/core/lib/slice/percent_encoding.cc",
