@@ -255,10 +255,6 @@ static void rdma_continue_read(grpc_rdma* rdma) {
   if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_trace)) {
     gpr_log(GPR_INFO, "RDMA:%p do_read, len: %zu", rdma, target_read_size);
   }
-  // fixme: handle full
-  if (rdma->rdmasr->HasPendingWrite()) {
-    grpc_fd_set_writable(rdma->em_fd);
-  }
   rdma_do_read(rdma);
 }
 
@@ -274,6 +270,9 @@ static void rdma_handle_read(void* arg /* grpc_rdma */,
     RDMA_UNREF(rdma, "read");
   } else {
     rdma_continue_read(rdma);
+  }
+  if (rdma->rdmasr->HasPendingWrite()) {
+    grpc_fd_set_writable(rdma->em_fd);
   }
 }
 
