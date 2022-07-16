@@ -41,21 +41,21 @@ void grpc_determine_iomgr_platform() {
     type = getenv("GRPC_PLATFORM_TYPE");
     if (type == NULL) {
       pt = IOMGR_TCP;
-      printf("Select TCP mode by default\n");
+      gpr_log(GPR_INFO, "Select TCP mode by default");
     } else if (strcmp(type, "RDMA_BP") == 0) {
       pt = IOMGR_RDMA_BP;
-      printf("Select RDMA Busy Polling mode\n");
+      gpr_log(GPR_INFO, "Select RDMA Busy Polling mode");
     } else if (strcmp(type, "RDMA_EVENT") == 0) {
       pt = IOMGR_RDMA_EVENT;
-      printf("Select RDMA Event mode\n");
+      gpr_log(GPR_INFO, "Select RDMA Event mode");
     } else if (strcmp(type, "RDMA_BPEV") == 0) {
       pt = IOMGR_RDMA_BPEV;
-      printf("Select RDMA BPEV mode\n");
+      gpr_log(GPR_INFO, "Select RDMA BPEV mode");
     } else if (strcmp(type, "TCP") == 0) {
       pt = IOMGR_TCP;
-      printf("Select TCP mode\n");
+      gpr_log(GPR_INFO, "Select TCP mode");
     } else {
-      printf("Error: Unknown grpc platform: %s\n", type);
+      gpr_log(GPR_ERROR, "Unknown grpc platform: %s", type);
       exit(1);
     }
     grpc_set_default_iomgr_platform();

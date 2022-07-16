@@ -250,8 +250,8 @@ static void on_read(void* arg, grpc_error_handle err) {
     }
     sp->client_count++;
 
-    printf("accept connection from %s, fd = %d, client count = %d\n",
-           addr_str.c_str(), fd, sp->client_count);
+    gpr_log(GPR_INFO, "accept connection from %s, fd = %d, client count = %d",
+            addr_str.c_str(), fd, sp->client_count);
 
     std::string name = absl::StrCat("tcp-server-connection:", addr_str);
     grpc_fd* fdobj = grpc_fd_create(fd, name.c_str(), true);

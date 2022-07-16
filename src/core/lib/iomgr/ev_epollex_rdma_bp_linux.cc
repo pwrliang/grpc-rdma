@@ -696,7 +696,6 @@ static grpc_error_handle pollable_add_fd(pollable* p, grpc_fd* fd) {
   if (epoll_ctl(epfd, EPOLL_CTL_ADD, fd->fd, &ev_fd) != 0) {
     switch (errno) {
       case EEXIST:
-        gpr_log(GPR_ERROR, "exist fd: %d", fd->fd);
         break;
       default:
         append_error(&error, GRPC_OS_ERROR(errno, "epoll_ctl"), err_desc);
