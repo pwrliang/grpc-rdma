@@ -49,14 +49,15 @@ void RDMASenderReceiverBP::Init() {
             buffer,
             "%c cap: %zu max send: %zu head: %zu unread: %zu curr mlens: "
             "%zu garbage: %zu remote head: %zu remote tail: %zu pending send: "
-            "%u used: %zu remain: %zu",
+            "%u used: %zu remain: %zu, tx: %zu rx: %zu",
             is_server() ? 'S' : 'C', ringbuf_->get_capacity(),
             ringbuf_->get_max_send_size(), ringbuf_->get_head(),
             get_unread_message_length(),
             dynamic_cast<RingBufferBP*>(ringbuf_)->CheckMessageLength(),
             ringbuf_->get_garbage(), get_remote_ringbuf_head(),
             remote_ringbuf_tail_, last_failed_send_size_.load(), used,
-            remote_ringbuf_sz - 8 - used);
+            remote_ringbuf_sz - 8 - used, total_sent_.load(),
+            total_recv_.load());
         if (strcmp(last_buffer, buffer) != 0) {
           gpr_log(GPR_INFO, "%s", buffer);
           strcpy(last_buffer, buffer);
@@ -187,9 +188,11 @@ int RDMASenderReceiverBP::Send(msghdr* msg, ssize_t* sz) {
   if (unfinished_zerocopy_send_size_ == 0) {
     last_zerocopy_send_finished_ = true;
   }
-  total_send_size += mlen;
   if (sz != nullptr) {
     *sz = nwritten;
+  }
+  if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_sr_bp_debug_trace)) {
+    total_sent_ += nwritten;
   }
   return 0;
 }
@@ -213,11 +216,8 @@ int RDMASenderReceiverBP::Recv(msghdr* msg, ssize_t* sz) {
     return EAGAIN;
   }
 
-  if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_sr_bp_trace)) {
-    gpr_log(GPR_INFO, "recv, unread_mlens: %zu", mlens);
-  }
-
-  bool should_recycle = ringbuf_->Read(msg, mlens);
+  size_t read_mlens = mlens;
+  bool should_recycle = ringbuf_->Read(msg, read_mlens);
 
   if (should_recycle && status_ != Status::kShutdown) {
     int r = updateRemoteMetadata();
@@ -228,7 +228,15 @@ int RDMASenderReceiverBP::Recv(msghdr* msg, ssize_t* sz) {
   }
 
   if (sz != nullptr) {
-    *sz = mlens;
+    *sz = read_mlens;
+  }
+
+  if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_sr_bp_trace)) {
+    gpr_log(GPR_INFO, "recv, unread_mlens: %zu, read_mlens: %zu", mlens,
+            read_mlens);
+  }
+  if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_sr_bp_debug_trace)) {
+    total_recv_ += read_mlens;
   }
   return 0;
 }

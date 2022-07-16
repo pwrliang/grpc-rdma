@@ -52,6 +52,8 @@ class RDMASenderReceiver {
         last_failed_send_size_(0),
         read_counter_(0),
         write_counter_(0),
+        total_sent_(0),
+        total_recv_(0),
         debug_(false) {
     auto& node = RDMANode::GetInstance();
     auto pd = node.get_pd();
@@ -175,7 +177,7 @@ class RDMASenderReceiver {
   bool zerocopy_;
   std::atomic_bool last_zerocopy_send_finished_;
   std::atomic_size_t unfinished_zerocopy_send_size_;
-  size_t total_send_size = 0, total_zerocopy_send_size = 0;
+  size_t total_zerocopy_send_size = 0;
 
   size_t metadata_recvbuf_sz_;
   void* metadata_recvbuf_;
@@ -187,6 +189,7 @@ class RDMASenderReceiver {
 
   // for debugging
   std::atomic_int read_counter_, write_counter_;
+  std::atomic_size_t total_sent_, total_recv_;
   std::atomic_bool debug_;
   std::thread debug_thread_;
 

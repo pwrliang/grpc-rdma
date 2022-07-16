@@ -2,6 +2,8 @@
 #include "src/core/lib/rdma/rdma_sender_receiver.h"
 
 grpc_core::TraceFlag grpc_rdma_sr_event_trace(false, "rdma_sr_event");
+grpc_core::TraceFlag grpc_rdma_sr_event_debug_trace(false,
+                                                    "rdma_sr_event_debug");
 
 RDMASenderReceiverEvent::RDMASenderReceiverEvent(int fd, bool server)
     : RDMASenderReceiver(
@@ -167,7 +169,9 @@ int RDMASenderReceiverEvent::Send(msghdr* msg, ssize_t* sz) {
   if (unfinished_zerocopy_send_size_ == 0) {
     last_zerocopy_send_finished_ = true;
   }
-  total_send_size += mlen;
+  if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_sr_event_debug_trace)) {
+    total_sent_ += nwritten;
+  }
   if (sz != nullptr) {
     *sz = nwritten;
   }
@@ -216,6 +220,9 @@ int RDMASenderReceiverEvent::Recv(msghdr* msg, ssize_t* sz) {
 
   if (sz != nullptr) {
     *sz = mlens;
+  }
+  if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_sr_event_debug_trace)) {
+    total_recv_ += mlens;
   }
   return 0;
 }
