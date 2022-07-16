@@ -307,6 +307,7 @@ class ServerImpl final {
     for (int i = 0; i < FLAGS_threads; i++) {
       cqs_.emplace_back(builder.AddCompletionQueue());
     }
+    builder.SetMaxReceiveMessageSize(-1);
     server_ = builder.BuildAndStart();
     std::cout << "Server listening on " << server_address << std::endl;
 
@@ -357,9 +358,11 @@ int main(int argc, char** argv) {
     exit(1);
   }
   gflags::ParseCommandLineFlags(&argc, &argv, true);
+  auto args = grpc::ChannelArguments();
+  args.SetMaxReceiveMessageSize(-1);
 
-  GreeterClient greeter(grpc::CreateChannel(
-      FLAGS_host + ":50051", grpc::InsecureChannelCredentials()));
+  GreeterClient greeter(grpc::CreateCustomChannel(
+      FLAGS_host + ":50051", grpc::InsecureChannelCredentials(), args));
 
   int rpc_count = FLAGS_batch;
   std::vector<std::thread> ths;

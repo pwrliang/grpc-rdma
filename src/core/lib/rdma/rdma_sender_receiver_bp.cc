@@ -106,7 +106,11 @@ int RDMASenderReceiverBP::Send(msghdr* msg, ssize_t* sz) {
 
   if (!isWritable(mlen)) {
     if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_sr_bp_trace)) {
-      gpr_log(GPR_INFO, "ring buffer is full, with mlen: %zu", mlen);
+      size_t used =
+          (remote_ringbuf_sz + remote_ringbuf_tail_ - remote_ringbuf_head_) %
+          remote_ringbuf_sz;
+      gpr_log(GPR_INFO, "ring buffer is full, with mlen: %zu, used: %zu", mlen,
+              used);
     }
     last_failed_send_size_ = mlen;
     return EAGAIN;
@@ -193,7 +197,7 @@ int RDMASenderReceiverBP::Send(msghdr* msg, ssize_t* sz) {
 
 int RDMASenderReceiverBP::Recv(msghdr* msg, ssize_t* sz) {
   ContentAssertion cass(read_counter_);
-  size_t mlens = unread_mlens_;
+  size_t mlens = dynamic_cast<RingBufferBP*>(ringbuf_)->CheckMessageLength();
 
   if (sz != nullptr) {
     *sz = -1;
@@ -225,8 +229,6 @@ int RDMASenderReceiverBP::Recv(msghdr* msg, ssize_t* sz) {
       return r;
     }
   }
-
-  unread_mlens_ -= mlens;
 
   if (sz != nullptr) {
     *sz = mlens;
