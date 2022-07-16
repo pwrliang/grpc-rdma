@@ -65,7 +65,6 @@ size_t RDMASenderReceiverEvent::MarkMessageLength() {
     conn_metadata_->PostRecvRequests(finsihed_rr);
     conn_metadata_->set_rr_garbage(0);
     conn_metadata_->GetRecvEvents();
-    updateLocalMetadata();
   }
   return mlens;
 }
@@ -92,8 +91,6 @@ int RDMASenderReceiverEvent::Send(msghdr* msg, ssize_t* sz) {
             ringbuf_->get_max_send_size(), mlen);
     return EINVAL;
   }
-
-  updateLocalMetadata();
 
   if (!isWritable(mlen)) {
     if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_sr_event_trace)) {

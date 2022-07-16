@@ -42,9 +42,9 @@ void RDMASenderReceiverBP::Init() {
       while (debug_) {
         char buffer[1024];
         size_t remote_ringbuf_sz = remote_ringbuf_mr_.length();
-        size_t used =
-            (remote_ringbuf_sz + remote_ringbuf_tail_ - remote_ringbuf_head_) %
-            remote_ringbuf_sz;
+        size_t used = (remote_ringbuf_sz + remote_ringbuf_tail_ -
+                       get_remote_ringbuf_head()) %
+                      remote_ringbuf_sz;
         std::sprintf(
             buffer,
             "%c cap: %zu max send: %zu head: %zu unread: %zu curr mlens: "
@@ -54,8 +54,9 @@ void RDMASenderReceiverBP::Init() {
             ringbuf_->get_max_send_size(), ringbuf_->get_head(),
             get_unread_message_length(),
             dynamic_cast<RingBufferBP*>(ringbuf_)->CheckMessageLength(),
-            ringbuf_->get_garbage(), remote_ringbuf_head_, remote_ringbuf_tail_,
-            last_failed_send_size_.load(), used, remote_ringbuf_sz - 8 - used);
+            ringbuf_->get_garbage(), get_remote_ringbuf_head(),
+            remote_ringbuf_tail_, last_failed_send_size_.load(), used,
+            remote_ringbuf_sz - 8 - used);
         if (strcmp(last_buffer, buffer) != 0) {
           gpr_log(GPR_INFO, "%s", buffer);
           strcpy(last_buffer, buffer);
@@ -102,13 +103,11 @@ int RDMASenderReceiverBP::Send(msghdr* msg, ssize_t* sz) {
     gpr_log(GPR_INFO, "send, mlen: %zu", mlen);
   }
 
-  updateLocalMetadata();
-
   if (!isWritable(mlen)) {
     if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_sr_bp_trace)) {
-      size_t used =
-          (remote_ringbuf_sz + remote_ringbuf_tail_ - remote_ringbuf_head_) %
-          remote_ringbuf_sz;
+      size_t used = (remote_ringbuf_sz + remote_ringbuf_tail_ -
+                     get_remote_ringbuf_head()) %
+                    remote_ringbuf_sz;
       gpr_log(GPR_INFO, "ring buffer is full, with mlen: %zu, used: %zu", mlen,
               used);
     }

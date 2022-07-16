@@ -44,7 +44,6 @@ class RDMASenderReceiver {
         conn_metadata_(conn_metadata),
         server_(server),
         status_(Status::kNew),
-        remote_ringbuf_head_(0),
         remote_ringbuf_tail_(0),
         unread_mlens_(0),
         metadata_recvbuf_sz_(DEFAULT_HEADBUF_SZ),
@@ -151,7 +150,9 @@ class RDMASenderReceiver {
  protected:
   virtual int updateRemoteMetadata() = 0;
 
-  virtual void updateLocalMetadata() = 0;
+  virtual size_t get_remote_ringbuf_head() const {
+    return reinterpret_cast<size_t*>(metadata_recvbuf_)[0];
+  }
 
   virtual bool isWritable(size_t mlen) const = 0;
 
@@ -162,7 +163,7 @@ class RDMASenderReceiver {
   RDMAConn* conn_metadata_;
   Status status_;
 
-  size_t remote_ringbuf_head_, remote_ringbuf_tail_;
+  size_t remote_ringbuf_tail_;
   MemRegion local_ringbuf_mr_, remote_ringbuf_mr_;
   std::atomic_uint32_t unread_mlens_;
 
@@ -224,7 +225,7 @@ class RDMASenderReceiverBP : public RDMASenderReceiver {
       event |= EPOLLIN;
     }
 
-    if (last_failed_send_size_ > 0) {
+    if (last_failed_send_size_ > 0 && isWritable(last_failed_send_size_)) {
       event |= EPOLLOUT;
     }
 
@@ -240,7 +241,7 @@ class RDMASenderReceiverBP : public RDMASenderReceiver {
     size_t len = mlen + sizeof(size_t) + 1;
     size_t remote_ringbuf_sz = remote_ringbuf_mr_.length();
     size_t used =
-        (remote_ringbuf_sz + remote_ringbuf_tail_ - remote_ringbuf_head_) %
+        (remote_ringbuf_sz + remote_ringbuf_tail_ - get_remote_ringbuf_head()) %
         remote_ringbuf_sz;
     // If unread datasize + the size of data we want to send is greater than
     // ring buffer size, we can not send message. we reserve 1 byte to
@@ -265,10 +266,6 @@ class RDMASenderReceiverBP : public RDMASenderReceiver {
       return EPIPE;
     }
     return 0;
-  }
-
-  void updateLocalMetadata() override {
-    remote_ringbuf_head_ = reinterpret_cast<size_t*>(metadata_recvbuf_)[0];
   }
 };
 
@@ -337,18 +334,14 @@ class RDMASenderReceiverEvent : public RDMASenderReceiver {
     return 0;
   }
 
-  void updateLocalMetadata() override {
-    remote_ringbuf_head_ = reinterpret_cast<size_t*>(metadata_recvbuf_)[0];
-    remote_rr_tail_ = reinterpret_cast<size_t*>(metadata_recvbuf_)[1];
-  }
-
   bool isWritable(size_t mlen) const override {
     size_t remote_ringbuf_sz = remote_ringbuf_mr_.length();
     size_t used =
-        (remote_ringbuf_sz + remote_ringbuf_tail_ - remote_ringbuf_head_) %
+        (remote_ringbuf_sz + remote_ringbuf_tail_ - get_remote_ringbuf_head()) %
         remote_ringbuf_sz;
+    size_t remote_rr_tail = reinterpret_cast<size_t*>(metadata_recvbuf_)[1];
     size_t avail_rr_num =
-        (remote_rr_tail_ - remote_rr_head_ + DEFAULT_MAX_POST_RECV) %
+        (remote_rr_tail - remote_rr_head_ + DEFAULT_MAX_POST_RECV) %
         DEFAULT_MAX_POST_RECV;
     if (avail_rr_num == 0) {
       return false;
@@ -357,7 +350,7 @@ class RDMASenderReceiverEvent : public RDMASenderReceiver {
     return used + mlen <= remote_ringbuf_sz - 8;
   }
 
-  size_t remote_rr_tail_ = 0, remote_rr_head_ = 0;
+  size_t remote_rr_head_ = 0;
   std::atomic_bool data_ready_, metadata_ready_;
 };
 
