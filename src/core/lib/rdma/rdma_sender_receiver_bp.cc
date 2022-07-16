@@ -252,7 +252,7 @@ int RDMASenderReceiverBP::Send(msghdr* msg, ssize_t* sz) {
 
 int RDMASenderReceiverBP::Recv(msghdr* msg, ssize_t* sz) {
   ContentAssertion cass(read_content_conter_);
-  size_t mlens = dynamic_cast<RingBufferBP*>(ringbuf_)->CheckMessageLength();
+  size_t mlens = dynamic_cast<RingBufferBP*>(ringbuf_)->CheckFirstMessageLength();
 
   if (sz != nullptr) {
     *sz = -1;
