@@ -2,7 +2,7 @@
 #include "src/core/lib/rdma/rdma_sender_receiver.h"
 
 grpc_core::TraceFlag grpc_rdma_sr_bp_trace(false, "rdma_sr_bp");
-grpc_core::TraceFlag grpc_rdma_sr_bp_debug_trace(false, "rdma_sr_bpev_debug");
+grpc_core::TraceFlag grpc_rdma_sr_bp_debug_trace(false, "rdma_sr_bp_debug");
 
 RDMASenderReceiverBP::RDMASenderReceiverBP(int fd, bool server)
     : RDMASenderReceiver(
