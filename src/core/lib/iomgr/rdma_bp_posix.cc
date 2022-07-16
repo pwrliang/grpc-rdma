@@ -181,6 +181,9 @@ static void rdma_do_read(grpc_rdma* rdma) {
 
   if (read_bytes < 0) {
     if (err == EAGAIN) {
+      if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_trace)) {
+        gpr_log(GPR_INFO, "rdma_do_read, notify_on_read (drained)");
+      }
       notify_on_read(rdma);
     } else {
       grpc_slice_buffer_reset_and_unref_internal(rdma->incoming_buffer);
