@@ -114,8 +114,6 @@ class RDMASenderReceiver {
 
   bool is_server() const { return server_; }
 
-  size_t get_unread_message_length() const { return unread_mlens_; }
-
   size_t get_max_send_size() const { return ringbuf_->get_max_send_size(); }
 
   virtual int Send(msghdr* msg, ssize_t* sz) = 0;

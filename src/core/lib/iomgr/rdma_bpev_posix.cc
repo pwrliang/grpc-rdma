@@ -228,14 +228,6 @@ static void rdma_read_allocation_done(void* rdmap, grpc_error_handle error) {
     call_read_cb(rdma, GRPC_ERROR_REF(error));
     RDMA_UNREF(rdma, "read");
   } else {
-    if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_trace)) {
-      gpr_log(
-          GPR_INFO,
-          "rdma_read_allocation_done, data size = %zu, incoming buffer size "
-          "= %zu, call rdma_do_read",
-          rdma->rdmasr->get_unread_message_length(),
-          rdma->incoming_buffer->length);
-    }
     rdma_do_read(rdma);
   }
 }

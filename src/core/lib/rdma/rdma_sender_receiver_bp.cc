@@ -39,7 +39,8 @@ void RDMASenderReceiverBP::Init() {
     debug_ = true;
     debug_thread_ = std::thread([this]() {
       char last_buffer[1024];
-      while (debug_) {
+
+      auto print_log = [&](bool final_log) {
         char buffer[1024];
         size_t remote_ringbuf_sz = remote_ringbuf_mr_.length();
         size_t used = (remote_ringbuf_sz + remote_ringbuf_tail_ -
@@ -47,23 +48,27 @@ void RDMASenderReceiverBP::Init() {
                       remote_ringbuf_sz;
         std::sprintf(
             buffer,
-            "%c cap: %zu max send: %zu head: %zu unread: %zu curr mlens: "
+            "%c cap: %zu max send: %zu head: %zu avail mlens: "
             "%zu garbage: %zu remote head: %zu remote tail: %zu pending send: "
-            "%u used: %zu remain: %zu, tx: %zu rx: %zu",
+            "%u used: %zu remain: %zu, tx: %zu rx: %zu%s",
             is_server() ? 'S' : 'C', ringbuf_->get_capacity(),
             ringbuf_->get_max_send_size(), ringbuf_->get_head(),
-            get_unread_message_length(),
             dynamic_cast<RingBufferBP*>(ringbuf_)->CheckMessageLength(),
             ringbuf_->get_garbage(), get_remote_ringbuf_head(),
             remote_ringbuf_tail_, last_failed_send_size_.load(), used,
             remote_ringbuf_sz - 8 - used, total_sent_.load(),
-            total_recv_.load());
+            total_recv_.load(), final_log ? ", Final" : "");
         if (strcmp(last_buffer, buffer) != 0) {
           gpr_log(GPR_INFO, "%s", buffer);
           strcpy(last_buffer, buffer);
         }
+      };
+
+      while (debug_) {
+        print_log(false);
         sleep(1);
       }
+      print_log(true);
     });
   }
 }

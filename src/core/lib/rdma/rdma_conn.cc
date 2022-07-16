@@ -266,35 +266,21 @@ int RDMAConn::PostSendRequests(MemRegion& remote_mr, size_t remote_tail,
 }
 
 int RDMAConn::PollSendCompletion(int expected_num_entries) {
-  if (expected_num_entries == 0) {
-    return -1;
-  } else if (expected_num_entries > DEFAULT_MAX_POST_SEND) {
-    gpr_log(GPR_ERROR,
-            "PollSendCompletion, expected_num_entries is too large, this: %p",
-            this);
-    return -1;
-  }
+  while (expected_num_entries > 0) {
+    ibv_wc wc;
+    int r;
 
-  int rest_num_entries = expected_num_entries;
-  ibv_wc wc[DEFAULT_MAX_POST_SEND];
-
-  do {
-    int n = ibv_poll_cq(scq_.get(), rest_num_entries,
-                        wc + expected_num_entries - rest_num_entries);
-    if (n < 0) {
-      gpr_log(GPR_ERROR, "PollSendCompletion, failed to poll scq, this: %p",
-              this);
-      return n;
+    while ((r = ibv_poll_cq(scq_.get(), 1, &wc)) > 0) {
+      if (wc.status != IBV_WC_SUCCESS) {
+        gpr_log(GPR_ERROR, "PollRecvCompletion, wc status = %d", wc.status);
+        return wc.status;
+      }
+      expected_num_entries -= r;
     }
-    rest_num_entries -= n;
-  } while (rest_num_entries > 0);
 
-  for (int i = 0; i < expected_num_entries; i++) {
-    if (wc[i].status != IBV_WC_SUCCESS) {
-      gpr_log(GPR_ERROR,
-              "PollSendCompletion, failed to poll scq, status %d, this: %p",
-              wc[i].status, this);
-      return wc[i].status;
+    if (r < 0) {
+      gpr_log(GPR_ERROR, "PollSendCompletion, ibv_poll_cq return %d", r);
+      return r;
     }
   }
   return 0;
@@ -335,8 +321,7 @@ size_t RDMAConn::PollRecvCompletion() {
   }
 
   if (r < 0) {
-    gpr_log(GPR_ERROR,
-            "RDMAConnEvent::PollRecvCompletion, ibv_poll_cq return %d", r);
+    gpr_log(GPR_ERROR, "PollRecvCompletion, ibv_poll_cq return %d", r);
     abort();
   }
 
