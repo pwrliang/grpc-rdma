@@ -232,14 +232,19 @@ int RDMASenderReceiverBP::Send(msghdr* msg, ssize_t* sz) {
   if (sz != nullptr) {
     *sz = nwritten;
   }
+
+  if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_sr_bp_debug_trace) ||
+      GRPC_TRACE_FLAG_ENABLED(grpc_rdma_sr_bp_trace)) {
+    write_counter_++;
+  }
+
   if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_sr_bp_debug_trace)) {
     total_sent_ += nwritten;
   }
 
   if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_sr_bp_trace)) {
-    int w_seq = write_counter_++;
     gpr_log(GPR_INFO, "%c send %d, mlen: %zu, written: %zu",
-            is_server() ? 'S' : 'C', w_seq, mlen, nwritten);
+            is_server() ? 'S' : 'C', write_counter_.load(), mlen, nwritten);
   }
 
   return 0;
@@ -279,13 +284,19 @@ int RDMASenderReceiverBP::Recv(msghdr* msg, ssize_t* sz) {
     *sz = read_mlens;
   }
 
-  if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_sr_bp_trace)) {
-    int r_seq = read_counter_++;
-    gpr_log(GPR_INFO, "%c recv %d, mlens: %zu, read: %zu",
-            is_server() ? 'S' : 'C', r_seq, mlens, read_mlens);
+  if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_sr_bp_debug_trace) ||
+      GRPC_TRACE_FLAG_ENABLED(grpc_rdma_sr_bp_trace)) {
+    read_counter_++;
   }
+
   if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_sr_bp_debug_trace)) {
     total_recv_ += read_mlens;
   }
+
+  if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_sr_bp_trace)) {
+    gpr_log(GPR_INFO, "%c recv %d, mlens: %zu, read: %zu",
+            is_server() ? 'S' : 'C', read_counter_.load(), mlens, read_mlens);
+  }
+
   return 0;
 }
