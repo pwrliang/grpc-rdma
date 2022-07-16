@@ -751,8 +751,6 @@ static grpc_error_handle pollable_add_fd(pollable* p, grpc_fd* fd) {
             abort();
           }
         }
-      } else {
-        gpr_log(GPR_INFO, "add fd %d to epfd %d", wakeup_fd, epfd);
       }
     }
     gpr_mu_unlock(&fd->rdma_mu);

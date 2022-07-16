@@ -11,7 +11,7 @@
 #include "src/core/lib/debug/trace.h"
 #include "src/core/lib/rdma/rdma_conn.h"
 #include "src/core/lib/rdma/ringbuffer.h"
-#define RDMA_DETECT_CONTENTION
+//#define RDMA_DETECT_CONTENTION
 #define RDMA_MAX_WRITE_IOVEC 1024
 
 const size_t DEFAULT_HEADBUF_SZ = 64;
@@ -218,7 +218,7 @@ class RDMASenderReceiverBP : public RDMASenderReceiver {
   size_t MarkMessageLength() override;
 
   int ToEpollEvent() const {
-    uint32_t event;
+    uint32_t event = 0;
 
     if (dynamic_cast<RingBufferBP*>(ringbuf_)->CheckFirstMessageLength() > 0) {
       event |= EPOLLIN;

@@ -56,6 +56,14 @@ class GreeterClient {
   explicit GreeterClient(std::shared_ptr<Channel> channel)
       : stub_(Greeter::NewStub(channel)) {}
 
+  void CheckStatus(Status status, const char* extra) {
+    if (!status.ok()) {
+      gpr_log(GPR_ERROR, "status is not ok, msg: %s, detail: %s, extra: %s",
+              status.error_message().c_str(), status.error_details().c_str(),
+              extra);
+    }
+  }
+
   std::string SayHello(CompletionQueue& cq, const std::string& user) {
     HelloRequest request;
     request.set_name(user);
@@ -75,6 +83,7 @@ class GreeterClient {
     GPR_ASSERT(got_tag == (void*)1);
     GPR_ASSERT(ok);
 
+    CheckStatus(status, "SayHello");
     GPR_ASSERT(status.ok());
     return reply.message();
   }
@@ -97,7 +106,7 @@ class GreeterClient {
     GPR_ASSERT(cq.Next(&got_tag, &ok));
     GPR_ASSERT(got_tag == (void*)1);
     GPR_ASSERT(ok);
-
+    CheckStatus(status, "SayHello1");
     GPR_ASSERT(status.ok());
     return reply.message();
   }
@@ -120,7 +129,7 @@ class GreeterClient {
     GPR_ASSERT(cq.Next(&got_tag, &ok));
     GPR_ASSERT(got_tag == (void*)1);
     GPR_ASSERT(ok);
-
+    CheckStatus(status, "SayHello2");
     GPR_ASSERT(status.ok());
     return reply.message();
   }
@@ -143,7 +152,7 @@ class GreeterClient {
     GPR_ASSERT(cq.Next(&got_tag, &ok));
     GPR_ASSERT(got_tag == (void*)1);
     GPR_ASSERT(ok);
-
+    CheckStatus(status, "SayHello3");
     GPR_ASSERT(status.ok());
     return reply.message();
   }
@@ -307,6 +316,7 @@ class ServerImpl final {
     for (int i = 0; i < FLAGS_threads; i++) {
       cqs_.emplace_back(builder.AddCompletionQueue());
     }
+    builder.SetMaxReceiveMessageSize(-1);
     server_ = builder.BuildAndStart();
     std::cout << "Server listening on " << server_address << std::endl;
 
@@ -357,9 +367,11 @@ int main(int argc, char** argv) {
     exit(1);
   }
   gflags::ParseCommandLineFlags(&argc, &argv, true);
+  auto args = grpc::ChannelArguments();
+  args.SetMaxReceiveMessageSize(-1);
 
-  GreeterClient greeter(grpc::CreateChannel(
-      FLAGS_host + ":50051", grpc::InsecureChannelCredentials()));
+  GreeterClient greeter(grpc::CreateCustomChannel(
+      FLAGS_host + ":50051", grpc::InsecureChannelCredentials(), args));
 
   int rpc_count = FLAGS_batch;
   std::vector<std::thread> ths;

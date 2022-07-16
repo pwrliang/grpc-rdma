@@ -60,6 +60,8 @@ class RDMAConn {
 
   int SyncMR(MemRegion& local, MemRegion& remote);
 
+  void Sync() { barrier(fd_); }
+
   int get_recv_channel_fd() const { return recv_channel_->fd; }
 
   size_t get_rr_tail() const { return rr_tail_; }

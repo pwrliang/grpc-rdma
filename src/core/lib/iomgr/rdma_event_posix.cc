@@ -171,6 +171,12 @@ static void rdma_do_read(grpc_rdma* rdma) {
   size_t iov_len = rdma->incoming_buffer->count;
   GPR_ASSERT(iov_len <= MAX_READ_IOVEC);
 
+  // We don't have space to read, this maybe caused by urgent flag
+  if (iov_len == 0) {
+    notify_on_read(rdma);
+    return;
+  }
+
   for (size_t i = 0; i < iov_len; i++) {
     iov[i].iov_base = GRPC_SLICE_START_PTR(rdma->incoming_buffer->slices[i]);
     iov[i].iov_len = GRPC_SLICE_LENGTH(rdma->incoming_buffer->slices[i]);
