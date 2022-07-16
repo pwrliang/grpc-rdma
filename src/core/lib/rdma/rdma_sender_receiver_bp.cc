@@ -105,17 +105,13 @@ int RDMASenderReceiverBP::Send(msghdr* msg, ssize_t* sz) {
     return EINVAL;
   }
 
-  if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_sr_bp_trace)) {
-    gpr_log(GPR_INFO, "send, mlen: %zu", mlen);
-  }
-
   if (!isWritable(mlen)) {
     if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_sr_bp_trace)) {
       size_t used = (remote_ringbuf_sz + remote_ringbuf_tail_ -
                      get_remote_ringbuf_head()) %
                     remote_ringbuf_sz;
-      gpr_log(GPR_INFO, "ring buffer is full, with mlen: %zu, used: %zu", mlen,
-              used);
+      gpr_log(GPR_INFO, "%c rb is full, with mlen: %zu, used: %zu",
+              is_server() ? 'S' : 'C', mlen, used);
     }
     last_failed_send_size_ = mlen;
     return EAGAIN;
@@ -237,6 +233,17 @@ int RDMASenderReceiverBP::Send(msghdr* msg, ssize_t* sz) {
   if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_sr_bp_debug_trace)) {
     total_sent_ += nwritten;
   }
+
+  if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_sr_bp_trace)) {
+#ifdef RDMA_DETECT_CONTENTION
+    int w_seq = write_counter_;
+#else
+    int w_seq = ++write_counter_;
+#endif
+    gpr_log(GPR_INFO, "%c send %d, mlen: %zu, written: %zu",
+            is_server() ? 'S' : 'C', w_seq, mlen, nwritten);
+  }
+
   return 0;
 }
 
@@ -275,8 +282,13 @@ int RDMASenderReceiverBP::Recv(msghdr* msg, ssize_t* sz) {
   }
 
   if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_sr_bp_trace)) {
-    gpr_log(GPR_INFO, "recv, unread_mlens: %zu, read_mlens: %zu", mlens,
-            read_mlens);
+#ifdef RDMA_DETECT_CONTENTION
+    int r_seq = read_counter_;
+#else
+    int r_seq = ++read_counter_;
+#endif
+    gpr_log(GPR_INFO, "%c recv %d, mlens: %zu, read: %zu",
+            is_server() ? 'S' : 'C', r_seq, mlens, read_mlens);
   }
   if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_sr_bp_debug_trace)) {
     total_recv_ += read_mlens;
