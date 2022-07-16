@@ -50,14 +50,16 @@ void RDMASenderReceiverBP::Init() {
             buffer,
             "%c cap: %zu max send: %zu head: %zu avail mlens: "
             "%zu garbage: %zu remote head: %zu remote tail: %zu pending send: "
-            "%u used: %zu remain: %zu, tx: %zu rx: %zu%s",
+            "%u used: %zu remain: %zu, tx: %zu rx: %zu tx cnt: %d rx cnt: %d "
+            "%s",
             is_server() ? 'S' : 'C', ringbuf_->get_capacity(),
             ringbuf_->get_max_send_size(), ringbuf_->get_head(),
             dynamic_cast<RingBufferBP*>(ringbuf_)->CheckMessageLength(),
             ringbuf_->get_garbage(), get_remote_ringbuf_head(),
             remote_ringbuf_tail_, last_failed_send_size_.load(), used,
             remote_ringbuf_sz - 8 - used, total_sent_.load(),
-            total_recv_.load(), final_log ? ", Final" : "");
+            total_recv_.load(), write_counter_.load(), read_counter_.load(),
+            final_log ? ", Final" : "");
         if (strcmp(last_buffer, buffer) != 0) {
           gpr_log(GPR_INFO, "%s", buffer);
           strcpy(last_buffer, buffer);
@@ -83,7 +85,7 @@ size_t RDMASenderReceiverBP::MarkMessageLength() {
 }
 
 int RDMASenderReceiverBP::Send(msghdr* msg, ssize_t* sz) {
-  ContentAssertion cass(write_counter_);
+  ContentAssertion cass(write_content_counter_);
   size_t remote_ringbuf_sz = remote_ringbuf_mr_.length();
   size_t mlen = 0;
 
@@ -235,11 +237,7 @@ int RDMASenderReceiverBP::Send(msghdr* msg, ssize_t* sz) {
   }
 
   if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_sr_bp_trace)) {
-#ifdef RDMA_DETECT_CONTENTION
-    int w_seq = write_counter_;
-#else
-    int w_seq = ++write_counter_;
-#endif
+    int w_seq = write_counter_++;
     gpr_log(GPR_INFO, "%c send %d, mlen: %zu, written: %zu",
             is_server() ? 'S' : 'C', w_seq, mlen, nwritten);
   }
@@ -248,7 +246,7 @@ int RDMASenderReceiverBP::Send(msghdr* msg, ssize_t* sz) {
 }
 
 int RDMASenderReceiverBP::Recv(msghdr* msg, ssize_t* sz) {
-  ContentAssertion cass(read_counter_);
+  ContentAssertion cass(read_content_conter_);
   size_t mlens = dynamic_cast<RingBufferBP*>(ringbuf_)->CheckMessageLength();
 
   if (sz != nullptr) {
@@ -282,11 +280,7 @@ int RDMASenderReceiverBP::Recv(msghdr* msg, ssize_t* sz) {
   }
 
   if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_sr_bp_trace)) {
-#ifdef RDMA_DETECT_CONTENTION
-    int r_seq = read_counter_;
-#else
-    int r_seq = ++read_counter_;
-#endif
+    int r_seq = read_counter_++;
     gpr_log(GPR_INFO, "%c recv %d, mlens: %zu, read: %zu",
             is_server() ? 'S' : 'C', r_seq, mlens, read_mlens);
   }

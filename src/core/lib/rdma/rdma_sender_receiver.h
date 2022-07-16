@@ -50,6 +50,8 @@ class RDMASenderReceiver {
         metadata_sendbuf_sz_(DEFAULT_HEADBUF_SZ),
         n_outstanding_send_(0),
         last_failed_send_size_(0),
+        read_content_conter_(0),
+        write_content_counter_(0),
         read_counter_(0),
         write_counter_(0),
         total_sent_(0),
@@ -186,6 +188,7 @@ class RDMASenderReceiver {
   MemRegion metadata_sendbuf_mr_;
 
   // for debugging
+  std::atomic_int read_content_conter_, write_content_counter_;
   std::atomic_int read_counter_, write_counter_;
   std::atomic_size_t total_sent_, total_recv_;
   std::atomic_bool debug_;

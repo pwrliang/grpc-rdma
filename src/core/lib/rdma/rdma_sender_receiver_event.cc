@@ -72,7 +72,7 @@ size_t RDMASenderReceiverEvent::MarkMessageLength() {
 }
 
 int RDMASenderReceiverEvent::Send(msghdr* msg, ssize_t* sz) {
-  ContentAssertion cass(write_counter_);
+  ContentAssertion cass(write_content_counter_);
   size_t remote_ringbuf_sz = remote_ringbuf_mr_.length();
   size_t mlen = 0;
 
@@ -184,7 +184,7 @@ int RDMASenderReceiverEvent::Send(msghdr* msg, ssize_t* sz) {
 }
 
 int RDMASenderReceiverEvent::Recv(msghdr* msg, ssize_t* sz) {
-  ContentAssertion cass(read_counter_);
+  ContentAssertion cass(read_content_conter_);
   size_t mlens = unread_mlens_;
 
   if (sz != nullptr) {
