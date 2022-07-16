@@ -37,6 +37,8 @@ void RDMASenderReceiverEvent::Init() {
   // there are at most DEFAULT_MAX_POST_RECV - 1 outstanding recv requests
   conn_metadata_->PostRecvRequests(DEFAULT_MAX_POST_RECV - 1);
   conn_data_->PostRecvRequests(DEFAULT_MAX_POST_RECV - 1);
+  conn_metadata_->Sync();  // Make sure both side posted recv requests
+  conn_data_->Sync();
   int r = updateRemoteMetadata();  // set remote_rr_tail
   GPR_ASSERT(r == 0);
   status_ = Status::kConnected;

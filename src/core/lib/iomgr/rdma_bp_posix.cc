@@ -169,6 +169,12 @@ static void rdma_do_read(grpc_rdma* rdma) {
   size_t iov_len = rdma->incoming_buffer->count;
   GPR_ASSERT(iov_len <= MAX_READ_IOVEC);
 
+  // We don't have space to read, this maybe caused by urgent flag
+  if (iov_len == 0) {
+    notify_on_read(rdma);
+    return;
+  }
+
   for (size_t i = 0; i < iov_len; i++) {
     iov[i].iov_base = GRPC_SLICE_START_PTR(rdma->incoming_buffer->slices[i]);
     iov[i].iov_len = GRPC_SLICE_LENGTH(rdma->incoming_buffer->slices[i]);
@@ -194,7 +200,7 @@ static void rdma_do_read(grpc_rdma* rdma) {
     return;
   } else if (read_bytes == 0) {
     if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_trace)) {
-      gpr_log(GPR_INFO, "close rdma %p", rdma);
+      gpr_log(GPR_INFO, "close rdma %p, err: %s", rdma, strerror(err));
     }
     grpc_slice_buffer_reset_and_unref_internal(rdma->incoming_buffer);
     call_read_cb(
@@ -255,6 +261,7 @@ static void rdma_continue_read(grpc_rdma* rdma) {
   if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_trace)) {
     gpr_log(GPR_INFO, "RDMA:%p do_read, len: %zu", rdma, target_read_size);
   }
+
   rdma_do_read(rdma);
 }
 
@@ -298,6 +305,11 @@ static void rdma_read(grpc_endpoint* ep, grpc_slice_buffer* incoming_buffer,
     if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_trace)) {
       gpr_log(GPR_INFO, "rdma_read, call rdma_handle_read");
     }
+    /* Not the first time. We may or may not have more bytes available. In any
+     * case call rdma->read_done_closure (i.e rdma_handle_read()) which does the
+     * right thing (i.e calls rdma_do_read() which either reads the available
+     * bytes or calls notify_on_read() to be notified when new bytes become
+     * available */
     grpc_core::Closure::Run(DEBUG_LOCATION, &rdma->read_done_closure,
                             GRPC_ERROR_NONE);
   }
@@ -368,7 +380,7 @@ static bool rdma_flush(grpc_rdma* rdma, grpc_error_handle* error) {
         grpc_slice_buffer_reset_and_unref_internal(rdma->outgoing_buffer);
         return true;
       } else {
-        *error = rdma_annotate_error(GRPC_OS_ERROR(errno, "sendmsg"), rdma);
+        *error = rdma_annotate_error(GRPC_OS_ERROR(err, "sendmsg"), rdma);
         grpc_slice_buffer_reset_and_unref_internal(rdma->outgoing_buffer);
         return true;
       }

@@ -218,8 +218,6 @@ int RDMASenderReceiverBP::Recv(msghdr* msg, ssize_t* sz) {
     gpr_log(GPR_INFO, "recv, unread_mlens: %zu", mlens);
   }
 
-  // since we may read more data than unread_mlens_, mlens will be updated to
-  // the real mlens we have read
   bool should_recycle = ringbuf_->Read(msg, mlens);
 
   if (should_recycle && status_ != Status::kShutdown) {

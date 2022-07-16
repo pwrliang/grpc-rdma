@@ -76,6 +76,8 @@ bool RingBufferBP::Read(msghdr* msg, size_t& expected_mlens) {
     msghdr_size += msg->msg_iov[i].iov_len;
   }
 
+  GPR_ASSERT(msghdr_size > 0);
+
   while (iov_idx < msg->msg_iovlen && mlen > 0 && mlen <= msghdr_size) {
     size_t iov_rlen = msg->msg_iov[iov_idx].iov_len -
                       iov_offset;     // rest space of current slice
@@ -113,7 +115,7 @@ bool RingBufferBP::Read(msghdr* msg, size_t& expected_mlens) {
       }
       head =
           (head + sizeof(size_t) + mlen + 1) % capacity_;  // move to next head
-      mlen = checkFirstMesssageLength(head);                // check mlen of the new head
+      mlen = checkFirstMesssageLength(head);  // check mlen of the new head
       if (read_mlens + mlen > msghdr_size) {  // msghdr could not hold new mlen
         break;
       }
