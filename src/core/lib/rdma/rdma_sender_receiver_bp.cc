@@ -120,7 +120,7 @@ int RDMASenderReceiverBP::Send(msghdr* msg, ssize_t* sz) {
     last_failed_send_size_ = mlen;
     return EAGAIN;
   }
-
+#if 0
   bool zerocopy = false;
   struct ibv_sge sges[RDMA_MAX_WRITE_IOVEC];
   size_t sge_idx = 0;
@@ -174,6 +174,44 @@ int RDMASenderReceiverBP::Send(msghdr* msg, ssize_t* sz) {
           conn_data_->PostSendRequest(remote_ringbuf_mr_, remote_ringbuf_tail_,
                                       sendbuf_mr_, 0, len, IBV_WR_RDMA_WRITE);
     }
+    int ret = conn_data_->PollSendCompletion(n_outstanding_send_);
+
+    if (ret != 0) {
+      gpr_log(GPR_ERROR,
+              "PollSendCompletion failed, code: %d "
+              "mlen = %zu, remote_ringbuf_tail = "
+              "%zu, ringbuf_sz = %zu, post_num = %d",
+              ret, mlen, remote_ringbuf_tail_, remote_ringbuf_sz,
+              n_outstanding_send_);
+      return EPIPE;
+    }
+    n_outstanding_send_ = 0;
+  }
+
+#endif
+
+  *reinterpret_cast<size_t*>(sendbuf_) = mlen;
+  uint8_t* start = sendbuf_ + sizeof(size_t);
+  size_t iov_idx, nwritten;
+  for (iov_idx = 0, nwritten = 0; iov_idx < msg->msg_iovlen && nwritten < mlen;
+       iov_idx++) {
+    void* iov_base = msg->msg_iov[iov_idx].iov_base;
+    size_t iov_len = msg->msg_iov[iov_idx].iov_len;
+    nwritten += iov_len;
+    GPR_ASSERT(nwritten <= ringbuf_->get_max_send_size());
+    memcpy(start, iov_base, iov_len);
+    start += iov_len;
+  }
+  *start = 1;  // 1 byte for finishing tag
+
+  size_t len = mlen + sizeof(size_t) + 1;
+
+  {
+    GRPCProfiler profiler(GRPC_STATS_TIME_SEND_POST);
+
+    n_outstanding_send_ =
+        conn_data_->PostSendRequest(remote_ringbuf_mr_, remote_ringbuf_tail_,
+                                    sendbuf_mr_, 0, len, IBV_WR_RDMA_WRITE);
     int ret = conn_data_->PollSendCompletion(n_outstanding_send_);
 
     if (ret != 0) {
