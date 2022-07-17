@@ -26,6 +26,7 @@ class RingBuffer {
       : capacity_(capacity),
         buf_(new uint8_t[capacity]),
         head_(0),
+        polling_head_(0),
         garbage_(0) {
     memset(buf_, 0, capacity);
   }
@@ -72,6 +73,7 @@ class RingBuffer {
 
   size_t capacity_;
   uint8_t* buf_;
+  std::atomic_size_t polling_head_;
   size_t head_;
   size_t garbage_;
 };

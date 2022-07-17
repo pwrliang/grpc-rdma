@@ -16,10 +16,7 @@ size_t RingBufferBP::checkFirstMesssageLength(size_t head) const {
 
   if (head + sizeof(size_t) <= capacity_) {
     mlen = *reinterpret_cast<size_t*>(buf_ + head);
-    if (mlen == 0) {
-      return 0;
-    }
-    if (mlen + sizeof(size_t) + 1 < capacity_ && checkTail(head, mlen) != 1) {
+    if (mlen == 0 || mlen > get_max_send_size() || checkTail(head, mlen) != 1) {
       return 0;
     }
     // need read again, since mlen is read before tag = 1
@@ -30,9 +27,7 @@ size_t RingBufferBP::checkFirstMesssageLength(size_t head) const {
   size_t l = sizeof(size_t) - r;
   memcpy(&mlen, buf_ + head, r);
   memcpy(reinterpret_cast<uint8_t*>(&mlen) + r, buf_, l);
-  if (mlen == 0) return 0;
-  if (mlen && mlen + sizeof(size_t) + 1 < capacity_ &&
-      checkTail(head, mlen) != 1) {
+  if (mlen == 0 || mlen > get_max_send_size() || checkTail(head, mlen) != 1) {
     return 0;
   }
   memcpy(&mlen, buf_ + head, r);
@@ -63,9 +58,10 @@ size_t RingBufferBP::resetBufAndUpdateHead(size_t lens) {
 bool RingBufferBP::Read(msghdr* msg, size_t& expected_mlens) {
   auto head = head_;
   if (expected_mlens == 0 || expected_mlens > get_max_send_size()) {
-    gpr_log(GPR_ERROR, "Illegal expected_mlens, %zu", expected_mlens);
+    gpr_log(GPR_ERROR, "Illegal expected_mlens: %zu, head: %zu", expected_mlens,
+            head);
   }
-  GPR_ASSERT(expected_mlens > 0 && expected_mlens < capacity_);
+  GPR_ASSERT(expected_mlens > 0 && expected_mlens <= get_max_send_size());
   GPR_ASSERT(head < capacity_);
 
   size_t iov_idx = 0, iov_offset = 0;
