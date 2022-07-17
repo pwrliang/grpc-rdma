@@ -47,7 +47,7 @@ void RDMASenderReceiverBP::Init() {
 
       std::sprintf(dump_path, "/tmp/rb_%c_%p", is_server() ? 'S' : 'C', this);
       std::sprintf(dump_tag, "/tmp/dump_%p", this);
-      
+
       gpr_log(GPR_INFO,
               "Dbg, touch %s to dump, %c rdmasr: %p cap: %zu max send: %zu",
               dump_tag, is_server() ? 'S' : 'C', this, ringbuf_->get_capacity(),
@@ -219,7 +219,6 @@ int RDMASenderReceiverBP::Send(msghdr* msg, ssize_t* sz) {
 
   {
     GRPCProfiler profiler(GRPC_STATS_TIME_SEND_POST);
-
     n_outstanding_send_ =
         conn_data_->PostSendRequest(remote_ringbuf_mr_, remote_ringbuf_tail_,
                                     sendbuf_mr_, 0, len, IBV_WR_RDMA_WRITE);
@@ -236,6 +235,7 @@ int RDMASenderReceiverBP::Send(msghdr* msg, ssize_t* sz) {
     }
     n_outstanding_send_ = 0;
   }
+  size_t pre_write_tail = remote_ringbuf_tail_;
 
   remote_ringbuf_tail_ = (remote_ringbuf_tail_ + len) % remote_ringbuf_sz;
   last_failed_send_size_ = 0;
@@ -256,8 +256,9 @@ int RDMASenderReceiverBP::Send(msghdr* msg, ssize_t* sz) {
   }
 
   if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_sr_bp_trace)) {
-    gpr_log(GPR_INFO, "%c send %d, mlen: %zu, written: %zu",
-            is_server() ? 'S' : 'C', write_counter_.load(), mlen, nwritten);
+    gpr_log(GPR_INFO, "%c send %d, pos: %zu mlen: %zu, written: %zu",
+            is_server() ? 'S' : 'C', write_counter_.load(), pre_write_tail,
+            mlen, nwritten);
   }
 
   return 0;
@@ -285,6 +286,7 @@ int RDMASenderReceiverBP::Recv(msghdr* msg, ssize_t* sz) {
 
   size_t read_mlens = mlens;
   bool should_recycle = ringbuf_->Read(msg, read_mlens);
+  size_t head = ringbuf_->get_head();
 
   if (should_recycle && status_ != Status::kShutdown) {
     int r = updateRemoteMetadata();
@@ -308,8 +310,9 @@ int RDMASenderReceiverBP::Recv(msghdr* msg, ssize_t* sz) {
   }
 
   if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_sr_bp_trace)) {
-    gpr_log(GPR_INFO, "%c recv %d, mlens: %zu, read: %zu",
-            is_server() ? 'S' : 'C', read_counter_.load(), mlens, read_mlens);
+    gpr_log(GPR_INFO, "%c recv %d, pos: %zu, mlens: %zu, read: %zu",
+            is_server() ? 'S' : 'C', read_counter_.load(), head, mlens,
+            read_mlens);
   }
 
   return 0;
