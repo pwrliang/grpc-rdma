@@ -114,7 +114,7 @@ class MemRegion {
       IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_REMOTE_READ;
   const static int w_flag = IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_READ;
 
-  MemRegion() : flag(0), remote(true) {}
+  MemRegion() : remote(true) {}
   virtual ~MemRegion() { dereg(); }
 
   // register local_mr from ibv_reg_mr, 0 means successful, -1 means failure.
@@ -150,7 +150,6 @@ class MemRegion {
 
   std::shared_ptr<ibv_mr> local_mr;  // local memory region
   ibv_mr remote_mr;                  // remote memory region
-  int flag;                          // either w_flag or rw_flag
   bool remote;
 };
 

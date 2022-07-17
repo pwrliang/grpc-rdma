@@ -16,17 +16,17 @@ int MemRegion::RegisterRemote(void* mem, uint32_t rkey, size_t len) {
 }
 
 int MemRegion::RegisterLocal(std::shared_ptr<ibv_pd> pd, void* mem, size_t size,
-                         int flag) {
+                             int flag) {
   dereg();
 
   remote = false;
-  flag = flag;
 
   local_mr = std::shared_ptr<ibv_mr>(
       ibv_reg_mr(pd.get(), mem, size, flag), [](ibv_mr* p) {
         if (ibv_dereg_mr(p)) {
-          gpr_log(GPR_ERROR,
-                  "MemRegion::RegisterLocal, failed to deregister memory region!");
+          gpr_log(
+              GPR_ERROR,
+              "MemRegion::RegisterLocal, failed to deregister memory region!");
         }
       });
   if (!local_mr) {
@@ -43,7 +43,6 @@ void MemRegion::dereg() {
   if (!remote) {
     local_mr.reset();
   }
-  flag = 0;
   remote = true;
 }
 
