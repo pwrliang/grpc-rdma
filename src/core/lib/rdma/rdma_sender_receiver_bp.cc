@@ -39,8 +39,21 @@ void RDMASenderReceiverBP::Init() {
     debug_ = true;
     debug_thread_ = std::thread([this]() {
       char last_buffer[1024];
+      char dump_path[255];
+      char dump_tag[255];
 
-      auto print_log = [&](bool final_log) {
+      std::sprintf(last_buffer, "dbg_%c_%p", is_server() ? 'S' : 'C', this);
+      pthread_setname_np(pthread_self(), last_buffer);
+
+      std::sprintf(dump_path, "/tmp/rb_%c_%p", is_server() ? 'S' : 'C', this);
+      std::sprintf(dump_tag, "/tmp/dump_%p", this);
+      
+      gpr_log(GPR_INFO,
+              "Dbg, touch %s to dump, %c rdmasr: %p cap: %zu max send: %zu",
+              dump_tag, is_server() ? 'S' : 'C', this, ringbuf_->get_capacity(),
+              ringbuf_->get_max_send_size());
+
+      while (debug_) {
         char buffer[1024];
         size_t remote_ringbuf_sz = remote_ringbuf_mr_.length();
         size_t used = (remote_ringbuf_sz + remote_ringbuf_tail_ -
@@ -48,29 +61,29 @@ void RDMASenderReceiverBP::Init() {
                       remote_ringbuf_sz;
         std::sprintf(
             buffer,
-            "%c cap: %zu max send: %zu head: %zu avail mlens: "
-            "%zu garbage: %zu remote head: %zu remote tail: %zu pending send: "
-            "%u used: %zu remain: %zu, tx: %zu rx: %zu tx cnt: %d rx cnt: %d "
-            "%s",
-            is_server() ? 'S' : 'C', ringbuf_->get_capacity(),
-            ringbuf_->get_max_send_size(), ringbuf_->get_head(),
+            "%c rdmasr: %p head: %zu avail mlens: "
+            "%zu garbage: %zu remote head: %zu remote tail: %zu pending "
+            "send: "
+            "%u used: %zu remain: %zu, tx: %zu rx: %zu tx_cnt: %d rx_cnt: "
+            "%d",
+            is_server() ? 'S' : 'C', this, ringbuf_->get_head(),
             dynamic_cast<RingBufferBP*>(ringbuf_)->CheckMessageLength(),
             ringbuf_->get_garbage(), get_remote_ringbuf_head(),
             remote_ringbuf_tail_, last_failed_send_size_.load(), used,
             remote_ringbuf_sz - 8 - used, total_sent_.load(),
-            total_recv_.load(), write_counter_.load(), read_counter_.load(),
-            final_log ? ", Final" : "");
+            total_recv_.load(), write_counter_.load(), read_counter_.load());
         if (strcmp(last_buffer, buffer) != 0) {
           gpr_log(GPR_INFO, "%s", buffer);
           strcpy(last_buffer, buffer);
         }
-      };
 
-      while (debug_) {
-        print_log(false);
+        if (access(dump_tag, F_OK) != -1) {
+          ringbuf_->Dump(dump_path);
+          remove(dump_tag);
+          gpr_log(GPR_INFO, "Ring buffer dumped to %s", dump_path);
+        }
         sleep(1);
       }
-      print_log(true);
     });
   }
 }
@@ -252,7 +265,8 @@ int RDMASenderReceiverBP::Send(msghdr* msg, ssize_t* sz) {
 
 int RDMASenderReceiverBP::Recv(msghdr* msg, ssize_t* sz) {
   ContentAssertion cass(read_content_conter_);
-  size_t mlens = dynamic_cast<RingBufferBP*>(ringbuf_)->CheckFirstMessageLength();
+  size_t mlens =
+      dynamic_cast<RingBufferBP*>(ringbuf_)->CheckFirstMessageLength();
 
   if (sz != nullptr) {
     *sz = -1;

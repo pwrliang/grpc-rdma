@@ -12,6 +12,7 @@
 #include <unistd.h>
 #include <atomic>
 #include <cassert>
+#include <fstream>
 #include <iomanip>
 #include <sstream>
 
@@ -54,6 +55,15 @@ class RingBuffer {
    */
   virtual bool Read(msghdr* msg, size_t& expected_lens) = 0;
 
+  void Dump(const char* path) {
+    std::ofstream b_stream(path, std::fstream::out | std::fstream::binary);
+
+    if (b_stream) {
+      b_stream.write(reinterpret_cast<char const*>(buf_), capacity_);
+      GPR_ASSERT(b_stream.good());
+    }
+  }
+
  protected:
   size_t updateHead(size_t inc) {
     head_ = (head_ + inc) % capacity_;
@@ -72,7 +82,9 @@ class RingBufferBP : public RingBuffer {
 
   size_t CheckMessageLength() const { return checkMessageLength(head_); }
 
-  size_t CheckFirstMessageLength() const { return checkFirstMesssageLength(head_); }
+  size_t CheckFirstMessageLength() const {
+    return checkFirstMesssageLength(head_);
+  }
 
   bool Read(msghdr* msg, size_t& expected_lens) override;
 
