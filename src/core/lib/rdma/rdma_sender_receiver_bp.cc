@@ -33,6 +33,8 @@ void RDMASenderReceiverBP::Init() {
   conn_data_->SyncMR(local_metadata_recvbuf_mr_, remote_metadata_recvbuf_mr_);
   conn_data_->SyncQP();
   conn_metadata_->SyncQP();
+  conn_data_->Sync();
+  conn_metadata_->Sync();
   status_ = Status::kConnected;
 
   if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_sr_bp_debug_trace)) {

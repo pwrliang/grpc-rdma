@@ -62,6 +62,9 @@ size_t RingBufferBP::resetBufAndUpdateHead(size_t lens) {
 
 bool RingBufferBP::Read(msghdr* msg, size_t& expected_mlens) {
   auto head = head_;
+  if (expected_mlens == 0 || expected_mlens > get_max_send_size()) {
+    gpr_log(GPR_ERROR, "Illegal expected_mlens, %zu", expected_mlens);
+  }
   GPR_ASSERT(expected_mlens > 0 && expected_mlens < capacity_);
   GPR_ASSERT(head < capacity_);
 

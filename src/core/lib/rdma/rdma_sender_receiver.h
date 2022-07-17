@@ -11,7 +11,7 @@
 #include "src/core/lib/debug/trace.h"
 #include "src/core/lib/rdma/rdma_conn.h"
 #include "src/core/lib/rdma/ringbuffer.h"
-//#define RDMA_DETECT_CONTENTION
+#define RDMA_DETECT_CONTENTION
 #define RDMA_MAX_WRITE_IOVEC 1024
 
 const size_t DEFAULT_HEADBUF_SZ = 64;
