@@ -18,19 +18,6 @@ RDMAConn::RDMAConn(int fd, RDMANode* node, bool event_mode)
     gpr_log(GPR_ERROR, "Failed to create CQ for a connection");
     abort();
   }
-  if (event_mode) {
-    recv_channel_ = std::shared_ptr<ibv_comp_channel>(
-        ibv_create_comp_channel(ctx), [](ibv_comp_channel* recv_channel) {
-          ibv_destroy_comp_channel(recv_channel);
-        });
-    int recv_flags = fcntl(recv_channel_->fd, F_GETFL);
-    if (fcntl(recv_channel_->fd, F_SETFL, recv_flags | O_NONBLOCK) < 0) {
-      gpr_log(GPR_ERROR,
-              "RDMAConnEvent::RDMAConnEvent, failed to change channel fd to "
-              "non-blocking");
-      abort();
-    }
-  }
 
   rcq_ = std::shared_ptr<ibv_cq>(
       ibv_create_cq(ctx, DEFAULT_CQE, nullptr, recv_channel_.get(), 0),
@@ -53,6 +40,17 @@ RDMAConn::RDMAConn(int fd, RDMANode* node, bool event_mode)
   }
 
   if (event_mode) {
+    recv_channel_ = std::shared_ptr<ibv_comp_channel>(
+        ibv_create_comp_channel(ctx), [](ibv_comp_channel* recv_channel) {
+          ibv_destroy_comp_channel(recv_channel);
+        });
+    int recv_flags = fcntl(recv_channel_->fd, F_GETFL);
+    if (fcntl(recv_channel_->fd, F_SETFL, recv_flags | O_NONBLOCK) < 0) {
+      gpr_log(GPR_ERROR,
+              "RDMAConnEvent::RDMAConnEvent, failed to change channel fd to "
+              "non-blocking");
+      abort();
+    }
     ibv_req_notify_cq(rcq_.get(), 0);
   }
 
@@ -60,7 +58,8 @@ RDMAConn::RDMAConn(int fd, RDMANode* node, bool event_mode)
   qp_attr_.recv_cq = rcq_.get();
   qp_attr_.send_cq = scq_.get();
   qp_attr_.qp_type = IBV_QPT_RC;
-  qp_attr_.sq_sig_all = 0;
+  qp_attr_.sq_sig_all =
+      1;  // send_flags should be IBV_SEND_SIGNALED if sq_sig_all=0;
   qp_attr_.cap.max_send_wr = DEFAULT_MAX_SEND_WR;
   qp_attr_.cap.max_recv_wr = DEFAULT_MAX_RECV_WR;
   qp_attr_.cap.max_send_sge = DEFAULT_MAX_SEND_SGE;
@@ -163,8 +162,9 @@ int RDMAConn::PostSendRequest(MemRegion& remote_mr, size_t remote_tail,
                               MemRegion& local_mr, size_t local_offset,
                               size_t sz, ibv_wr_opcode opcode) {
   GPR_DEBUG_ASSERT(!remote_mr.is_local() && !local_mr.is_remote());
-
+  GPR_ASSERT(sz > 0);
   size_t remote_cap = remote_mr.length();
+  GPR_ASSERT(remote_tail <= remote_cap);
   size_t r_len = MIN(remote_cap - remote_tail, sz);
   struct ibv_send_wr* bad_wr = nullptr;
 
@@ -176,7 +176,7 @@ int RDMAConn::PostSendRequest(MemRegion& remote_mr, size_t remote_tail,
     init_sr(&sr, &sge, opcode,
             static_cast<uint8_t*>(remote_mr.addr()) + remote_tail,
             remote_mr.rkey(), 1, sz, 0, nullptr);
-    //    GPR_ASSERT(sz > 0);
+
     if (ibv_post_send(qp_.get(), &sr, &bad_wr) != 0) {
       gpr_log(GPR_ERROR, "Failed to post send");
       abort();
