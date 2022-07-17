@@ -51,6 +51,21 @@ using helloworld::HelloRequest1;
 using helloworld::HelloRequest2;
 using helloworld::HelloRequest3;
 
+std::string gen_random(const int len) {
+  static const char alphanum[] =
+      "0123456789"
+      "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+      "abcdefghijklmnopqrstuvwxyz";
+  std::string tmp_s;
+  tmp_s.reserve(len);
+
+  for (int i = 0; i < len; ++i) {
+    tmp_s += alphanum[rand() % (sizeof(alphanum) - 1)];
+  }
+
+  return tmp_s;
+}
+
 class GreeterClient {
  public:
   explicit GreeterClient(std::shared_ptr<Channel> channel)
@@ -191,7 +206,7 @@ class CallData : public CallBase {
       new CallData(service_, cq_);
 
       //        std::string prefix("Hello ");
-      reply_.mutable_message()->resize(rand() % FLAGS_resp);
+      reply_.mutable_message()->assign(gen_random(rand() % FLAGS_resp));
       status_ = FINISH;
       responder_.Finish(reply_, Status::OK, this);
     } else {
@@ -220,8 +235,7 @@ class CallData1 : public CallBase {
     } else if (status_ == PROCESS) {
       new CallData1(service_, cq_);
 
-      //        std::string prefix("Hello ");
-      reply_.mutable_message()->resize(rand() % FLAGS_resp);
+      reply_.mutable_message()->assign(gen_random(rand() % FLAGS_resp));
       status_ = FINISH;
       responder_.Finish(reply_, Status::OK, this);
     } else {
@@ -251,7 +265,7 @@ class CallData2 : public CallBase {
       new CallData2(service_, cq_);
 
       //        std::string prefix("Hello ");
-      reply_.mutable_message()->resize(rand() % FLAGS_resp);
+      reply_.mutable_message()->assign(gen_random(rand() % FLAGS_resp));
       status_ = FINISH;
       responder_.Finish(reply_, Status::OK, this);
     } else {
@@ -281,7 +295,7 @@ class CallData3 : public CallBase {
       new CallData3(service_, cq_);
 
       //        std::string prefix("Hello ");
-      reply_.mutable_message()->resize(rand() % FLAGS_resp);
+      reply_.mutable_message()->assign(gen_random(rand() % FLAGS_resp));
       status_ = FINISH;
       responder_.Finish(reply_, Status::OK, this);
     } else {
@@ -379,8 +393,7 @@ int main(int argc, char** argv) {
   ths.emplace_back([rpc_count, &greeter]() {
     CompletionQueue cq;
     for (int i = 0; i < rpc_count; i++) {
-      std::string user;
-      user.resize(rand() % FLAGS_req);
+      std::string user = gen_random(rand() % FLAGS_req);
 
       greeter.SayHello(cq, user);
     }
@@ -389,8 +402,7 @@ int main(int argc, char** argv) {
   ths.emplace_back([rpc_count, &greeter]() {
     CompletionQueue cq;
     for (int i = 0; i < rpc_count; i++) {
-      std::string user;
-      user.resize(rand() % FLAGS_req);
+      std::string user = gen_random(rand() % FLAGS_req);
 
       greeter.SayHello1(cq, user);
     }
@@ -399,8 +411,7 @@ int main(int argc, char** argv) {
   ths.emplace_back([rpc_count, &greeter]() {
     CompletionQueue cq;
     for (int i = 0; i < rpc_count; i++) {
-      std::string user;
-      user.resize(rand() % FLAGS_req);
+      std::string user = gen_random(rand() % FLAGS_req);
 
       greeter.SayHello2(cq, user);
     }
@@ -409,9 +420,8 @@ int main(int argc, char** argv) {
   ths.emplace_back([rpc_count, &greeter]() {
     CompletionQueue cq;
     for (int i = 0; i < rpc_count; i++) {
-      std::string user;
+      std::string user = gen_random(rand() % FLAGS_req);
 
-      user.resize(rand() % FLAGS_req);
       greeter.SayHello3(cq, user);
     }
     std::cout << "Exit3 " << getpid() << std::endl;

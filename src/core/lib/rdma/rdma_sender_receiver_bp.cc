@@ -215,10 +215,11 @@ int RDMASenderReceiverBP::Send(msghdr* msg, ssize_t* sz) {
     memcpy(start, iov_base, iov_len);
     start += iov_len;
   }
-  *start = 1;  // 1 byte for finishing tag
+  //  *start = 1;  // 1 byte for finishing tag
+  *reinterpret_cast<uint8_t*>(sendbuf_ + sizeof(size_t) + mlen) = 1;
+  GPR_ASSERT(start == sendbuf_ + sizeof(size_t) + mlen);
 
   size_t len = mlen + sizeof(size_t) + 1;
-
   {
     GRPCProfiler profiler(GRPC_STATS_TIME_SEND_POST);
     n_outstanding_send_ =
@@ -236,6 +237,7 @@ int RDMASenderReceiverBP::Send(msghdr* msg, ssize_t* sz) {
       return EPIPE;
     }
     n_outstanding_send_ = 0;
+    memset(sendbuf_, 0xff, len);
   }
   size_t pre_write_tail = remote_ringbuf_tail_;
 
