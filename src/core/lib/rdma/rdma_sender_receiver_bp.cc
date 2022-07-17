@@ -203,6 +203,8 @@ int RDMASenderReceiverBP::Send(msghdr* msg, ssize_t* sz) {
 
 #endif
 
+  memset(sendbuf_, 0xaa, mlen + 9);
+
   *reinterpret_cast<size_t*>(sendbuf_) = mlen;
   uint8_t* start = sendbuf_ + sizeof(size_t);
   size_t iov_idx, nwritten;
