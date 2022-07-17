@@ -256,9 +256,9 @@ int RDMASenderReceiverBP::Send(msghdr* msg, ssize_t* sz) {
   }
 
   if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_sr_bp_trace)) {
-    gpr_log(GPR_INFO, "%c send %d, pos: %zu mlen: %zu, written: %zu",
+    gpr_log(GPR_INFO, "%c send %d, pos: %zu->%zu mlen: %zu, written: %zu",
             is_server() ? 'S' : 'C', write_counter_.load(), pre_write_tail,
-            mlen, nwritten);
+            remote_ringbuf_tail_, mlen, nwritten);
   }
 
   return 0;
@@ -285,8 +285,9 @@ int RDMASenderReceiverBP::Recv(msghdr* msg, ssize_t* sz) {
   }
 
   size_t read_mlens = mlens;
-  bool should_recycle = ringbuf_->Read(msg, read_mlens);
   size_t head = ringbuf_->get_head();
+  bool should_recycle = ringbuf_->Read(msg, read_mlens);
+  size_t new_head = ringbuf_->get_head();
 
   if (should_recycle && status_ != Status::kShutdown) {
     int r = updateRemoteMetadata();
@@ -310,9 +311,9 @@ int RDMASenderReceiverBP::Recv(msghdr* msg, ssize_t* sz) {
   }
 
   if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_sr_bp_trace)) {
-    gpr_log(GPR_INFO, "%c recv %d, pos: %zu, mlens: %zu, read: %zu",
-            is_server() ? 'S' : 'C', read_counter_.load(), head, mlens,
-            read_mlens);
+    gpr_log(GPR_INFO, "%c recv %d, pos: %zu->%zu, mlens: %zu, read: %zu",
+            is_server() ? 'S' : 'C', read_counter_.load(), head, new_head,
+            mlens, read_mlens);
   }
 
   return 0;

@@ -77,8 +77,9 @@ bool RingBufferBP::Read(msghdr* msg, size_t& expected_mlens) {
   }
 
   GPR_ASSERT(msghdr_size > 0);
+  GPR_ASSERT(mlen <= msghdr_size);
 
-  while (iov_idx < msg->msg_iovlen && mlen > 0 && mlen <= msghdr_size) {
+  while (iov_idx < msg->msg_iovlen && mlen > 0) {
     size_t iov_rlen = msg->msg_iov[iov_idx].iov_len -
                       iov_offset;     // rest space of current slice
     size_t m_rlen = mlen - m_offset;  // uncopied bytes of current message
