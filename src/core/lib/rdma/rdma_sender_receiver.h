@@ -104,7 +104,10 @@ class RDMASenderReceiver {
 
   virtual void Init() = 0;
 
-  virtual void Shutdown() { status_ = Status::kShutdown; }
+  virtual void Shutdown() {
+    gpr_log(GPR_INFO, "Shutdown %p", this);
+    status_ = Status::kShutdown;
+  }
 
   virtual ~RDMASenderReceiver() {
     status_ = Status::kDisconnected;

@@ -49,8 +49,11 @@ size_t RingBufferBP::resetBufAndUpdateHead(size_t lens) {
   if (head_ + lens > capacity_) {
     memset(buf_ + head_, 0, capacity_ - head_);
     memset(buf_, 0, lens + head_ - capacity_);
+    gpr_log(GPR_INFO, "Reset %p head: %zu, len: %zu", buf_, head_,
+            lens + head_ - capacity_);
   } else {
     memset(buf_ + head_, 0, lens);
+    gpr_log(GPR_INFO, "Reset %p head: %zu, len: %zu", buf_, head_, lens);
   }
   return updateHead(lens);
 }
