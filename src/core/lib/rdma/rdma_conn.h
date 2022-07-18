@@ -29,7 +29,6 @@ class RDMASenderReceiverEvent;
 
 class RDMAConn {
  public:
-  typedef enum { UNINIT = 0, RESET, INIT, RTR, RTS, SQD, SQE, ERROR } state_t;
   explicit RDMAConn(int fd, RDMANode* node, bool event_mode = false);
   virtual ~RDMAConn();
 
@@ -98,7 +97,6 @@ class RDMAConn {
  private:
   size_t PollRecvCompletion();
 
-  state_t state_;
   int fd_;
   RDMANode* node_;
 
@@ -108,36 +106,13 @@ class RDMAConn {
   ibv_qp_init_attr qp_attr_;
   uint32_t qp_num_rt_;
   uint16_t lid_rt_;
+  uint32_t psn_rt_;
   union ibv_gid gid_rt_;
 
   std::shared_ptr<ibv_comp_channel> recv_channel_;
   // rr stands for receive request
   size_t rr_tail_ = 0, rr_garbage_ = 0;
   size_t unack_cqe_ = 0;
-
-  int modify_state(state_t st) {
-    int ret = 0;
-
-    switch (st) {
-      case RESET:
-        break;
-      case INIT:
-        ret = modify_qp_to_init(qp_.get());
-        break;
-      case RTR:
-        ret = modify_qp_to_rtr(qp_.get(), qp_num_rt_, lid_rt_, gid_rt_,
-                               node_->get_port_attr().link_layer);
-        break;
-      case RTS:
-        ret = modify_qp_to_rts(qp_.get());
-        break;
-      default:
-        gpr_log(GPR_ERROR, "RDMAConn::modify_state, Unsupported state %d", st);
-        abort();
-    }
-
-    return ret;
-  }
 };
 
 #endif  // GRPC_CORE_LIB_RDMA_RDMA_CONN_H

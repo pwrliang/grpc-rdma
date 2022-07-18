@@ -197,10 +197,11 @@ void init_rr(ibv_recv_wr* rr, ibv_sge* sge, int num_sge);
 
 int modify_qp_to_init(ibv_qp* qp);
 
-int modify_qp_to_rtr(struct ibv_qp* qp, uint32_t remote_qpn, uint16_t dlid,
-                     union ibv_gid dgid, uint8_t link_layer);
+int modify_qp_to_rtr(struct ibv_qp* qp, uint32_t remote_qpn,
+                     uint32_t remote_psn, uint16_t dlid, union ibv_gid dgid,
+                     uint8_t link_layer);
 
-int modify_qp_to_rts(struct ibv_qp* qp);
+int modify_qp_to_rts(struct ibv_qp* qp, uint32_t sq_psn);
 
 int sync_data(int fd, const char* local, char* remote, const size_t sz);
 

@@ -99,12 +99,14 @@ int RDMAConn::SyncMR(MemRegion& local, MemRegion& remote) {
 int RDMAConn::SyncQP() {
   ibv_port_attr port_attr = node_->get_port_attr();
   union ibv_gid gid = node_->get_gid();
+  uint32_t psn = static_cast<uint32_t>((lrand48() & 0xffffff));
 
   struct {
     uint32_t qp_num;
     uint16_t lid;
+    uint32_t psn;
     uint8_t gid[16];
-  } local = {qp_->qp_num, port_attr.lid}, remote;
+  } local = {qp_->qp_num, port_attr.lid, psn}, remote;
   memcpy(&local.gid, &gid, sizeof(gid));
 
   // exchange data for nodes
@@ -116,19 +118,21 @@ int RDMAConn::SyncQP() {
 
   qp_num_rt_ = remote.qp_num;
   lid_rt_ = remote.lid;
+  psn_rt_ = remote.psn;
   memcpy(&gid_rt_, remote.gid, sizeof(gid_rt_));
 
-  if (modify_state(INIT)) {
+  if (modify_qp_to_init(qp_.get())) {
     gpr_log(GPR_ERROR, "RDMAConn::sync, failed to change to INIT state");
     abort();
   }
 
-  if (modify_state(RTR)) {
+  if (modify_qp_to_rtr(qp_.get(), qp_num_rt_, psn_rt_, lid_rt_, gid_rt_,
+                       node_->get_port_attr().link_layer)) {
     gpr_log(GPR_ERROR, "DMAConn::sync, failed to change to RTR state");
     abort();
   }
 
-  if (modify_state(RTS)) {
+  if (modify_qp_to_rts(qp_.get(), psn)) {
     gpr_log(GPR_ERROR, "DMAConn::sync, failed to change to RTS state");
     abort();
   }

@@ -4,7 +4,6 @@
 #include <sys/epoll.h>
 #include "grpc/impl/codegen/log.h"
 
-// -----< MemRegion >-----
 int MemRegion::RegisterRemote(void* mem, uint32_t rkey, size_t len) {
   dereg();
 
@@ -46,7 +45,6 @@ void MemRegion::dereg() {
   remote = true;
 }
 
-// -----< RDMANode >-----
 void RDMANode::open(const char* name) {
   ibv_device** dev_list;
   ibv_device* ib_dev = nullptr;
@@ -54,7 +52,7 @@ void RDMANode::open(const char* name) {
 
   if (!(dev_list = ibv_get_device_list(&num_devices)) || !num_devices) {
     gpr_log(GPR_ERROR, "RDMANode::open, failed to get IB device list");
-    exit(-1);
+    abort();
   }
 
   for (int i = 0; i < num_devices; i++) {
@@ -66,7 +64,7 @@ void RDMANode::open(const char* name) {
 
   if (!ib_dev) {
     gpr_log(GPR_ERROR, "RDMANode::open, failed to find device \"%s\"", name);
-    exit(-1);
+    abort();
   }
 
   ib_ctx = std::shared_ptr<ibv_context>(
@@ -74,24 +72,24 @@ void RDMANode::open(const char* name) {
   if (ib_ctx == nullptr) {
     gpr_log(GPR_ERROR, "RDMANode::open, failed to open device %s",
             ibv_get_device_name(ib_dev));
-    exit(-1);
+    abort();
   }
   ibv_free_device_list(dev_list);
 
   if (ibv_query_port(ib_ctx.get(), ib_port, &port_attr)) {
     gpr_log(GPR_ERROR, "RDMANode::open, failed to query port %u attribute",
             ib_port);
-    exit(-1);
+    abort();
   }
 
   if (ibv_query_gid(ib_ctx.get(), ib_port, 0, &gid)) {
     gpr_log(GPR_ERROR, "RDMANode::open, failed to query gid");
-    exit(-1);
+    abort();
   }
 
   if (ibv_query_device(ib_ctx.get(), &dev_attr)) {
     gpr_log(GPR_ERROR, "RDMANode::open, failed to query device");
-    exit(-1);
+    abort();
   }
 
   //  gpr_log(GPR_INFO,
@@ -102,7 +100,7 @@ void RDMANode::open(const char* name) {
                                   [](ibv_pd* p) { ibv_dealloc_pd(p); });
   if (ib_pd == nullptr) {
     gpr_log(GPR_ERROR, "RDMANode::open, ibv_alloc_pd failed");
-    exit(-1);
+    abort();
   }
 }
 
@@ -160,8 +158,9 @@ int modify_qp_to_init(ibv_qp* qp) {
   return rc;
 }
 
-int modify_qp_to_rtr(struct ibv_qp* qp, uint32_t remote_qpn, uint16_t dlid,
-                     union ibv_gid dgid, uint8_t link_layer) {
+int modify_qp_to_rtr(struct ibv_qp* qp, uint32_t remote_qpn,
+                     uint32_t remote_psn, uint16_t dlid, union ibv_gid dgid,
+                     uint8_t link_layer) {
   struct ibv_qp_attr attr;
   int flags;
   int rc;
@@ -169,7 +168,7 @@ int modify_qp_to_rtr(struct ibv_qp* qp, uint32_t remote_qpn, uint16_t dlid,
   attr.qp_state = IBV_QPS_RTR;
   attr.path_mtu = IBV_MTU_1024;  // previous is IBV_MTU_1024
   attr.dest_qp_num = remote_qpn;
-  attr.rq_psn = 0;
+  attr.rq_psn = remote_psn;
   attr.max_dest_rd_atomic = 1;
   attr.min_rnr_timer = 12;
 
@@ -197,12 +196,11 @@ int modify_qp_to_rtr(struct ibv_qp* qp, uint32_t remote_qpn, uint16_t dlid,
   if (rc) {
     gpr_log(GPR_ERROR,
             "modify_qp_to_rtr, failed to modify QP state to RTR (%d)", rc);
-    gpr_log(GPR_ERROR, "modify_qp_to_rtr, EINVAL: %d", EINVAL);
   }
   return rc;
 }
 
-int modify_qp_to_rts(struct ibv_qp* qp) {
+int modify_qp_to_rts(struct ibv_qp* qp, uint32_t sq_psn) {
   struct ibv_qp_attr attr;
   int flags;
   int rc;
@@ -211,7 +209,7 @@ int modify_qp_to_rts(struct ibv_qp* qp) {
   attr.timeout = 0x18;  // previous is 0x12
   attr.retry_cnt = 6;
   attr.rnr_retry = 6;  // previous is 0
-  attr.sq_psn = 0;
+  attr.sq_psn = sq_psn;
   attr.max_rd_atomic = 1;
   flags = IBV_QP_STATE | IBV_QP_TIMEOUT | IBV_QP_RETRY_CNT | IBV_QP_RNR_RETRY |
           IBV_QP_SQ_PSN | IBV_QP_MAX_QP_RD_ATOMIC;
@@ -270,6 +268,6 @@ void barrier(int fd) {
   char tmp;
   if (sync_data(fd, data, &tmp, 1)) {
     gpr_log(GPR_ERROR, "Send data failed");
-    exit(1);
+    abort();
   }
 }
