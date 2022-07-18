@@ -222,8 +222,8 @@ int RDMASenderReceiverBP::Send(msghdr* msg, ssize_t* sz) {
   GPR_ASSERT(start == sendbuf_ + sizeof(size_t) + mlen);
 
   size_t len = mlen + sizeof(size_t) + 1;
-//  {
-//    GRPCProfiler profiler(GRPC_STATS_TIME_SEND_POST);
+  {
+    GRPCProfiler profiler(GRPC_STATS_TIME_SEND_POST);
     n_outstanding_send_ =
         conn_data_->PostSendRequest(remote_ringbuf_mr_, remote_ringbuf_tail_,
                                     sendbuf_mr_, 0, len, IBV_WR_RDMA_WRITE);
@@ -240,7 +240,7 @@ int RDMASenderReceiverBP::Send(msghdr* msg, ssize_t* sz) {
     }
     n_outstanding_send_ = 0;
     memset(sendbuf_, 0xff, len);
-//  }
+  }
   size_t pre_write_tail = remote_ringbuf_tail_;
 
   remote_ringbuf_tail_ = (remote_ringbuf_tail_ + len) % remote_ringbuf_sz;
@@ -255,9 +255,6 @@ int RDMASenderReceiverBP::Send(msghdr* msg, ssize_t* sz) {
   if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_sr_bp_debug_trace) ||
       GRPC_TRACE_FLAG_ENABLED(grpc_rdma_sr_bp_trace)) {
     write_counter_++;
-  }
-
-  if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_sr_bp_debug_trace)) {
     total_sent_ += nwritten;
   }
 
@@ -310,9 +307,6 @@ int RDMASenderReceiverBP::Recv(msghdr* msg, ssize_t* sz) {
   if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_sr_bp_debug_trace) ||
       GRPC_TRACE_FLAG_ENABLED(grpc_rdma_sr_bp_trace)) {
     read_counter_++;
-  }
-
-  if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_sr_bp_debug_trace)) {
     total_recv_ += read_mlens;
   }
 
