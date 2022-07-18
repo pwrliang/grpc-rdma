@@ -257,16 +257,15 @@ class RDMASenderReceiverBP : public RDMASenderReceiver {
   int updateRemoteMetadata() override {
     reinterpret_cast<size_t*>(metadata_sendbuf_)[0] = ringbuf_->get_head();
     int n_entries = conn_metadata_->PostSendRequest(
-        remote_metadata_recvbuf_mr_, 0, metadata_sendbuf_mr_, 0,
-        metadata_sendbuf_sz_, IBV_WR_RDMA_WRITE);
+        remote_metadata_recvbuf_mr_, metadata_sendbuf_mr_, metadata_sendbuf_sz_,
+        IBV_WR_RDMA_WRITE);
     int ret = conn_metadata_->PollSendCompletion(n_entries);
 
     if (ret != 0) {
       gpr_log(GPR_ERROR,
               "updateRemoteMetadata failed, code: %d "
-              "remote_ringbuf_tail = "
-              "%zu, post_num = %d",
-              ret, remote_ringbuf_tail_, n_outstanding_send_);
+              "head: %zu, post_num: %d",
+              ret, reinterpret_cast<size_t*>(metadata_sendbuf_)[0], n_entries);
       return EPIPE;
     }
     return 0;

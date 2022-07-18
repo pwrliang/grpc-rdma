@@ -293,22 +293,27 @@ int RDMASenderReceiverBP::Recv(msghdr* msg, ssize_t* sz) {
   bool should_recycle = ringbuf_->Read(msg, read_mlens);
   size_t new_head = ringbuf_->get_head();
 
+  if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_sr_bp_debug_trace) ||
+      GRPC_TRACE_FLAG_ENABLED(grpc_rdma_sr_bp_trace)) {
+    read_counter_++;
+    total_recv_ += read_mlens;
+  }
+
   if (should_recycle && status_ != Status::kShutdown) {
     int r = updateRemoteMetadata();
     // N.B. IsPeerAlive calls read, should put it on the rhs to reduce overhead
     if (r != 0 && conn_metadata_->IsPeerAlive()) {
       return r;
     }
+    if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_sr_bp_trace)) {
+      gpr_log(GPR_INFO, "%c updateRemoteMetadata %d, head: %zu",
+              is_server() ? 'S' : 'C', read_counter_.load(),
+              reinterpret_cast<size_t*>(metadata_sendbuf_)[0]);
+    }
   }
 
   if (sz != nullptr) {
     *sz = read_mlens;
-  }
-
-  if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_sr_bp_debug_trace) ||
-      GRPC_TRACE_FLAG_ENABLED(grpc_rdma_sr_bp_trace)) {
-    read_counter_++;
-    total_recv_ += read_mlens;
   }
 
   if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_sr_bp_trace)) {
