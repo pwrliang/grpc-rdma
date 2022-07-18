@@ -239,7 +239,8 @@ int RDMASenderReceiverBP::Send(msghdr* msg, ssize_t* sz) {
       return EPIPE;
     }
     n_outstanding_send_ = 0;
-    memset(sendbuf_, 0xff, len);
+    int seq = (write_counter_ + 1) % 0xff;
+    memset(sendbuf_, seq, len);
   }
   size_t pre_write_tail = remote_ringbuf_tail_;
 
