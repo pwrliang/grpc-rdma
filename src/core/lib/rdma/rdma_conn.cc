@@ -99,6 +99,7 @@ int RDMAConn::SyncMR(MemRegion& local, MemRegion& remote) {
 int RDMAConn::SyncQP() {
   ibv_port_attr port_attr = node_->get_port_attr();
   union ibv_gid gid = node_->get_gid();
+  srand48(time(NULL));
   uint32_t psn = static_cast<uint32_t>(lrand48() & 0xffffff);
 
   struct {
