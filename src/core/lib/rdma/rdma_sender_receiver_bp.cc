@@ -240,9 +240,10 @@ int RDMASenderReceiverBP::Send(msghdr* msg, ssize_t* sz) {
     n_outstanding_send_ = 0;
     int seq = write_counter_ + 1;
 
-    for (int i = 0; i < len; i++) {
-      sendbuf_[i] = (i + seq) % 0xff;
-    }
+    // for (int i = 0; i < len; i++) {
+    //   sendbuf_[i] = (i + seq) % 0xff;
+    // }
+    memset(sendbuf_, seq, len);
   }
   size_t pre_write_tail = remote_ringbuf_tail_;
 
@@ -262,9 +263,9 @@ int RDMASenderReceiverBP::Send(msghdr* msg, ssize_t* sz) {
   }
 
   if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_sr_bp_trace)) {
-    gpr_log(GPR_INFO, "%c send %d, pos: %zu->%zu mlen: %zu, written: %zu",
+    gpr_log(GPR_INFO, "%c send %d, pos: %zu->%zu mlen: %zu, written: %zu, sendbuf[0-7] = %lld",
             is_server() ? 'S' : 'C', write_counter_.load(), pre_write_tail,
-            remote_ringbuf_tail_, mlen, nwritten);
+            remote_ringbuf_tail_, mlen, nwritten, *reinterpret_cast<size_t*>(sendbuf_));
   }
 
   return 0;
