@@ -37,18 +37,14 @@ class ContentAssertion {
 
 class RDMASenderReceiver {
  public:
-  explicit RDMASenderReceiver(RDMAConn* conn_data, RingBuffer* ringbuf,
-                              RDMAConn* conn_metadata, bool server)
-      : conn_data_(conn_data),
-        ringbuf_(ringbuf),
-        conn_metadata_(conn_metadata),
+  explicit RDMASenderReceiver(RingBuffer* ringbuf, bool server)
+      : ringbuf_(ringbuf),
         server_(server),
         status_(Status::kNew),
         remote_ringbuf_tail_(0),
         unread_mlens_(0),
         metadata_recvbuf_sz_(DEFAULT_HEADBUF_SZ),
         metadata_sendbuf_sz_(DEFAULT_HEADBUF_SZ),
-        n_outstanding_send_(0),
         last_failed_send_size_(0),
         read_content_conter_(0),
         write_content_counter_(0),
@@ -163,9 +159,7 @@ class RDMASenderReceiver {
 
   enum class Status { kNew, kConnected, kShutdown, kDisconnected };
 
-  RDMAConn* conn_data_;
   RingBuffer* ringbuf_;
-  RDMAConn* conn_metadata_;
   Status status_;
 
   size_t remote_ringbuf_tail_;
@@ -174,7 +168,6 @@ class RDMASenderReceiver {
 
   uint8_t *sendbuf_, *zerocopy_sendbuf_;
   MemRegion sendbuf_mr_, zerocopy_sendbuf_mr_;
-  int n_outstanding_send_;
   std::atomic_uint32_t last_failed_send_size_;
 
   bool zerocopy_;
@@ -260,20 +253,22 @@ class RDMASenderReceiverBP : public RDMASenderReceiver {
 
   int updateRemoteMetadata() override {
     reinterpret_cast<size_t*>(metadata_sendbuf_)[0] = ringbuf_->get_head();
-    int n_entries = conn_metadata_->PostSendRequest(
+    int n_send = conn_->PostSendMetadataRequest(
         remote_metadata_recvbuf_mr_, metadata_sendbuf_mr_, metadata_sendbuf_sz_,
         IBV_WR_RDMA_WRITE);
-    int ret = conn_metadata_->PollSendCompletion(n_entries, 0);
+    int ret = conn_->PollSendMetadataCompletion();
 
     if (ret != 0) {
       gpr_log(GPR_ERROR,
               "updateRemoteMetadata failed, code: %d "
               "head: %zu, post_num: %d",
-              ret, reinterpret_cast<size_t*>(metadata_sendbuf_)[0], n_entries);
+              ret, reinterpret_cast<size_t*>(metadata_sendbuf_)[0], n_send);
       return EPIPE;
     }
     return 0;
   }
+
+  RDMAConn* conn_;
 };
 
 class RDMASenderReceiverBPEV : public RDMASenderReceiverBP {
@@ -324,17 +319,17 @@ class RDMASenderReceiverEvent : public RDMASenderReceiver {
   int updateRemoteMetadata() override {
     reinterpret_cast<size_t*>(metadata_sendbuf_)[0] = ringbuf_->get_head();
     reinterpret_cast<size_t*>(metadata_sendbuf_)[1] = conn_data_->get_rr_tail();
-    int n_entries = conn_metadata_->PostSendRequest(
+    int n_send = conn_metadata_->PostSendMetadataRequest(
         remote_metadata_recvbuf_mr_, metadata_sendbuf_mr_, metadata_sendbuf_sz_,
         IBV_WR_RDMA_WRITE_WITH_IMM);
-    int ret = conn_metadata_->PollSendCompletion(n_entries, 0);
+    int ret = conn_metadata_->PollSendMetadataCompletion();
 
     if (ret != 0) {
       gpr_log(GPR_ERROR,
-              "PollSendCompletion failed, code: %d "
+              "pollSendCompletion failed, code: %d "
               "remote_ringbuf_tail = "
               "%zu, post_num = %d",
-              ret, remote_ringbuf_tail_, n_outstanding_send_);
+              ret, remote_ringbuf_tail_, n_send);
       return EPIPE;
     }
 
@@ -359,6 +354,7 @@ class RDMASenderReceiverEvent : public RDMASenderReceiver {
 
   size_t remote_rr_head_ = 0;
   std::atomic_bool data_ready_, metadata_ready_;
+  RDMAConn *conn_data_, *conn_metadata_;
 };
 
 #endif  // GRPC_CORE_LIB_RDMA_RDMA_SENDER_RECEIVER_H

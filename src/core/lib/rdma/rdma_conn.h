@@ -24,6 +24,11 @@
 #define DEFAULT_MAX_POST_SEND 512
 #define DEFAULT_EVENT_ACK_LIMIT 512
 
+#define SEND_WR_ID_METADATA_FLAG (((uint64_t)1) << 63)
+#define SEND_WR_ID_DATA_FLAG (((uint64_t)1) << 62)
+#define send_wr_is_metadata(wr_id) (wr_id & SEND_WR_ID_METADATA_FLAG)
+#define send_wr_is_data(wr_id) (wr_id & SEND_WR_ID_DATA_FLAG)
+
 class RDMASenderReceiver;
 class RDMASenderReceiverEvent;
 
@@ -32,18 +37,31 @@ class RDMAConn {
   explicit RDMAConn(int fd, RDMANode* node, bool event_mode = false);
   virtual ~RDMAConn();
 
-  int PollSendCompletion(int expected_num_entries, int wr_id);
+  int PostSendMetadataRequest(MemRegion& remote_mr, MemRegion& local_mr,
+                              size_t sz, ibv_wr_opcode opcode);
 
-  int PostSendRequest(MemRegion& remote_mr, MemRegion& local_mr, size_t sz,
-                      ibv_wr_opcode opcode);
+  int PollSendMetadataCompletion() {
+    int r;
+    while (n_outstanding_send_metadata_ > 0 &&
+           (r = pollSendCompletion()) == 0) {
+    }
+    return r;
+  }
 
-  int PostSendRequest(MemRegion& remote_mr, size_t remote_tail,
-                      MemRegion& local_mr, size_t local_offset, size_t sz,
-                      int wr_id, ibv_wr_opcode opcode);
+  int PostSendDataRequest(MemRegion& remote_mr, size_t remote_tail,
+                          MemRegion& local_mr, size_t local_offset, size_t sz,
+                          ibv_wr_opcode opcode);
 
-  int PostSendRequests(MemRegion& remote_mr, size_t remote_tail,
-                       struct ibv_sge* sg_list, size_t num_sge, size_t sz,
-                       ibv_wr_opcode opcode);
+  int PostSendDataRequests(MemRegion& remote_mr, size_t remote_tail,
+                           struct ibv_sge* sg_list, size_t num_sge, size_t sz,
+                           ibv_wr_opcode opcode);
+
+  int PollSendDataCompletion() {
+    int r;
+    while (n_outstanding_send_data_ > 0 && (r = pollSendCompletion()) == 0) {
+    }
+    return r;
+  }
 
   size_t GetRecvEvents();
 
@@ -95,11 +113,12 @@ class RDMAConn {
   }
 
  private:
-  size_t PollRecvCompletion();
+  size_t pollRecvCompletion();
+
+  int pollSendCompletion();
 
   int fd_;
   RDMANode* node_;
-
   std::shared_ptr<ibv_cq> scq_;
   std::shared_ptr<ibv_cq> rcq_;
   std::shared_ptr<ibv_qp> qp_;
@@ -111,8 +130,10 @@ class RDMAConn {
 
   std::shared_ptr<ibv_comp_channel> recv_channel_;
   // rr stands for receive request
-  size_t rr_tail_ = 0, rr_garbage_ = 0;
-  size_t unack_cqe_ = 0;
+  size_t rr_tail_, rr_garbage_;
+  size_t unack_cqe_;
+
+  std::atomic_uint32_t n_outstanding_send_data_, n_outstanding_send_metadata_;
 };
 
 #endif  // GRPC_CORE_LIB_RDMA_RDMA_CONN_H

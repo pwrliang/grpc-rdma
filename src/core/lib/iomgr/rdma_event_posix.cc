@@ -170,19 +170,21 @@ static void rdma_do_read(grpc_rdma* rdma) {
   struct iovec iov[MAX_READ_IOVEC];
   size_t iov_len = rdma->incoming_buffer->count;
   GPR_ASSERT(iov_len <= MAX_READ_IOVEC);
-
-  // We don't have space to read, this maybe caused by urgent flag
-  if (iov_len == 0) {
-    notify_on_read(rdma);
-    return;
-  }
+  size_t msghdr_len = 0;
 
   for (size_t i = 0; i < iov_len; i++) {
     iov[i].iov_base = GRPC_SLICE_START_PTR(rdma->incoming_buffer->slices[i]);
     iov[i].iov_len = GRPC_SLICE_LENGTH(rdma->incoming_buffer->slices[i]);
+    msghdr_len += iov[i].iov_len;
   }
   msg.msg_iov = iov;
   msg.msg_iovlen = iov_len;
+
+  // We don't have space to read, this maybe caused by urgent flag
+  if (msghdr_len < rdma->rdmasr->MarkMessageLength()) {
+    notify_on_read(rdma);
+    return;
+  }
 
   ssize_t read_bytes;
   int err = rdma->rdmasr->Recv(&msg, &read_bytes);
@@ -239,8 +241,7 @@ static void rdma_continue_read(grpc_rdma* rdma) {
   size_t target_read_size = rdma->rdmasr->MarkMessageLength();
 
   /* Wait for allocation only when there is no buffer left. */
-  if (rdma->incoming_buffer->length < target_read_size &&
-      rdma->incoming_buffer->count < MAX_READ_IOVEC) {
+  if (rdma->incoming_buffer->length < target_read_size) {
     if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_trace)) {
       gpr_log(GPR_INFO, "rdma allocate slice: %zu", target_read_size);
     }
@@ -251,7 +252,10 @@ static void rdma_continue_read(grpc_rdma* rdma) {
     }
   }
   if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_trace)) {
-    gpr_log(GPR_INFO, "RDMA:%p do_read, len: %zu", rdma, target_read_size);
+    gpr_log(GPR_INFO,
+            "RDMA:%p do_read, len: %zu, incoming buffer len: %zu count: %zu",
+            rdma, target_read_size, rdma->incoming_buffer->length,
+            rdma->incoming_buffer->count);
   }
   rdma_do_read(rdma);
 }
