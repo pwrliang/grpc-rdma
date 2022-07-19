@@ -260,9 +260,12 @@ int RDMASenderReceiverBP::Send(msghdr* msg, ssize_t* sz) {
   }
 
   if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_sr_bp_trace)) {
-    gpr_log(GPR_INFO, "%c send %d, pos: %zu->%zu mlen: %zu, written: %zu",
-            is_server() ? 'S' : 'C', write_counter_.load(), pre_write_tail,
-            remote_ringbuf_tail_, mlen, nwritten);
+    gpr_log(
+        GPR_INFO,
+        "%c send %d, pos: %zu->%zu mlen: %zu, written: %zu, sendbuf[0-7] = %zu",
+        is_server() ? 'S' : 'C', write_counter_.load(), pre_write_tail,
+        remote_ringbuf_tail_, mlen, nwritten,
+        *reinterpret_cast<size_t*>(sendbuf_));
   }
 
   return 0;
