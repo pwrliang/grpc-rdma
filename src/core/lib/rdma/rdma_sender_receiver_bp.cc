@@ -204,8 +204,6 @@ int RDMASenderReceiverBP::Send(msghdr* msg, ssize_t* sz) {
 #endif
 
   memset(sendbuf_, 0xaa, mlen + 9);
-  asm volatile("" ::: "memory");        // Compiler barrier
-  asm volatile("mfence" ::: "memory");  // Hardware barrier
 
   *reinterpret_cast<size_t*>(sendbuf_) = mlen;
   uint8_t* start = sendbuf_ + sizeof(size_t);
@@ -221,11 +219,10 @@ int RDMASenderReceiverBP::Send(msghdr* msg, ssize_t* sz) {
   }
   *reinterpret_cast<uint8_t*>(sendbuf_ + sizeof(size_t) + mlen) = 1;
   GPR_ASSERT(start == sendbuf_ + sizeof(size_t) + mlen);
-  asm volatile("" ::: "memory");        // Compiler barrier
-  asm volatile("mfence" ::: "memory");  // Hardware barrier
 
   size_t len = mlen + sizeof(size_t) + 1;
   {
+    std::lock_guard<std::mutex> lg(debug_mutex_);
     GRPCProfiler profiler(GRPC_STATS_TIME_SEND_POST);
     n_outstanding_send_ = conn_data_->PostSendRequest(
         remote_ringbuf_mr_, remote_ringbuf_tail_, sendbuf_mr_, 0, len,
@@ -244,8 +241,6 @@ int RDMASenderReceiverBP::Send(msghdr* msg, ssize_t* sz) {
     }
     n_outstanding_send_ = 0;
     int seq = write_counter_ + 1;
-    asm volatile("" ::: "memory");        // Compiler barrier
-    asm volatile("mfence" ::: "memory");  // Hardware barrier
     memset(sendbuf_, seq % 0xff, len);
   }
   size_t pre_write_tail = remote_ringbuf_tail_;
@@ -309,6 +304,7 @@ int RDMASenderReceiverBP::Recv(msghdr* msg, ssize_t* sz) {
   }
 
   if (should_recycle && status_ != Status::kShutdown) {
+    std::lock_guard<std::mutex> lg(debug_mutex_);
     int r = updateRemoteMetadata();
     // N.B. IsPeerAlive calls read, should put it on the rhs to reduce overhead
     if (r != 0 && conn_metadata_->IsPeerAlive()) {

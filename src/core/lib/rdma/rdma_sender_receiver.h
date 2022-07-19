@@ -196,6 +196,7 @@ class RDMASenderReceiver {
   std::atomic_size_t total_sent_, total_recv_;
   std::atomic_bool debug_;
   std::thread debug_thread_;
+  std::mutex debug_mutex_;
 
  private:
   bool server_;
