@@ -162,7 +162,7 @@ static void call_read_cb(grpc_rdma* rdma, grpc_error_handle error) {
   grpc_core::Closure::Run(DEBUG_LOCATION, cb, error);
 }
 
-#define MAX_READ_IOVEC 4
+#define MAX_READ_IOVEC 1024
 
 static void rdma_do_read(grpc_rdma* rdma) {
   GRPCProfiler profiler(GRPC_STATS_TIME_TRANSPORT_DO_READ, 0);
