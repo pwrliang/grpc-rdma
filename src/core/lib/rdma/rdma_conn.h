@@ -32,14 +32,14 @@ class RDMAConn {
   explicit RDMAConn(int fd, RDMANode* node, bool event_mode = false);
   virtual ~RDMAConn();
 
-  int PollSendCompletion(int expected_num_entries);
+  int PollSendCompletion(int expected_num_entries, int wr_id);
 
   int PostSendRequest(MemRegion& remote_mr, MemRegion& local_mr, size_t sz,
                       ibv_wr_opcode opcode);
 
   int PostSendRequest(MemRegion& remote_mr, size_t remote_tail,
                       MemRegion& local_mr, size_t local_offset, size_t sz,
-                      ibv_wr_opcode opcode);
+                      int wr_id, ibv_wr_opcode opcode);
 
   int PostSendRequests(MemRegion& remote_mr, size_t remote_tail,
                        struct ibv_sge* sg_list, size_t num_sge, size_t sz,
