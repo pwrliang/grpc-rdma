@@ -6,9 +6,9 @@ grpc_core::TraceFlag grpc_rdma_sr_bp_debug_trace(false, "rdma_sr_bp_debug");
 
 RDMASenderReceiverBP::RDMASenderReceiverBP(int fd, bool server)
     : RDMASenderReceiver(
+          new RDMAConn(fd, &RDMANode::GetInstance()),
           new RingBufferBP(RDMAConfig::GetInstance().get_ring_buffer_size()),
-          server),
-      conn_(new RDMAConn(fd, &RDMANode::GetInstance())) {
+          new RDMAConn(fd, &RDMANode::GetInstance()), server) {
   auto pd = RDMANode::GetInstance().get_pd();
 
   if (local_ringbuf_mr_.RegisterLocal(pd, ringbuf_->get_buf(),
@@ -23,14 +23,18 @@ RDMASenderReceiverBP::~RDMASenderReceiverBP() {
     debug_ = false;
     debug_thread_.join();
   }
-  delete conn_;
+  delete conn_data_;
+  delete conn_metadata_;
   delete ringbuf_;
 }
 
 void RDMASenderReceiverBP::Init() {
-  conn_->SyncMR(local_ringbuf_mr_, remote_ringbuf_mr_);
-  conn_->SyncMR(local_metadata_recvbuf_mr_, remote_metadata_recvbuf_mr_);
-  conn_->SyncQP();
+  conn_data_->SyncMR(local_ringbuf_mr_, remote_ringbuf_mr_);
+  conn_data_->SyncMR(local_metadata_recvbuf_mr_, remote_metadata_recvbuf_mr_);
+  conn_data_->SyncQP();
+  conn_metadata_->SyncQP();
+  conn_data_->Sync();
+  conn_metadata_->Sync();
   status_ = Status::kConnected;
 
   if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_sr_bp_debug_trace)) {
@@ -218,20 +222,24 @@ int RDMASenderReceiverBP::Send(msghdr* msg, ssize_t* sz) {
 
   size_t len = mlen + sizeof(size_t) + 1;
   {
+    std::lock_guard<std::mutex> lg(debug_mutex_);
     GRPCProfiler profiler(GRPC_STATS_TIME_SEND_POST);
-    int n_send =
-        conn_->PostSendDataRequest(remote_ringbuf_mr_, remote_ringbuf_tail_,
-                                   sendbuf_mr_, 0, len, IBV_WR_RDMA_WRITE);
-    int ret = conn_->PollSendDataCompletion();
+    n_outstanding_send_ = conn_data_->PostSendRequest(
+        remote_ringbuf_mr_, remote_ringbuf_tail_, sendbuf_mr_, 0, len,
+        write_counter_, IBV_WR_RDMA_WRITE);
+    int ret =
+        conn_data_->PollSendCompletion(n_outstanding_send_, write_counter_);
 
     if (ret != 0) {
       gpr_log(GPR_ERROR,
-              "pollSendCompletion failed, code: %d "
+              "PollSendCompletion failed, code: %d "
               "mlen = %zu, remote_ringbuf_tail = "
               "%zu, ringbuf_sz = %zu, post_num = %d",
-              ret, mlen, remote_ringbuf_tail_, remote_ringbuf_sz, n_send);
+              ret, mlen, remote_ringbuf_tail_, remote_ringbuf_sz,
+              n_outstanding_send_);
       return EPIPE;
     }
+    n_outstanding_send_ = 0;
     int seq = write_counter_ + 1;
     memset(sendbuf_, seq % 0xff, len);
   }
@@ -296,9 +304,10 @@ int RDMASenderReceiverBP::Recv(msghdr* msg, ssize_t* sz) {
   }
 
   if (should_recycle && status_ != Status::kShutdown) {
+    std::lock_guard<std::mutex> lg(debug_mutex_);
     int r = updateRemoteMetadata();
     // N.B. IsPeerAlive calls read, should put it on the rhs to reduce overhead
-    if (r != 0 && conn_->IsPeerAlive()) {
+    if (r != 0 && conn_metadata_->IsPeerAlive()) {
       return r;
     }
     if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_sr_bp_trace)) {

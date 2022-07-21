@@ -7,10 +7,9 @@ grpc_core::TraceFlag grpc_rdma_sr_event_debug_trace(false,
 
 RDMASenderReceiverEvent::RDMASenderReceiverEvent(int fd, bool server)
     : RDMASenderReceiver(
+          new RDMAConn(fd, &RDMANode::GetInstance(), true),
           new RingBufferEvent(RDMAConfig::GetInstance().get_ring_buffer_size()),
-          server),
-      conn_data_(new RDMAConn(fd, &RDMANode::GetInstance(), true)),
-      conn_metadata_(new RDMAConn(fd, &RDMANode::GetInstance(), true)),
+          new RDMAConn(fd, &RDMANode::GetInstance(), true), server),
       data_ready_(false),
       metadata_ready_(false) {
   auto pd = RDMANode::GetInstance().get_pd();
@@ -136,33 +135,37 @@ int RDMASenderReceiverEvent::Send(msghdr* msg, ssize_t* sz) {
     iov_idx++;
   }
 
-  int n_send;
   {
     GRPCProfiler profiler(GRPC_STATS_TIME_SEND_IBV);
 
     if (!zerocopy) {
-      n_send = conn_data_->PostSendDataRequest(
+      n_outstanding_send_ = conn_data_->PostSendRequest(
           remote_ringbuf_mr_, remote_ringbuf_tail_, sendbuf_mr_, 0, mlen,
-          IBV_WR_RDMA_WRITE_WITH_IMM);
+          0, IBV_WR_RDMA_WRITE_WITH_IMM);
     } else {
-      n_send = conn_data_->PostSendDataRequests(
+      n_outstanding_send_ = conn_data_->PostSendRequests(
           remote_ringbuf_mr_, remote_ringbuf_tail_, sges, sge_idx + 1, mlen,
           IBV_WR_RDMA_WRITE_WITH_IMM);
     }
-    int ret = conn_data_->PollSendDataCompletion();
+    // fixme:
+    int ret = conn_data_->PollSendCompletion(n_outstanding_send_, 0);
 
     if (ret != 0) {
       gpr_log(GPR_ERROR,
-              "pollSendCompletion failed, code: %d "
+              "PollSendCompletion failed, code: %d "
               "mlen = %zu, remote_ringbuf_tail = "
               "%zu, ringbuf_sz = %zu, post_num = %d",
-              ret, mlen, remote_ringbuf_tail_, remote_ringbuf_sz, n_send);
+              ret, mlen, remote_ringbuf_tail_, remote_ringbuf_sz,
+              n_outstanding_send_);
       return EPIPE;
     }
+    // N.B. n_outstanding_send_ = 0;
   }
 
   remote_ringbuf_tail_ = (remote_ringbuf_tail_ + mlen) % remote_ringbuf_sz;
-  remote_rr_head_ = (remote_rr_head_ + n_send) % DEFAULT_MAX_POST_RECV;
+  remote_rr_head_ =
+      (remote_rr_head_ + n_outstanding_send_) % DEFAULT_MAX_POST_RECV;
+  n_outstanding_send_ = 0;
   last_failed_send_size_ = 0;
   if (unfinished_zerocopy_send_size_ == 0) {
     last_zerocopy_send_finished_ = true;
