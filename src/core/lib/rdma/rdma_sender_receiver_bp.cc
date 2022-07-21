@@ -204,9 +204,7 @@ int RDMASenderReceiverBP::Send(msghdr* msg, ssize_t* sz) {
 #endif
 
   memset(sendbuf_, 0xaa, mlen + 9);
-  asm volatile("" ::: "memory");        // Compiler barrier
-  asm volatile("mfence" ::: "memory");  // Hardware barrier
-
+  __sync_synchronize();
   *reinterpret_cast<size_t*>(sendbuf_) = mlen;
   uint8_t* start = sendbuf_ + sizeof(size_t);
   size_t iov_idx, nwritten;
@@ -221,9 +219,7 @@ int RDMASenderReceiverBP::Send(msghdr* msg, ssize_t* sz) {
   }
   *reinterpret_cast<uint8_t*>(sendbuf_ + sizeof(size_t) + mlen) = 1;
   GPR_ASSERT(start == sendbuf_ + sizeof(size_t) + mlen);
-  asm volatile("" ::: "memory");        // Compiler barrier
-  asm volatile("mfence" ::: "memory");  // Hardware barrier
-
+  __sync_synchronize();
   size_t len = mlen + sizeof(size_t) + 1;
   {
     GRPCProfiler profiler(GRPC_STATS_TIME_SEND_POST);
@@ -243,8 +239,7 @@ int RDMASenderReceiverBP::Send(msghdr* msg, ssize_t* sz) {
     }
     n_outstanding_send_ = 0;
     int seq = write_counter_ + 1;
-    asm volatile("" ::: "memory");        // Compiler barrier
-    asm volatile("mfence" ::: "memory");  // Hardware barrier
+    __sync_synchronize();
     memset(sendbuf_, seq % 0xff, len);
   }
   size_t pre_write_tail = remote_ringbuf_tail_;
