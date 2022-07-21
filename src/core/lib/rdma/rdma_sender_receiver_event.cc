@@ -219,8 +219,13 @@ int RDMASenderReceiverEvent::Recv(msghdr* msg, ssize_t* sz) {
   unread_mlens_ -= mlens;
 
   if (sz != nullptr) {
+    if (mlens == 0) {
+      *sz = -1;
+      return EAGAIN;
+    }
     *sz = mlens;
   }
+
   if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_sr_event_debug_trace)) {
     total_recv_ += mlens;
   }

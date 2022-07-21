@@ -10,7 +10,6 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <algorithm>
-#include <unordered_map>
 
 #include <grpc/slice.h>
 #include <grpc/support/log.h>
@@ -160,7 +159,7 @@ static void call_read_cb(grpc_rdma* rdma, grpc_error_handle error) {
   grpc_core::Closure::Run(DEBUG_LOCATION, cb, error);
 }
 
-#define MAX_READ_IOVEC 4
+#define MAX_READ_IOVEC 1024
 
 static void rdma_do_read(grpc_rdma* rdma) {
   GRPCProfiler profiler(GRPC_STATS_TIME_TRANSPORT_DO_READ, 0);
@@ -187,9 +186,6 @@ static void rdma_do_read(grpc_rdma* rdma) {
 
   if (read_bytes < 0) {
     if (err == EAGAIN) {
-      if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_trace)) {
-        gpr_log(GPR_INFO, "rdma_do_read, notify_on_read (drained)");
-      }
       notify_on_read(rdma);
     } else {
       grpc_slice_buffer_reset_and_unref_internal(rdma->incoming_buffer);
@@ -239,8 +235,7 @@ static void rdma_continue_read(grpc_rdma* rdma) {
   GRPCProfiler profiler(GRPC_STATS_TIME_TRANSPORT_CONTINUE_READ);
   size_t target_read_size = rdma->rdmasr->MarkMessageLength();
 
-  if (rdma->incoming_buffer->length < target_read_size &&
-      rdma->incoming_buffer->count < MAX_READ_IOVEC) {
+  if (rdma->incoming_buffer->length < target_read_size) {
     if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_trace)) {
       gpr_log(GPR_INFO, "rdma allocate slice: %zu", target_read_size);
     }
@@ -458,6 +453,7 @@ static void rdma_check_conn(void* arg /* grpc_rdma */,
     uint8_t buf;
     int ret;
 
+    return; // fixme: check conn
     do {
       ret = recv(rdma->fd, &buf, 0, 0);
     } while (ret < 0 && errno == EINTR);
@@ -542,16 +538,6 @@ grpc_endpoint* grpc_rdma_bp_create(grpc_fd* em_fd,
                                    const grpc_channel_args* channel_args,
                                    const char* peer_string, bool server) {
   grpc_resource_quota* resource_quota = grpc_resource_quota_create(nullptr);
-  if (channel_args != nullptr) {
-    for (size_t i = 0; i < channel_args->num_args; i++) {
-      if (0 == strcmp(channel_args->args[i].key, GRPC_ARG_RESOURCE_QUOTA)) {
-        grpc_resource_quota_unref_internal(resource_quota);
-        resource_quota =
-            grpc_resource_quota_ref_internal(static_cast<grpc_resource_quota*>(
-                channel_args->args[i].value.pointer.p));
-      }
-    }
-  }
   grpc_rdma* rdma = new grpc_rdma();
   rdma->base.vtable = &vtable;
   rdma->peer_string = peer_string;
@@ -614,12 +600,6 @@ void grpc_rdma_bp_destroy_and_release_fd(grpc_endpoint* ep, int* fd,
   rdma->release_fd_cb = done;
   grpc_slice_buffer_reset_and_unref_internal(&rdma->last_read_buffer);
   RDMA_UNREF(rdma, "destroy");
-}
-
-RDMASenderReceiver* grpc_rdma_bp_get_rdmasr(grpc_endpoint* ep) {
-  grpc_rdma* rdma = reinterpret_cast<grpc_rdma*>(ep);
-  GPR_ASSERT(ep->vtable == &vtable);
-  return rdma->rdmasr;
 }
 
 void* grpc_rdma_bp_require_zerocopy_sendspace(grpc_endpoint* ep, size_t size) {

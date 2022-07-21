@@ -295,6 +295,14 @@ int RDMASenderReceiverBP::Recv(msghdr* msg, ssize_t* sz) {
   bool should_recycle = ringbuf_->Read(msg, read_mlens);
   size_t new_head = ringbuf_->get_head();
 
+  if (sz != nullptr) {
+    if (read_mlens == 0) {
+      *sz = -1;
+      return EAGAIN;
+    }
+    *sz = read_mlens;
+  }
+
   if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_sr_bp_debug_trace) ||
       GRPC_TRACE_FLAG_ENABLED(grpc_rdma_sr_bp_trace)) {
     read_counter_++;
@@ -312,10 +320,6 @@ int RDMASenderReceiverBP::Recv(msghdr* msg, ssize_t* sz) {
               is_server() ? 'S' : 'C', read_counter_.load(),
               reinterpret_cast<size_t*>(metadata_sendbuf_)[0]);
     }
-  }
-
-  if (sz != nullptr) {
-    *sz = read_mlens;
   }
 
   if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_sr_bp_trace)) {

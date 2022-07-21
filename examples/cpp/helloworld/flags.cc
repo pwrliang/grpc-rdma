@@ -1,3 +1,5 @@
+
+
 #include "flags.h"
 
 #include <gflags/gflags.h>
@@ -5,6 +7,7 @@
 DEFINE_int32(cqs, 1, "");
 DEFINE_int32(threads, 1, "");
 DEFINE_int32(batch, 100000, "");
+DEFINE_int32(worker_id, -1, "");
 DEFINE_string(host, "localhost", "");
 DEFINE_int32(req, 64, "");
 DEFINE_int32(resp, 1024, "");

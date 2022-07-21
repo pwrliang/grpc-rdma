@@ -8,6 +8,7 @@ DECLARE_int32(cqs);
 DECLARE_int32(threads);
 DECLARE_int32(batch);
 DECLARE_string(host);
+DECLARE_int32(worker_id);
 DECLARE_int32(req);
 DECLARE_int32(resp);
 DECLARE_int32(warmup);

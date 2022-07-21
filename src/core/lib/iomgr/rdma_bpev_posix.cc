@@ -160,7 +160,7 @@ static void call_read_cb(grpc_rdma* rdma, grpc_error_handle error) {
   grpc_core::Closure::Run(DEBUG_LOCATION, cb, error);
 }
 
-#define MAX_READ_IOVEC 4
+#define MAX_READ_IOVEC 1024
 
 static void rdma_do_read(grpc_rdma* rdma) {
   GRPCProfiler profiler(GRPC_STATS_TIME_TRANSPORT_DO_READ, 0);
@@ -197,7 +197,7 @@ static void rdma_do_read(grpc_rdma* rdma) {
     return;
   } else if (read_bytes == 0) {
     if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_trace)) {
-      gpr_log(GPR_INFO, "close rdma %p", rdma);
+      gpr_log(GPR_INFO, "close rdma %p, err: %s", rdma, strerror(err));
     }
     grpc_slice_buffer_reset_and_unref_internal(rdma->incoming_buffer);
     call_read_cb(
@@ -236,8 +236,7 @@ static void rdma_continue_read(grpc_rdma* rdma) {
   GRPCProfiler profiler(GRPC_STATS_TIME_TRANSPORT_CONTINUE_READ);
   size_t target_read_size = rdma->rdmasr->MarkMessageLength();
 
-  if (rdma->incoming_buffer->length < target_read_size &&
-      rdma->incoming_buffer->count < MAX_READ_IOVEC) {
+  if (rdma->incoming_buffer->length < target_read_size) {
     if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_trace)) {
       gpr_log(GPR_INFO, "rdma allocate slice: %zu", target_read_size);
     }
@@ -363,7 +362,7 @@ static bool rdma_flush(grpc_rdma* rdma, grpc_error_handle* error) {
         grpc_slice_buffer_reset_and_unref_internal(rdma->outgoing_buffer);
         return true;
       } else {
-        *error = rdma_annotate_error(GRPC_OS_ERROR(errno, "sendmsg"), rdma);
+        *error = rdma_annotate_error(GRPC_OS_ERROR(err, "sendmsg"), rdma);
         grpc_slice_buffer_reset_and_unref_internal(rdma->outgoing_buffer);
         return true;
       }
@@ -448,7 +447,7 @@ static void rdma_check_conn(void* arg /* grpc_rdma */,
     grpc_rdma* rdma = static_cast<grpc_rdma*>(arg);
     uint8_t buf;
     int ret;
-
+    return;  // fixme: check conn
     do {
       ret = recv(rdma->fd, &buf, 0, 0);
     } while (ret < 0 && errno == EINTR);

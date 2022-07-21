@@ -49,11 +49,8 @@ size_t RingBufferBP::resetBufAndUpdateHead(size_t lens) {
   if (head_ + lens > capacity_) {
     memset(buf_ + head_, 0, capacity_ - head_);
     memset(buf_, 0, lens + head_ - capacity_);
-    gpr_log(GPR_INFO, "Reset %p head: %zu, len: %zu", buf_, head_,
-            lens + head_ - capacity_);
   } else {
     memset(buf_ + head_, 0, lens);
-    gpr_log(GPR_INFO, "Reset %p head: %zu, len: %zu", buf_, head_, lens);
   }
   return updateHead(lens);
 }
@@ -64,7 +61,6 @@ bool RingBufferBP::Read(msghdr* msg, size_t& expected_mlens) {
     gpr_log(GPR_ERROR, "Illegal expected_mlens: %zu, head: %zu", expected_mlens,
             head);
   }
-  GPR_ASSERT(expected_mlens > 0 && expected_mlens <= get_max_send_size());
   GPR_ASSERT(head < capacity_);
 
   size_t iov_idx = 0, iov_offset = 0;
@@ -78,10 +74,7 @@ bool RingBufferBP::Read(msghdr* msg, size_t& expected_mlens) {
     msghdr_size += msg->msg_iov[i].iov_len;
   }
 
-  GPR_ASSERT(msghdr_size > 0);
-  GPR_ASSERT(mlen <= msghdr_size);
-
-  while (iov_idx < msg->msg_iovlen && mlen > 0) {
+  while (iov_idx < msg->msg_iovlen && mlen > 0 && mlen <= msghdr_size) {
     size_t iov_rlen = msg->msg_iov[iov_idx].iov_len -
                       iov_offset;     // rest space of current slice
     size_t m_rlen = mlen - m_offset;  // uncopied bytes of current message
