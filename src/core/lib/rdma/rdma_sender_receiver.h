@@ -262,7 +262,7 @@ class RDMASenderReceiverBP : public RDMASenderReceiver {
     int n_entries = conn_metadata_->PostSendRequest(
         remote_metadata_recvbuf_mr_, metadata_sendbuf_mr_, metadata_sendbuf_sz_,
         IBV_WR_RDMA_WRITE);
-    int ret = conn_metadata_->PollSendCompletion(n_entries, 0);
+    int ret = conn_metadata_->PollSendCompletion(n_entries);
 
     if (ret != 0) {
       gpr_log(GPR_ERROR,
@@ -326,7 +326,7 @@ class RDMASenderReceiverEvent : public RDMASenderReceiver {
     int n_entries = conn_metadata_->PostSendRequest(
         remote_metadata_recvbuf_mr_, metadata_sendbuf_mr_, metadata_sendbuf_sz_,
         IBV_WR_RDMA_WRITE_WITH_IMM);
-    int ret = conn_metadata_->PollSendCompletion(n_entries, 0);
+    int ret = conn_metadata_->PollSendCompletion(n_entries);
 
     if (ret != 0) {
       gpr_log(GPR_ERROR,

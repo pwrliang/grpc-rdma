@@ -141,14 +141,13 @@ int RDMASenderReceiverEvent::Send(msghdr* msg, ssize_t* sz) {
     if (!zerocopy) {
       n_outstanding_send_ = conn_data_->PostSendRequest(
           remote_ringbuf_mr_, remote_ringbuf_tail_, sendbuf_mr_, 0, mlen,
-          0, IBV_WR_RDMA_WRITE_WITH_IMM);
+          IBV_WR_RDMA_WRITE_WITH_IMM);
     } else {
       n_outstanding_send_ = conn_data_->PostSendRequests(
           remote_ringbuf_mr_, remote_ringbuf_tail_, sges, sge_idx + 1, mlen,
           IBV_WR_RDMA_WRITE_WITH_IMM);
     }
-    // fixme:
-    int ret = conn_data_->PollSendCompletion(n_outstanding_send_, 0);
+    int ret = conn_data_->PollSendCompletion(n_outstanding_send_);
 
     if (ret != 0) {
       gpr_log(GPR_ERROR,

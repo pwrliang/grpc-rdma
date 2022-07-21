@@ -165,7 +165,7 @@ int RDMAConn::PostSendRequest(MemRegion& remote_mr, MemRegion& local_mr,
 
 int RDMAConn::PostSendRequest(MemRegion& remote_mr, size_t remote_tail,
                               MemRegion& local_mr, size_t local_offset,
-                              size_t sz, int wr_id, ibv_wr_opcode opcode) {
+                              size_t sz, ibv_wr_opcode opcode) {
   GPR_DEBUG_ASSERT(!remote_mr.is_local() && !local_mr.is_remote());
   GPR_ASSERT(sz > 0);
   size_t remote_cap = remote_mr.length();
@@ -180,7 +180,7 @@ int RDMAConn::PostSendRequest(MemRegion& remote_mr, size_t remote_tail,
              local_mr.lkey());
     init_sr(&sr, &sge, opcode,
             static_cast<uint8_t*>(remote_mr.addr()) + remote_tail,
-            remote_mr.rkey(), 1, sz, wr_id, nullptr);
+            remote_mr.rkey(), 1, sz, 0, nullptr);
 
     if (ibv_post_send(qp_.get(), &sr, &bad_wr) != 0) {
       gpr_log(GPR_ERROR, "Failed to post send");
@@ -197,11 +197,11 @@ int RDMAConn::PostSendRequest(MemRegion& remote_mr, size_t remote_tail,
            local_mr.lkey());
   init_sr(&sr1, &sge1, opcode,
           static_cast<uint8_t*>(remote_mr.addr()) + remote_tail,
-          remote_mr.rkey(), 1, r_len, wr_id, &sr2);
+          remote_mr.rkey(), 1, r_len, 0, &sr2);
   init_sge(&sge2, static_cast<uint8_t*>(local_mr.addr()) + local_offset + r_len,
            sz - r_len, local_mr.lkey());
   init_sr(&sr2, &sge2, opcode, remote_mr.addr(), remote_mr.rkey(), 1,
-          sz - r_len, wr_id + 1, nullptr);
+          sz - r_len, 0, nullptr);
   if (ibv_post_send(qp_.get(), &sr1, &bad_wr) != 0) {
     gpr_log(GPR_ERROR, "Failed to post send");
     abort();
@@ -270,18 +270,21 @@ int RDMAConn::PostSendRequests(MemRegion& remote_mr, size_t remote_tail,
                               next_num_sge, sz, opcode);
 }
 
-int RDMAConn::PollSendCompletion(int expected_num_entries, int wr_id) {
+int RDMAConn::PollSendCompletion(int expected_num_entries) {
   while (expected_num_entries > 0) {
-    ibv_wc wc;
+    ibv_wc wc[DEFAULT_MAX_POST_SEND];
     int r;
 
-    while ((r = ibv_poll_cq(scq_.get(), 1, &wc)) > 0) {
-      if (wc.status != IBV_WC_SUCCESS) {
-        gpr_log(GPR_ERROR, "PollRecvCompletion, wc status = %d", wc.status);
-        return wc.status;
+    while ((r = ibv_poll_cq(scq_.get(), DEFAULT_MAX_POST_SEND, wc)) > 0) {
+      for (int i = 0; i < r; i++) {
+        if (wc[i].status != IBV_WC_SUCCESS) {
+          gpr_log(GPR_ERROR, "PollRecvCompletion, wc status = %d",
+                  wc[i].status);
+          return wc[i].status;
+        }
       }
-      expected_num_entries--;
-      GPR_ASSERT(wc.wr_id == wr_id++);
+      expected_num_entries -= r;
+      GPR_ASSERT(expected_num_entries >= 0);
     }
 
     if (r < 0) {

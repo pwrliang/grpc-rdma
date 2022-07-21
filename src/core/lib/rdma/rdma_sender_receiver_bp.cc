@@ -227,11 +227,10 @@ int RDMASenderReceiverBP::Send(msghdr* msg, ssize_t* sz) {
   size_t len = mlen + sizeof(size_t) + 1;
   {
     GRPCProfiler profiler(GRPC_STATS_TIME_SEND_POST);
-    n_outstanding_send_ = conn_data_->PostSendRequest(
-        remote_ringbuf_mr_, remote_ringbuf_tail_, sendbuf_mr_, 0, len,
-        write_counter_, IBV_WR_RDMA_WRITE);
-    int ret =
-        conn_data_->PollSendCompletion(n_outstanding_send_, write_counter_);
+    n_outstanding_send_ =
+        conn_data_->PostSendRequest(remote_ringbuf_mr_, remote_ringbuf_tail_,
+                                    sendbuf_mr_, 0, len, IBV_WR_RDMA_WRITE);
+    int ret = conn_data_->PollSendCompletion(n_outstanding_send_);
 
     if (ret != 0) {
       gpr_log(GPR_ERROR,
