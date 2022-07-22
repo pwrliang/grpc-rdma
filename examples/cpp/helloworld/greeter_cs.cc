@@ -31,6 +31,7 @@
 #endif
 #include <sstream>
 #include "flags.h"
+#include "stopwatch.h"
 #include "gflags/gflags.h"
 using grpc::Channel;
 using grpc::ClientAsyncResponseReader;
@@ -390,6 +391,12 @@ int main(int argc, char** argv) {
    abort();
  }
 
+ Stopwatch sw;
+ sw.start();
+
+ std::atomic_size_t count;
+ count.store(0);
+
  for (int i = 0; i < hosts.size(); i++) {
    if (i != worker_id) {
      client_ths.emplace_back(
@@ -446,6 +453,10 @@ int main(int argc, char** argv) {
            });
            for (auto& th : ths) {
              th.join();
+           }
+           if (count.fetch_add(1) + 1 == hosts.size() - 1) {
+            sw.stop();
+            printf("total time duration = %10.4f s\n", sw.s());
            }
          },
          i);

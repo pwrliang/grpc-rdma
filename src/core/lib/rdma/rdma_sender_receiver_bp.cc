@@ -100,7 +100,7 @@ size_t RDMASenderReceiverBP::MarkMessageLength() {
 }
 
 int RDMASenderReceiverBP::Send(msghdr* msg, ssize_t* sz) {
-  ContentAssertion cass(write_content_counter_);
+  ContentAssertion cass(write_counter_);
   size_t remote_ringbuf_sz = remote_ringbuf_mr_.length();
   size_t mlen = 0;
 
@@ -122,18 +122,23 @@ int RDMASenderReceiverBP::Send(msghdr* msg, ssize_t* sz) {
     return EINVAL;
   }
 
+  if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_sr_bp_trace)) {
+    gpr_log(GPR_INFO, "rdmasr: %p send, mlen: %zu", this, mlen);
+  }
+
   if (!isWritable(mlen)) {
     if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_sr_bp_trace)) {
       size_t used = (remote_ringbuf_sz + remote_ringbuf_tail_ -
                      get_remote_ringbuf_head()) %
                     remote_ringbuf_sz;
-      gpr_log(GPR_INFO, "%c rb is full, with mlen: %zu, used: %zu",
-              is_server() ? 'S' : 'C', mlen, used);
+      gpr_log(GPR_INFO,
+              "rdmasr: %p ring buffer is full, with mlen: %zu, used: %zu", this,
+              mlen, used);
     }
     last_failed_send_size_ = mlen;
     return EAGAIN;
   }
-#if 0
+
   bool zerocopy = false;
   struct ibv_sge sges[RDMA_MAX_WRITE_IOVEC];
   size_t sge_idx = 0;
@@ -191,82 +196,25 @@ int RDMASenderReceiverBP::Send(msghdr* msg, ssize_t* sz) {
 
     if (ret != 0) {
       gpr_log(GPR_ERROR,
-              "PollSendCompletion failed, code: %d "
+              "rdmasr: %p PollSendCompletion failed, code: %d "
               "mlen = %zu, remote_ringbuf_tail = "
               "%zu, ringbuf_sz = %zu, post_num = %d",
-              ret, mlen, remote_ringbuf_tail_, remote_ringbuf_sz,
+              this, ret, mlen, remote_ringbuf_tail_, remote_ringbuf_sz,
               n_outstanding_send_);
       return EPIPE;
     }
     n_outstanding_send_ = 0;
   }
-
-#endif
-
-  memset(sendbuf_, 0xaa, mlen + 9);
-
-  *reinterpret_cast<size_t*>(sendbuf_) = mlen;
-  uint8_t* start = sendbuf_ + sizeof(size_t);
-  size_t iov_idx, nwritten;
-  for (iov_idx = 0, nwritten = 0; iov_idx < msg->msg_iovlen && nwritten < mlen;
-       iov_idx++) {
-    void* iov_base = msg->msg_iov[iov_idx].iov_base;
-    size_t iov_len = msg->msg_iov[iov_idx].iov_len;
-    nwritten += iov_len;
-    GPR_ASSERT(nwritten <= ringbuf_->get_max_send_size());
-    memcpy(start, iov_base, iov_len);
-    start += iov_len;
-  }
-  *reinterpret_cast<uint8_t*>(sendbuf_ + sizeof(size_t) + mlen) = 1;
-  GPR_ASSERT(start == sendbuf_ + sizeof(size_t) + mlen);
-
-  size_t len = mlen + sizeof(size_t) + 1;
-  {
-    GRPCProfiler profiler(GRPC_STATS_TIME_SEND_POST);
-    n_outstanding_send_ =
-        conn_data_->PostSendRequest(remote_ringbuf_mr_, remote_ringbuf_tail_,
-                                    sendbuf_mr_, 0, len, IBV_WR_RDMA_WRITE);
-    int ret = conn_data_->PollSendCompletion(n_outstanding_send_);
-
-    if (ret != 0) {
-      gpr_log(GPR_ERROR,
-              "PollSendCompletion failed, code: %d "
-              "mlen = %zu, remote_ringbuf_tail = "
-              "%zu, ringbuf_sz = %zu, post_num = %d",
-              ret, mlen, remote_ringbuf_tail_, remote_ringbuf_sz,
-              n_outstanding_send_);
-      return EPIPE;
-    }
-    n_outstanding_send_ = 0;
-    int seq = write_counter_ + 1;
-
-    for (int i = 0; i < len; i++) {
-      sendbuf_[i] = (i + seq) % 0xff;
-    }
-  }
-  size_t pre_write_tail = remote_ringbuf_tail_;
 
   remote_ringbuf_tail_ = (remote_ringbuf_tail_ + len) % remote_ringbuf_sz;
   last_failed_send_size_ = 0;
   if (unfinished_zerocopy_send_size_ == 0) {
     last_zerocopy_send_finished_ = true;
   }
+  total_sent_ += mlen;
   if (sz != nullptr) {
     *sz = nwritten;
   }
-
-  if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_sr_bp_debug_trace) ||
-      GRPC_TRACE_FLAG_ENABLED(grpc_rdma_sr_bp_trace)) {
-    write_counter_++;
-    total_sent_ += nwritten;
-  }
-
-  if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_sr_bp_trace)) {
-    gpr_log(GPR_INFO, "%c send %d, pos: %zu->%zu mlen: %zu, written: %zu",
-            is_server() ? 'S' : 'C', write_counter_.load(), pre_write_tail,
-            remote_ringbuf_tail_, mlen, nwritten);
-  }
-
   return 0;
 }
 
