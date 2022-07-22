@@ -268,6 +268,7 @@ class RDMASenderReceiverBP : public RDMASenderReceiver {
   }
 
   int updateRemoteMetadata() override {
+    MEM_BAR();
     *static_cast<volatile size_t*>(metadata_sendbuf_) = ringbuf_->get_head();
     MEM_BAR();
     int n_entries = conn_metadata_->PostSendRequest(
