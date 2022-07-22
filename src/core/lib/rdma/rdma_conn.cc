@@ -154,7 +154,7 @@ int RDMAConn::PostSendRequest(MemRegion& remote_mr, MemRegion& local_mr,
   ibv_send_wr sr;
   init_sge(&sge, static_cast<uint8_t*>(local_mr.addr()), sz, local_mr.lkey());
   init_sr(&sr, &sge, opcode, static_cast<uint8_t*>(remote_mr.addr()),
-          remote_mr.rkey(), 1, sz, 0, nullptr);
+          remote_mr.rkey(), 1, 0, 0, nullptr);
 
   if (ibv_post_send(qp_.get(), &sr, &bad_wr) != 0) {
     gpr_log(GPR_ERROR, "Failed to post send");

@@ -122,7 +122,9 @@ void init_sr(ibv_send_wr* sr, ibv_sge* sge, ibv_wr_opcode opcode, void* rt_addr,
   sr->sg_list = sge;
   sr->num_sge = num_sge;
   sr->opcode = opcode;
-  sr->imm_data = imm_data;
+  if (imm_data > 0) {
+    sr->imm_data = imm_data;
+  }
   sr->send_flags = IBV_SEND_SIGNALED;
   sr->wr.rdma.remote_addr = (uint64_t)rt_addr;
   sr->wr.rdma.rkey = rkey;
