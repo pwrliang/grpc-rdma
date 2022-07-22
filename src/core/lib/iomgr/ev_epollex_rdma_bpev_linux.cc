@@ -1104,34 +1104,44 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
 
   if (has_rdma_fds) {
     auto& rdma_poller = RDMAPoller::GetInstance();
+    absl::Time begin_poll_time = absl::Now();
+    absl::Time last_epoll_time;
 
     if (rdma_poller.get_polling_thread_num() > 0) {
       int polling_limit_us = p->bp_timeout;
       int64_t t_elapsed_us;
-      absl::Time begin_poll_time = absl::Now();
 
       if (timeout >= 0) {
         polling_limit_us = std::min(timeout * 1000, polling_limit_us);
       }
 
       do {
-        gpr_mu_lock(&p->rdma_mu);
-        auto& fds = *p->rdma_fds;
-
-        for (size_t i = 0; i < fds.size() && r < MAX_EPOLL_EVENTS; i++) {
-          auto* fd = fds[i];
-          auto* rdmasr = fd->rdmasr;
-          GPR_ASSERT(fd->rdmasr != nullptr);
-
-          uint32_t events = rdmasr->ToEpollEvent();
-
-          if (events > 0) {
-            p->events[r].events = events;
-            p->events[r].data.ptr = reinterpret_cast<void*>(fd);
-            r++;
-          }
+        if ((absl::Now() - last_epoll_time) > absl::Microseconds(1000)) {
+          r = epoll_wait(p->epfd, p->events, MAX_EPOLL_EVENTS, 0);
+          last_epoll_time = absl::Now();
         }
-        gpr_mu_unlock(&p->rdma_mu);
+
+        if (r <= 0) {
+          r = 0;
+          gpr_mu_lock(&p->rdma_mu);
+          auto& fds = *p->rdma_fds;
+
+          for (size_t i = 0; i < fds.size() && r < MAX_EPOLL_EVENTS; i++) {
+            auto* fd = fds[i];
+            auto* rdmasr = fd->rdmasr;
+            GPR_ASSERT(fd->rdmasr != nullptr);
+
+            uint32_t events = rdmasr->ToEpollEvent();
+
+            if (events > 0) {
+              p->events[r].events = events;
+              p->events[r].data.ptr = reinterpret_cast<void*>(fd);
+              r++;
+            }
+          }
+          gpr_mu_unlock(&p->rdma_mu);
+        }
+
         if (r == 0 && p->bp_yield) {
           std::this_thread::yield();
         }
@@ -1142,9 +1152,6 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
         timeout = std::max(0l, timeout - t_elapsed_us / 1000);
       }
     } else {
-      auto begin_poll_time = absl::Now();
-      absl::Time last_epoll_time;
-
       do {
         if ((absl::Now() - last_epoll_time) > absl::Microseconds(1000)) {
           r = epoll_wait(p->epfd, p->events, MAX_EPOLL_EVENTS, 0);
