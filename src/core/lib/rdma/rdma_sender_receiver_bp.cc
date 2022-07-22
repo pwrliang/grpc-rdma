@@ -309,7 +309,7 @@ int RDMASenderReceiverBP::Recv(msghdr* msg, ssize_t* sz) {
     total_recv_ += read_mlens;
   }
 
-  if (should_recycle && status_ != Status::kShutdown) {
+  if (should_recycle && status_ != Status::kShutdown || true) {
     int r = updateRemoteMetadata();
     // N.B. IsPeerAlive calls read, should put it on the rhs to reduce overhead
     if (r != 0 && conn_metadata_->IsPeerAlive()) {
