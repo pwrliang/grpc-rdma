@@ -56,7 +56,8 @@ class RDMASenderReceiver {
         write_counter_(0),
         total_sent_(0),
         total_recv_(0),
-        debug_(false) {
+        debug_(false),
+        prev_remote_head_(0) {
     auto& node = RDMANode::GetInstance();
     auto pd = node.get_pd();
     size_t sendbuf_size = ringbuf->get_sendbuf_size();
@@ -155,11 +156,17 @@ class RDMASenderReceiver {
  protected:
   virtual int updateRemoteMetadata() = 0;
 
-  virtual size_t get_remote_ringbuf_head() const {
-    return reinterpret_cast<size_t*>(metadata_recvbuf_)[0];
+  virtual size_t get_remote_ringbuf_head() {
+    size_t curr_head = reinterpret_cast<size_t*>(metadata_recvbuf_)[0];
+    if (curr_head != prev_remote_head_) {
+      gpr_log(GPR_INFO, "%c received new head, %zu->%zu",
+              is_server() ? 'S' : 'C', prev_remote_head_, curr_head);
+      prev_remote_head_ = curr_head;
+    }
+    return curr_head;
   }
 
-  virtual bool isWritable(size_t mlen) const = 0;
+  virtual bool isWritable(size_t mlen) = 0;
 
   enum class Status { kNew, kConnected, kShutdown, kDisconnected };
 
@@ -196,6 +203,7 @@ class RDMASenderReceiver {
   std::atomic_size_t total_sent_, total_recv_;
   std::atomic_bool debug_;
   std::thread debug_thread_;
+  size_t prev_remote_head_;
 
  private:
   bool server_;
@@ -225,7 +233,7 @@ class RDMASenderReceiverBP : public RDMASenderReceiver {
 
   size_t MarkMessageLength() override;
 
-  int ToEpollEvent() const {
+  int ToEpollEvent() {
     uint32_t event = 0;
 
     if (dynamic_cast<RingBufferBP*>(ringbuf_)->CheckFirstMessageLength() > 0) {
@@ -244,7 +252,7 @@ class RDMASenderReceiverBP : public RDMASenderReceiver {
   }
 
  private:
-  bool isWritable(size_t mlen) const override {
+  bool isWritable(size_t mlen) override {
     size_t len = mlen + sizeof(size_t) + 1;
     size_t remote_ringbuf_sz = remote_ringbuf_mr_.length();
     size_t used =
@@ -340,7 +348,7 @@ class RDMASenderReceiverEvent : public RDMASenderReceiver {
     return 0;
   }
 
-  bool isWritable(size_t mlen) const override {
+  bool isWritable(size_t mlen)  override {
     size_t remote_ringbuf_sz = remote_ringbuf_mr_.length();
     size_t used =
         (remote_ringbuf_sz + remote_ringbuf_tail_ - get_remote_ringbuf_head()) %
