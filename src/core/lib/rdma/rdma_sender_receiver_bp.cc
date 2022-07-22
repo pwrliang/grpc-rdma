@@ -204,8 +204,9 @@ int RDMASenderReceiverBP::Send(msghdr* msg, ssize_t* sz) {
 #endif
 
   memset(sendbuf_, 0xaa, mlen + 9);
-
-  *reinterpret_cast<size_t*>(sendbuf_) = mlen;
+  MEM_BAR();
+  *reinterpret_cast<volatile size_t*>(sendbuf_) = mlen;
+  MEM_BAR();
   uint8_t* start = sendbuf_ + sizeof(size_t);
   size_t iov_idx, nwritten;
   for (iov_idx = 0, nwritten = 0; iov_idx < msg->msg_iovlen && nwritten < mlen;
@@ -217,7 +218,9 @@ int RDMASenderReceiverBP::Send(msghdr* msg, ssize_t* sz) {
     memcpy(start, iov_base, iov_len);
     start += iov_len;
   }
-  *reinterpret_cast<uint8_t*>(sendbuf_ + sizeof(size_t) + mlen) = 1;
+  MEM_BAR();
+  *static_cast<volatile uint8_t*>(sendbuf_ + sizeof(size_t) + mlen) = 1;
+  MEM_BAR();
   GPR_ASSERT(start == sendbuf_ + sizeof(size_t) + mlen);
 
   size_t len = mlen + sizeof(size_t) + 1;
@@ -239,7 +242,7 @@ int RDMASenderReceiverBP::Send(msghdr* msg, ssize_t* sz) {
     }
     n_outstanding_send_ = 0;
     int seq = write_counter_ + 1;
-
+    MEM_BAR();
     for (int i = 0; i < len; i++) {
       sendbuf_[i] = (i + seq) % 0xff;
     }
