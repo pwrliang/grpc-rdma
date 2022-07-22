@@ -19,6 +19,20 @@ RDMAConn::RDMAConn(int fd, RDMANode* node, bool event_mode)
     abort();
   }
 
+  if (event_mode) {
+    recv_channel_ = std::shared_ptr<ibv_comp_channel>(
+        ibv_create_comp_channel(ctx), [](ibv_comp_channel* recv_channel) {
+          ibv_destroy_comp_channel(recv_channel);
+        });
+    int recv_flags = fcntl(recv_channel_->fd, F_GETFL);
+    if (fcntl(recv_channel_->fd, F_SETFL, recv_flags | O_NONBLOCK) < 0) {
+      gpr_log(GPR_ERROR,
+              "RDMAConnEvent::RDMAConnEvent, failed to change channel fd to "
+              "non-blocking");
+      abort();
+    }
+  }
+
   rcq_ = std::shared_ptr<ibv_cq>(
       ibv_create_cq(ctx, DEFAULT_CQE, nullptr, recv_channel_.get(), 0),
       [](ibv_cq* p) { ibv_destroy_cq(p); });
@@ -40,17 +54,6 @@ RDMAConn::RDMAConn(int fd, RDMANode* node, bool event_mode)
   }
 
   if (event_mode) {
-    recv_channel_ = std::shared_ptr<ibv_comp_channel>(
-        ibv_create_comp_channel(ctx), [](ibv_comp_channel* recv_channel) {
-          ibv_destroy_comp_channel(recv_channel);
-        });
-    int recv_flags = fcntl(recv_channel_->fd, F_GETFL);
-    if (fcntl(recv_channel_->fd, F_SETFL, recv_flags | O_NONBLOCK) < 0) {
-      gpr_log(GPR_ERROR,
-              "RDMAConnEvent::RDMAConnEvent, failed to change channel fd to "
-              "non-blocking");
-      abort();
-    }
     ibv_req_notify_cq(rcq_.get(), 0);
   }
 
