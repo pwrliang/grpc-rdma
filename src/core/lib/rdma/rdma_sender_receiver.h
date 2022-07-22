@@ -157,9 +157,9 @@ class RDMASenderReceiver {
   virtual int updateRemoteMetadata() = 0;
 
   virtual size_t get_remote_ringbuf_head() {
-    READ_BAR();
+    MEM_BAR()
     size_t curr_head = static_cast<volatile size_t*>(metadata_recvbuf_)[0];
-    READ_BAR();
+    MEM_BAR()
     if (curr_head != prev_remote_head_) {
       gpr_log(GPR_INFO, "%c received new head, %zu->%zu",
               is_server() ? 'S' : 'C', prev_remote_head_, curr_head);
@@ -269,13 +269,13 @@ class RDMASenderReceiverBP : public RDMASenderReceiver {
 
   int updateRemoteMetadata() override {
     *static_cast<volatile size_t*>(metadata_sendbuf_) = ringbuf_->get_head();
-    WRITE_BAR();
+    MEM_BAR();
     int n_entries = conn_metadata_->PostSendRequest(
         remote_metadata_recvbuf_mr_, metadata_sendbuf_mr_, metadata_sendbuf_sz_,
         IBV_WR_RDMA_WRITE);
-    WRITE_BAR();
+    MEM_BAR();
     int ret = conn_metadata_->PollSendCompletion(n_entries);
-    WRITE_BAR();
+    MEM_BAR();
     if (ret != 0) {
       gpr_log(GPR_ERROR,
               "updateRemoteMetadata failed, code: %d "

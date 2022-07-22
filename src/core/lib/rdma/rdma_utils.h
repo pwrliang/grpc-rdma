@@ -14,8 +14,10 @@
 #include <mutex>
 #include <thread>
 #define IBV_DEV_NAME "mlx5_0"
-#define READ_BAR() asm volatile ("lwsync": : :"memory")
-#define WRITE_BAR() asm volatile ("eieio": : :"memory")
+
+#define MEM_BAR()                \
+  asm volatile("" ::: "memory"); \
+  asm volatile("mfence" ::: "memory");  // Compiler and Hardware barrier
 
 enum class RDMAPollerMode { kServer, kClient, kBoth, kNone };
 
