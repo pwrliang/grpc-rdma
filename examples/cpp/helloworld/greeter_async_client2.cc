@@ -47,7 +47,8 @@ class GreeterClient {
  public:
   explicit GreeterClient(std::shared_ptr<Channel> channel)
       : stub_(Greeter::NewStub(channel)) {
-    rest_resp_.store(FLAGS_batch);
+    rest_resp_ = FLAGS_batch;
+    total_data_size_ = 0;
   }
 
   void Warmup(const CommSpec& comm_spec) {
@@ -60,7 +61,7 @@ class GreeterClient {
       ClientContext context;
       context.set_wait_for_ready(true);
       Status status = stub_->SayHello(&context, request, &reply);
-      GPR_ASSERT(status.ok());
+      checkError(status);
     }
     // Wait for all clients to finish warmup
     MPI_Barrier(comm_spec.comm());
@@ -71,7 +72,7 @@ class GreeterClient {
       HelloReply reply;
       ClientContext context;
       Status status = stub_->SayHello(&context, request, &reply);
-      GPR_ASSERT(status.ok());
+      checkError(status);
     }
   }
 
@@ -79,7 +80,7 @@ class GreeterClient {
     GRPCProfiler profiler(GRPC_STATS_TIME_CLIENT_PREPARE);
     HelloRequest request;
     request.set_name(user);
-
+    total_data_size_ += request.ByteSizeLong();
     AsyncClientCall* call = new AsyncClientCall;
 
     call->response_reader =
@@ -99,6 +100,7 @@ class GreeterClient {
 
         GPR_ASSERT(ok);
         GPR_ASSERT(call->status.ok());
+        total_data_size_ += call->reply.ByteSizeLong();
         delete call;
       } else {
         rest_resp_++;
@@ -115,10 +117,11 @@ class GreeterClient {
     ClientContext context;
     context.set_wait_for_ready(true);
     Status status = stub_->SayHello(&context, request, &reply);
-    GPR_ASSERT(status.ok());
+    checkError(status);
   }
 
   std::atomic_int rest_resp_;
+  std::atomic_size_t total_data_size_;
 
  private:
   struct AsyncClientCall {
@@ -128,6 +131,13 @@ class GreeterClient {
 
     std::unique_ptr<ClientAsyncResponseReader<HelloReply>> response_reader;
   };
+
+  void checkError(grpc::Status &s) {
+    if (!s.ok()) {
+      printf("%s\n", s.error_message().c_str());
+    }
+    GPR_ASSERT(s.ok());
+  }
 
   std::unique_ptr<Greeter::Stub> stub_;
   CompletionQueue cq_;
@@ -153,8 +163,10 @@ int main(int argc, char** argv) {
     CommSpec comm_spec;
     comm_spec.Init(MPI_COMM_WORLD);
 
-    GreeterClient greeter(grpc::CreateChannel(
-        FLAGS_host + ":50051", grpc::InsecureChannelCredentials()));
+    grpc::ChannelArguments args;
+    args.SetMaxReceiveMessageSize(-1);
+    GreeterClient greeter(grpc::CreateCustomChannel(
+        FLAGS_host + ":50051", grpc::InsecureChannelCredentials(), args));
 
     std::vector<std::thread> threads;
     int batch_size = FLAGS_batch;
@@ -200,14 +212,18 @@ int main(int argc, char** argv) {
     MPI_Barrier(comm_spec.comm());
     sw.stop();
     double throughput = batch_size / sw.s();
+    double bandwidth = (greeter.total_data_size_ / 1024.0 / 1024) / sw.s();
     double total_throughput;
     double time_per_cli = sw1.ms();
     std::vector<double> cli_time_vec(comm_spec.worker_num());
+    std::vector<double> cli_bandwidth_vec(comm_spec.worker_num());
 
     MPI_Reduce(&throughput, &total_throughput, 1, MPI_DOUBLE, MPI_SUM, 0,
                comm_spec.comm());
     MPI_Gather(&time_per_cli, 1, MPI_DOUBLE, cli_time_vec.data(), 1, MPI_DOUBLE,
                0, comm_spec.comm());
+    MPI_Gather(&bandwidth, 1, MPI_DOUBLE, cli_bandwidth_vec.data(), 1,
+               MPI_DOUBLE, 0, comm_spec.comm());
 
     std::stringstream ss;
     grpc_stats_time_print(ss);
@@ -223,8 +239,9 @@ int main(int argc, char** argv) {
         avg_lat_ms += lat_per_cli;
         min_lat_ms = std::min(min_lat_ms, lat_per_cli);
         max_lat_ms = std::max(max_lat_ms, lat_per_cli);
-        printf("Worker: %d time: %lf lat: %lf us\n%s", i, cli_time_vec[i],
-               lat_per_cli * 1000, gathered_stats[i].c_str());
+        printf("Worker: %d time: %lf lat: %lf us Bandwidth: %lf MB/s\n%s", i,
+               cli_time_vec[i], lat_per_cli * 1000, cli_bandwidth_vec[i],
+               gathered_stats[i].c_str());
       }
       avg_lat_ms /= comm_spec.worker_num();
       printf("Throughput: %lf req/s, avg latency: %f us, [%f, %f]\n",

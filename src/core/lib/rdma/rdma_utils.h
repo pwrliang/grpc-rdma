@@ -158,9 +158,9 @@ class MemRegion {
 };
 
 class RDMANode {
+  RDMANode() { open(IBV_DEV_NAME); }
  public:
   const static int ib_port = 1;
-  RDMANode() { open(IBV_DEV_NAME); }
   ~RDMANode() { close(); }
 
   static RDMANode& GetInstance() {
@@ -186,6 +186,8 @@ class RDMANode {
   ibv_port_attr port_attr;
   union ibv_gid gid;
   ibv_device_attr dev_attr;
+  std::thread async_ev_thread_;
+  bool monitor_ev_;
 
   void open(const char* name);
   void close();
@@ -210,5 +212,8 @@ int modify_qp_to_rts(struct ibv_qp* qp, uint32_t sq_psn);
 int sync_data(int fd, const char* local, char* remote, const size_t sz);
 
 void barrier(int fd);
+
+void print_async_event(struct ibv_context *ctx,
+                       struct ibv_async_event *event);
 
 #endif  // GRPC_CORE_LIB_RDMA_RDMA_UTILS_H

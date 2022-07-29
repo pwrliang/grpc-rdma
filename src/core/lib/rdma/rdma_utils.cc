@@ -1,5 +1,5 @@
 #include "rdma_utils.h"
-
+#include <fcntl.h>
 #include <string.h>
 #include <sys/epoll.h>
 #include "grpc/impl/codegen/log.h"
@@ -102,9 +102,65 @@ void RDMANode::open(const char* name) {
     gpr_log(GPR_ERROR, "RDMANode::open, ibv_alloc_pd failed");
     abort();
   }
+  monitor_ev_ = true;
+  async_ev_thread_ = std::thread([this]() {
+    int flags;
+    int ret;
+
+    /* change the blocking mode of the async event queue */
+    flags = fcntl(ib_ctx->async_fd, F_GETFL);
+    ret = fcntl(ib_ctx->async_fd, F_SETFL, flags | O_NONBLOCK);
+    if (ret < 0) {
+      fprintf(stderr,
+              "Error, failed to change file descriptor of async event queue\n");
+      abort();
+    }
+
+    while (monitor_ev_) {
+      struct pollfd my_pollfd;
+      int ms_timeout = 100;
+
+      /*
+       * poll the queue until it has an event and sleep ms_timeout
+       * milliseconds between any iteration
+       */
+      my_pollfd.fd = ib_ctx->async_fd;
+      my_pollfd.events = POLLIN;
+      my_pollfd.revents = 0;
+      do {
+        ret = poll(&my_pollfd, 1, ms_timeout);
+        if (!monitor_ev_) {
+          return;
+        }
+      } while (ret == 0);
+      if (ret < 0) {
+        fprintf(stderr, "poll failed\n");
+        abort();
+      }
+      ibv_async_event event;
+
+      /* we know that there is an event, so we just need to read it */
+      ret = ibv_get_async_event(ib_ctx.get(), &event);
+      if (ret) {
+        fprintf(stderr, "Error, ibv_get_async_event() failed, %s\n",
+                strerror(errno));
+        abort();
+      }
+
+      /* print the event */
+      print_async_event(ib_ctx.get(), &event);
+
+      /* ack the event */
+      ibv_ack_async_event(&event);
+    }
+  });
 }
 
-void RDMANode::close() { memset(&port_attr, 0, sizeof(port_attr)); }
+void RDMANode::close() {
+  monitor_ev_ = false;
+  async_ev_thread_.join();
+  memset(&port_attr, 0, sizeof(port_attr));
+}
 
 void init_sge(ibv_sge* sge, void* lc_addr, size_t sz, uint32_t lkey) {
   memset(sge, 0, sizeof(ibv_sge));
@@ -271,5 +327,97 @@ void barrier(int fd) {
   if (sync_data(fd, data, &tmp, 1)) {
     gpr_log(GPR_ERROR, "Send data failed");
     abort();
+  }
+}
+
+/* helper function to print the content of the async event */
+void print_async_event(struct ibv_context* ctx, struct ibv_async_event* event) {
+  switch (event->event_type) {
+    /* QP events */
+    case IBV_EVENT_QP_FATAL:
+      gpr_log(GPR_INFO, "QP fatal event for QP with handle %p",
+              event->element.qp);
+      break;
+    case IBV_EVENT_QP_REQ_ERR:
+      gpr_log(GPR_INFO, "QP Requestor error for QP with handle %p",
+              event->element.qp);
+      break;
+    case IBV_EVENT_QP_ACCESS_ERR:
+      gpr_log(GPR_INFO, "QP access error event for QP with handle %p",
+              event->element.qp);
+      break;
+    case IBV_EVENT_COMM_EST:
+      gpr_log(GPR_INFO,
+              "QP communication established event for QP with handle %p",
+              event->element.qp);
+      break;
+    case IBV_EVENT_SQ_DRAINED:
+      gpr_log(GPR_INFO, "QP Send Queue drained event for QP with handle %p",
+              event->element.qp);
+      break;
+    case IBV_EVENT_PATH_MIG:
+      gpr_log(GPR_INFO, "QP Path migration loaded event for QP with handle %p",
+              event->element.qp);
+      break;
+    case IBV_EVENT_PATH_MIG_ERR:
+      gpr_log(GPR_INFO, "QP Path migration error event for QP with handle %p",
+              event->element.qp);
+      break;
+    case IBV_EVENT_QP_LAST_WQE_REACHED:
+      gpr_log(GPR_INFO, "QP last WQE reached event for QP with handle %p",
+              event->element.qp);
+      break;
+
+    /* CQ events */
+    case IBV_EVENT_CQ_ERR:
+      gpr_log(GPR_INFO, "CQ error for CQ with handle %p", event->element.cq);
+      break;
+
+    /* SRQ events */
+    case IBV_EVENT_SRQ_ERR:
+      gpr_log(GPR_INFO, "SRQ error for SRQ with handle %p", event->element.srq);
+      break;
+    case IBV_EVENT_SRQ_LIMIT_REACHED:
+      gpr_log(GPR_INFO, "SRQ limit reached event for SRQ with handle %p",
+              event->element.srq);
+      break;
+
+    /* Port events */
+    case IBV_EVENT_PORT_ACTIVE:
+      gpr_log(GPR_INFO, "Port active event for port number %d",
+              event->element.port_num);
+      break;
+    case IBV_EVENT_PORT_ERR:
+      gpr_log(GPR_INFO, "Port error event for port number %d",
+              event->element.port_num);
+      break;
+    case IBV_EVENT_LID_CHANGE:
+      gpr_log(GPR_INFO, "LID change event for port number %d",
+              event->element.port_num);
+      break;
+    case IBV_EVENT_PKEY_CHANGE:
+      gpr_log(GPR_INFO, "P_Key table change event for port number %d",
+              event->element.port_num);
+      break;
+    case IBV_EVENT_GID_CHANGE:
+      gpr_log(GPR_INFO, "GID table change event for port number %d",
+              event->element.port_num);
+      break;
+    case IBV_EVENT_SM_CHANGE:
+      gpr_log(GPR_INFO, "SM change event for port number %d",
+              event->element.port_num);
+      break;
+    case IBV_EVENT_CLIENT_REREGISTER:
+      gpr_log(GPR_INFO, "Client reregister event for port number %d",
+              event->element.port_num);
+      break;
+
+    /* RDMA device events */
+    case IBV_EVENT_DEVICE_FATAL:
+      gpr_log(GPR_INFO, "Fatal error event for device %s",
+              ibv_get_device_name(ctx->device));
+      break;
+    default:
+      gpr_log(GPR_INFO, "Unknown event (%d)", event->event_type);
   }
 }

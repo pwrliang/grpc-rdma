@@ -79,6 +79,7 @@ class ServerImpl final {
         grpc::MakeChannelArgumentOption(GRPC_ARG_ALLOW_REUSEPORT, 0));
     builder.AddListeningPort(server_address, grpc::InsecureServerCredentials());
     builder.RegisterService(&service_);
+    builder.SetMaxReceiveMessageSize(-1);
     for (int i = 0; i < FLAGS_cqs; i++) {
       cqs_.emplace_back(builder.AddCompletionQueue());
     }
