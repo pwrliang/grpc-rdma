@@ -94,6 +94,8 @@ int RDMASenderReceiverEvent::Send(msghdr* msg, ssize_t* sz) {
     return EINVAL;
   }
 
+  pollLastSendCompletion();
+
   if (!isWritable(mlen)) {
     if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_sr_event_trace)) {
       gpr_log(GPR_INFO, "ring buffer is full, with mlen: %zu", mlen);
@@ -147,24 +149,11 @@ int RDMASenderReceiverEvent::Send(msghdr* msg, ssize_t* sz) {
           remote_ringbuf_mr_, remote_ringbuf_tail_, sges, sge_idx + 1, mlen,
           IBV_WR_RDMA_WRITE_WITH_IMM);
     }
-    int ret = conn_data_->PollSendCompletion(n_outstanding_send_);
-
-    if (ret != 0) {
-      gpr_log(GPR_ERROR,
-              "PollSendCompletion failed, code: %d "
-              "mlen = %zu, remote_ringbuf_tail = "
-              "%zu, ringbuf_sz = %zu, post_num = %d",
-              ret, mlen, remote_ringbuf_tail_, remote_ringbuf_sz,
-              n_outstanding_send_);
-      return EPIPE;
-    }
-    // N.B. n_outstanding_send_ = 0;
   }
 
   remote_ringbuf_tail_ = (remote_ringbuf_tail_ + mlen) % remote_ringbuf_sz;
   remote_rr_head_ =
       (remote_rr_head_ + n_outstanding_send_) % DEFAULT_MAX_POST_RECV;
-  n_outstanding_send_ = 0;
   last_failed_send_size_ = 0;
   if (unfinished_zerocopy_send_size_ == 0) {
     last_zerocopy_send_finished_ = true;

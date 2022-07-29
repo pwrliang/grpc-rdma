@@ -111,8 +111,11 @@ class RDMASenderReceiver {
   }
 
   virtual ~RDMASenderReceiver() {
-    gpr_log(GPR_INFO, "total sent = %lld, total zerocopy sent = %lld, zerocopy ratio = %7.3f", 
-      total_sent_.load(), total_zerocopy_send_size, double(total_zerocopy_send_size) / total_sent_.load());
+    gpr_log(
+        GPR_INFO,
+        "total sent = %lld, total zerocopy sent = %lld, zerocopy ratio = %7.3f",
+        total_sent_.load(), total_zerocopy_send_size,
+        double(total_zerocopy_send_size) / total_sent_.load());
     status_ = Status::kDisconnected;
     delete[] sendbuf_;
     delete[] zerocopy_sendbuf_;
@@ -131,6 +134,7 @@ class RDMASenderReceiver {
   virtual size_t MarkMessageLength() = 0;
 
   void* RequireZerocopySendSpace(size_t size) {
+    pollLastSendCompletion();
     if (!zerocopy_ || size >= ringbuf_->get_sendbuf_size() - 64) {
       return nullptr;
     }
@@ -146,17 +150,31 @@ class RDMASenderReceiver {
     return (void*)(zerocopy_sendbuf_);
   }
 
+  bool HasPendingWrite() const { return last_failed_send_size_ > 0; }
+
+ protected:
+  virtual int updateRemoteMetadata() = 0;
+
+  void pollLastSendCompletion() {
+    if (n_outstanding_send_ > 0) {
+      int ret = conn_data_->PollSendCompletion(n_outstanding_send_);
+
+      if (ret != 0) {
+        gpr_log(GPR_ERROR,
+                "rdmasr: %p PollLastSendCompletion failed, code: %d ", this,
+                ret);
+        abort();
+      }
+      n_outstanding_send_ = 0;
+    }
+  }
+
   bool ZerocopySendbufContains(void* bytes) {
     if (!zerocopy_) return false;
     uint8_t* ptr = (uint8_t*)bytes;
     return (ptr >= zerocopy_sendbuf_ &&
             ptr < (zerocopy_sendbuf_ + ringbuf_->get_sendbuf_size()));
   }
-
-  bool HasPendingWrite() const { return last_failed_send_size_ > 0; }
-
- protected:
-  virtual int updateRemoteMetadata() = 0;
 
   virtual size_t get_remote_ringbuf_head() {
     MEM_BAR()
@@ -254,6 +272,8 @@ class RDMASenderReceiverBP : public RDMASenderReceiver {
 
     return event;
   }
+
+  void PollLastSendCompletion();
 
  private:
   bool isWritable(size_t mlen) override {
