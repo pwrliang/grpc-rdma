@@ -137,23 +137,24 @@ int RDMASenderReceiverEvent::Send(msghdr* msg, ssize_t* sz) {
     iov_idx++;
   }
 
+  int n_post_send;
   {
-    GRPCProfiler profiler(GRPC_STATS_TIME_SEND_IBV);
+    GRPCProfiler profiler(GRPC_STATS_TIME_SEND_POST);
 
     if (!zerocopy) {
-      n_outstanding_send_ = conn_data_->PostSendRequest(
+      n_post_send = conn_data_->PostSendRequest(
           remote_ringbuf_mr_, remote_ringbuf_tail_, sendbuf_mr_, 0, mlen,
           IBV_WR_RDMA_WRITE_WITH_IMM);
     } else {
-      n_outstanding_send_ = conn_data_->PostSendRequests(
+      n_post_send = conn_data_->PostSendRequests(
           remote_ringbuf_mr_, remote_ringbuf_tail_, sges, sge_idx + 1, mlen,
           IBV_WR_RDMA_WRITE_WITH_IMM);
     }
+    n_outstanding_send_ += n_post_send;
   }
 
   remote_ringbuf_tail_ = (remote_ringbuf_tail_ + mlen) % remote_ringbuf_sz;
-  remote_rr_head_ =
-      (remote_rr_head_ + n_outstanding_send_) % DEFAULT_MAX_POST_RECV;
+  remote_rr_head_ = (remote_rr_head_ + n_post_send) % DEFAULT_MAX_POST_RECV;
   last_failed_send_size_ = 0;
   if (unfinished_zerocopy_send_size_ == 0) {
     last_zerocopy_send_finished_ = true;

@@ -184,16 +184,18 @@ int RDMASenderReceiverBP::Send(msghdr* msg, ssize_t* sz) {
   size_t len = mlen + sizeof(size_t) + 1;
   {
     GRPCProfiler profiler(GRPC_STATS_TIME_SEND_POST);
+    int n_post_send;
 
     if (zerocopy) {
-      n_outstanding_send_ = conn_data_->PostSendRequests(
+      n_post_send = conn_data_->PostSendRequests(
           remote_ringbuf_mr_, remote_ringbuf_tail_, sges, sge_idx + 1, len,
           IBV_WR_RDMA_WRITE);
     } else {
-      n_outstanding_send_ =
+      n_post_send =
           conn_data_->PostSendRequest(remote_ringbuf_mr_, remote_ringbuf_tail_,
                                       sendbuf_mr_, 0, len, IBV_WR_RDMA_WRITE);
     }
+    n_outstanding_send_ += n_post_send;
   }
 
   remote_ringbuf_tail_ = (remote_ringbuf_tail_ + len) % remote_ringbuf_sz;
@@ -230,8 +232,13 @@ int RDMASenderReceiverBP::Recv(msghdr* msg, ssize_t* sz) {
 
   size_t read_mlens = mlens;
   size_t head = ringbuf_->get_head();
+  cycles_t begin_cycles = get_cycles();
   bool should_recycle = ringbuf_->Read(msg, read_mlens);
+  cycles_t t_cycles = get_cycles() - begin_cycles;
   size_t new_head = ringbuf_->get_head();
+
+  gpr_log(GPR_INFO, "Size: %zu, Time: %.2lf us, Read Speed: %lf MB/s",
+          read_mlens, t_cycles / mhz_, read_mlens / (t_cycles / mhz_));
 
   if (sz != nullptr) {
     if (read_mlens == 0) {

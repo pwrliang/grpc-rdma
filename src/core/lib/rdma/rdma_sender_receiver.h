@@ -8,6 +8,7 @@
 #include <mutex>
 #include <vector>
 #include "grpcpp/get_clock.h"
+#include "grpcpp/stats_time.h"
 #include "src/core/lib/debug/trace.h"
 #include "src/core/lib/rdma/rdma_conn.h"
 #include "src/core/lib/rdma/ringbuffer.h"
@@ -101,6 +102,8 @@ class RDMASenderReceiver {
       gpr_log(GPR_ERROR, "failed to RegisterLocal metadata_sendbuf_mr");
       abort();
     }
+    int no_cpu_freq_fail = 0;
+    mhz_ = get_cpu_mhz(no_cpu_freq_fail);
   }
 
   virtual void Init() = 0;
@@ -156,8 +159,11 @@ class RDMASenderReceiver {
   virtual int updateRemoteMetadata() = 0;
 
   void pollLastSendCompletion() {
-    if (n_outstanding_send_ > 0) {
-      int ret = conn_data_->PollSendCompletion(n_outstanding_send_);
+    uint32_t n_poll = n_outstanding_send_.exchange(0);
+
+    if (n_poll > 0) {
+      GRPCProfiler profiler(GRPC_STATS_TIME_SEND_POLL, 0);
+      int ret = conn_data_->PollSendCompletion(n_poll);
 
       if (ret != 0) {
         gpr_log(GPR_ERROR,
@@ -165,7 +171,6 @@ class RDMASenderReceiver {
                 ret);
         abort();
       }
-      n_outstanding_send_ = 0;
     }
   }
 
@@ -203,7 +208,7 @@ class RDMASenderReceiver {
 
   uint8_t *sendbuf_, *zerocopy_sendbuf_;
   MemRegion sendbuf_mr_, zerocopy_sendbuf_mr_;
-  int n_outstanding_send_;
+  std::atomic_uint32_t n_outstanding_send_;
   std::atomic_uint32_t last_failed_send_size_;
 
   bool zerocopy_;
@@ -226,6 +231,7 @@ class RDMASenderReceiver {
   std::atomic_bool debug_;
   std::thread debug_thread_;
   size_t prev_remote_head_;
+  double mhz_;
 
  private:
   bool server_;
@@ -368,7 +374,7 @@ class RDMASenderReceiverEvent : public RDMASenderReceiver {
               "PollSendCompletion failed, code: %d "
               "remote_ringbuf_tail = "
               "%zu, post_num = %d",
-              ret, remote_ringbuf_tail_, n_outstanding_send_);
+              ret, remote_ringbuf_tail_, n_outstanding_send_.load());
       return EPIPE;
     }
 
