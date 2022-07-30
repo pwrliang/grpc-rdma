@@ -20,3 +20,4 @@ DEFINE_int32(executor, 0, "");
 DEFINE_int32(node, 1, "");
 DEFINE_int32(cpu, 28, "");
 DEFINE_bool(server, false, "");
+DEFINE_bool(generic, false, "");

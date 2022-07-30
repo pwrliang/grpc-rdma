@@ -17,12 +17,14 @@
  */
 
 #include <grpc/support/log.h>
+#include <grpcpp/generic/generic_stub.h>
 #include <grpcpp/grpcpp.h>
 #include <iostream>
 #include <memory>
 #include <sstream>
 #include <string>
 #include <thread>
+#include "absl/memory/memory.h"
 #include "comm_spec.h"
 #include "flags.h"
 #include "gflags/gflags.h"
@@ -43,15 +45,30 @@ using helloworld::Greeter;
 using helloworld::HelloReply;
 using helloworld::HelloRequest;
 
-class GreeterClient {
+class Client {
  public:
-  explicit GreeterClient(std::shared_ptr<Channel> channel)
-      : stub_(Greeter::NewStub(channel)) {
+  Client() {
     rest_resp_ = FLAGS_batch;
     total_data_size_ = 0;
   }
+  virtual void Warmup(const CommSpec& comm_spec) = 0;
 
-  void Warmup(const CommSpec& comm_spec) {
+  virtual void SayHello(const std::string& user) = 0;
+
+  virtual void AsyncCompleteRpc() = 0;
+
+  virtual void NotifyFinish() = 0;
+
+  std::atomic_int rest_resp_;
+  std::atomic_size_t total_data_size_;
+};
+
+class GreeterClient : public Client {
+ public:
+  explicit GreeterClient(std::shared_ptr<Channel> channel)
+      : stub_(Greeter::NewStub(channel)) {}
+
+  void Warmup(const CommSpec& comm_spec) override {
     for (int i = 0; i < FLAGS_warmup; i++) {
       std::string user;
       user.resize(FLAGS_req);
@@ -76,7 +93,7 @@ class GreeterClient {
     }
   }
 
-  void SayHello(const std::string& user) {
+  void SayHello(const std::string& user) override {
     GRPCProfiler profiler(GRPC_STATS_TIME_CLIENT_PREPARE);
     HelloRequest request;
     request.set_name(user);
@@ -89,7 +106,7 @@ class GreeterClient {
     call->response_reader->Finish(&call->reply, &call->status, (void*)call);
   }
 
-  void AsyncCompleteRpc() {
+  void AsyncCompleteRpc() override {
     GRPCProfiler profiler(GRPC_STATS_TIME_CLIENT_CQ_NEXT);
     void* got_tag;
     bool ok = false;
@@ -109,7 +126,7 @@ class GreeterClient {
     }
   }
 
-  void NotifyFinish() {
+  void NotifyFinish() override {
     std::string user = "fin";
     HelloRequest request;
     request.set_name(user);
@@ -120,9 +137,6 @@ class GreeterClient {
     checkError(status);
   }
 
-  std::atomic_int rest_resp_;
-  std::atomic_size_t total_data_size_;
-
  private:
   struct AsyncClientCall {
     HelloReply reply;
@@ -132,7 +146,7 @@ class GreeterClient {
     std::unique_ptr<ClientAsyncResponseReader<HelloReply>> response_reader;
   };
 
-  void checkError(grpc::Status &s) {
+  void checkError(grpc::Status& s) {
     if (!s.ok()) {
       printf("%s\n", s.error_message().c_str());
     }
@@ -141,6 +155,139 @@ class GreeterClient {
 
   std::unique_ptr<Greeter::Stub> stub_;
   CompletionQueue cq_;
+};
+
+class GenericClient : public Client {
+ public:
+  explicit GenericClient(std::shared_ptr<Channel> channel)
+      : stub_(new grpc::GenericStub(channel)) {
+    req_.mutable_name()->resize(FLAGS_req);
+    req_buf_ = SerializeToByteBuffer(&req_);
+  }
+
+  std::unique_ptr<grpc::ByteBuffer> SerializeToByteBuffer(
+      grpc::protobuf::Message* message) {
+    std::string buf;
+    message->SerializeToString(&buf);
+    grpc::Slice slice(buf);
+    return absl::make_unique<grpc::ByteBuffer>(&slice, 1);
+  }
+
+  void Warmup(const CommSpec& comm_spec) override {
+    for (int i = 0; i < FLAGS_warmup; i++) {
+      AsyncClientCall* call = new AsyncClientCall;
+      void* got_tag;
+      bool ok = false;
+
+      call->context.set_wait_for_ready(true);
+      call->response_reader =
+          stub_->PrepareUnaryCall(&call->context, methodName, *req_buf_, &cq_);
+      call->response_reader->StartCall();
+      call->response_reader->Finish(&call->reply, &call->status, (void*)call);
+      cq_.Next(&got_tag, &ok);
+      GPR_ASSERT(ok);
+      AsyncClientCall* got_call = static_cast<AsyncClientCall*>(got_tag);
+      checkError(got_call->status);
+      delete got_call;
+    }
+    // Wait for all clients to finish warmup
+    MPI_Barrier(comm_spec.comm());
+    // Notfiy server to start benchmark
+    if (comm_spec.worker_id() == 0) {
+      HelloRequest request;
+      request.set_start_benchmark(true);
+      auto cli_send_buffer = SerializeToByteBuffer(&request);
+      AsyncClientCall* call = new AsyncClientCall;
+      void* got_tag;
+      bool ok = false;
+
+      call->context.set_wait_for_ready(true);
+      call->response_reader = stub_->PrepareUnaryCall(
+          &call->context, methodName, *cli_send_buffer, &cq_);
+      call->response_reader->StartCall();
+      call->response_reader->Finish(&call->reply, &call->status, (void*)call);
+      cq_.Next(&got_tag, &ok);
+      GPR_ASSERT(ok);
+      AsyncClientCall* got_call = static_cast<AsyncClientCall*>(got_tag);
+      checkError(got_call->status);
+      delete got_call;
+    }
+  }
+
+  void SayHello(const std::string& user) override {
+    GRPCProfiler profiler(GRPC_STATS_TIME_CLIENT_PREPARE);
+    total_data_size_ += req_buf_->Length();
+    AsyncClientCall* call = new AsyncClientCall;
+
+    call->response_reader =
+        stub_->PrepareUnaryCall(&call->context, methodName, *req_buf_, &cq_);
+    call->response_reader->StartCall();
+    call->response_reader->Finish(&call->reply, &call->status, (void*)call);
+  }
+
+  void AsyncCompleteRpc() override {
+    GRPCProfiler profiler(GRPC_STATS_TIME_CLIENT_CQ_NEXT);
+    void* got_tag;
+    bool ok = false;
+
+    if (rest_resp_-- > 0) {
+      if (cq_.Next(&got_tag, &ok)) {
+        AsyncClientCall* call = static_cast<AsyncClientCall*>(got_tag);
+
+        GPR_ASSERT(ok);
+        checkError(call->status);
+        total_data_size_ += call->reply.Length();
+        delete call;
+      } else {
+        rest_resp_++;
+        gpr_log(GPR_ERROR, "RPC Failed");
+      }
+    }
+  }
+
+  void NotifyFinish() override {
+    std::string user = "fin";
+    HelloRequest request;
+    request.set_name(user);
+    auto cli_send_buffer = SerializeToByteBuffer(&request);
+    AsyncClientCall* call = new AsyncClientCall;
+    void* got_tag;
+    bool ok = false;
+
+    call->context.set_wait_for_ready(true);
+    call->response_reader = stub_->PrepareUnaryCall(&call->context, methodName,
+                                                    *cli_send_buffer, &cq_);
+    call->response_reader->StartCall();
+    call->response_reader->Finish(&call->reply, &call->status, (void*)call);
+    cq_.Next(&got_tag, &ok);
+    GPR_ASSERT(ok);
+    AsyncClientCall* got_call = static_cast<AsyncClientCall*>(got_tag);
+    checkError(got_call->status);
+    delete got_call;
+  }
+
+ private:
+  struct AsyncClientCall {
+    grpc::ByteBuffer reply;
+    ClientContext context;
+    Status status;
+
+    std::unique_ptr<ClientAsyncResponseReader<grpc::ByteBuffer>>
+        response_reader;
+  };
+
+  void checkError(grpc::Status& s) {
+    if (!s.ok()) {
+      printf("%s\n", s.error_message().c_str());
+    }
+    GPR_ASSERT(s.ok());
+  }
+
+  std::unique_ptr<grpc::GenericStub> stub_;
+  CompletionQueue cq_;
+  std::string methodName = "/helloworld.Greeter/SayHello";
+  HelloRequest req_;
+  std::unique_ptr<grpc::ByteBuffer> req_buf_;
 };
 
 int main(int argc, char** argv) {
@@ -165,14 +312,21 @@ int main(int argc, char** argv) {
 
     grpc::ChannelArguments args;
     args.SetMaxReceiveMessageSize(-1);
-    GreeterClient greeter(grpc::CreateCustomChannel(
-        FLAGS_host + ":50051", grpc::InsecureChannelCredentials(), args));
+    auto channel = grpc::CreateCustomChannel(
+        FLAGS_host + ":50051", grpc::InsecureChannelCredentials(), args);
+
+    Client* cli;
+    if (FLAGS_generic) {
+      cli = new GenericClient(channel);
+    } else {
+      cli = new GreeterClient(channel);
+    }
 
     std::vector<std::thread> threads;
     int batch_size = FLAGS_batch;
     Stopwatch sw, sw1;
 
-    greeter.Warmup(comm_spec);
+    cli->Warmup(comm_spec);
 
     grpc_stats_time_enable();
 
@@ -192,8 +346,8 @@ int main(int argc, char** argv) {
         grpc_stats_time_init(0);
 
         for (int j = 0; j < chunk_size; j++) {
-          greeter.SayHello(user);
-          greeter.AsyncCompleteRpc();
+          cli->SayHello(user);
+          cli->AsyncCompleteRpc();
 
           auto send_interval_us = FLAGS_send_interval;
           absl::Time begin_poll = absl::Now();
@@ -212,7 +366,7 @@ int main(int argc, char** argv) {
     MPI_Barrier(comm_spec.comm());
     sw.stop();
     double throughput = batch_size / sw.s();
-    double bandwidth = (greeter.total_data_size_ / 1024.0 / 1024) / sw.s();
+    double bandwidth = (cli->total_data_size_ / 1024.0 / 1024) / sw.s();
     double total_throughput;
     double time_per_cli = sw1.ms();
     std::vector<double> cli_time_vec(comm_spec.worker_num());
@@ -247,7 +401,7 @@ int main(int argc, char** argv) {
       printf("Throughput: %lf req/s, avg latency: %f us, [%f, %f]\n",
              total_throughput, avg_lat_ms * 1000, min_lat_ms * 1000,
              max_lat_ms * 1000);
-      greeter.NotifyFinish();
+      cli->NotifyFinish();
     }
   }
 

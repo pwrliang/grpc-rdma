@@ -20,4 +20,5 @@ DECLARE_int32(executor);
 DECLARE_int32(node);
 DECLARE_int32(cpu);
 DECLARE_bool(server);
+DECLARE_bool(generic);
 #endif  // HELLOWORLD_FLAGS_H

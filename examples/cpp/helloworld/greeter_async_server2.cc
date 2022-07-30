@@ -94,8 +94,13 @@ class ServerImpl final {
  private:
   class CallData {
    public:
-    CallData(Greeter::AsyncService* service, ServerCompletionQueue* cq)
-        : service_(service), cq_(cq), responder_(&ctx_), status_(CREATE) {
+    CallData(HelloReply& reply, Greeter::AsyncService* service,
+             ServerCompletionQueue* cq)
+        : reply_(reply),
+          service_(service),
+          cq_(cq),
+          responder_(&ctx_),
+          status_(CREATE) {
       Proceed();
     }
 
@@ -108,9 +113,8 @@ class ServerImpl final {
         cycles_t c2 = get_cycles();
         grpc_stats_time_add(GRPC_STATS_TIME_SERVER_RPC_REQUEST, c2 - c1, 1);
       } else if (status_ == PROCESS) {
-        new CallData(service_, cq_);
+        new CallData(reply_, service_, cq_);
 
-        reply_.mutable_message()->resize(FLAGS_resp);
         if (request_.has_start_benchmark() && request_.start_benchmark()) {
           cpu_time1 = get_cpu_time_per_core();
           grpc_stats_time_enable();
@@ -157,7 +161,7 @@ class ServerImpl final {
     ServerCompletionQueue* cq_;
     ServerContext ctx_;
     HelloRequest request_;
-    HelloReply reply_;
+    HelloReply& reply_;
     ServerAsyncResponseWriter<HelloReply> responder_;
     enum CallStatus { CREATE, PROCESS, FINISH };
     CallStatus status_;
@@ -169,8 +173,10 @@ class ServerImpl final {
     for (int i = 0; i < FLAGS_threads; i++) {
       ths.emplace_back(
           [this](int idx) {
+            HelloReply reply;
+            reply.mutable_message()->resize(FLAGS_resp);
             auto& cq = cqs_[idx % cqs_.size()];
-            new CallData(&service_, cq.get());
+            new CallData(reply, &service_, cq.get());
             void* tag;
             bool ok;
 
