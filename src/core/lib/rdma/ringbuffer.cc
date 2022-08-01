@@ -135,7 +135,100 @@ bool RingBufferBP::Read(msghdr* msg, size_t& expected_mlens) {
   return false;
 }
 
-// -----< RingBufferEvent >-----
+size_t RingBufferBP::Read(msghdr* msg, bool& recycle) {
+  auto curr_head = head_;
+  GPR_ASSERT(curr_head < capacity_);
+  if (msg->msg_iovlen == 0) {
+    return false;
+  }
+  // iter on msg
+  size_t curr_msg_offset = (curr_head + sizeof(size_t)) % capacity_;
+  size_t rest_mlen = checkFirstMesssageLength(curr_head);
+  // inter on iov
+  size_t curr_iov_offset = 0;
+  size_t rest_iov_len = msg->msg_iov[0].iov_len;
+  size_t total_read = 0;
+
+  auto next_head = [this](size_t head) {
+    return (head + sizeof(size_t) + checkFirstMesssageLength(head) + 1) %
+           capacity_;
+  };
+  size_t total_iovlen = 0;
+
+  for (size_t iov_idx = 0; iov_idx < msg->msg_iovlen; iov_idx++) {
+    total_iovlen += msg->msg_iov[iov_idx].iov_len;
+  }
+
+  size_t avail_bytes = CheckMessageLength();
+
+  for (size_t iov_idx = 0; iov_idx < msg->msg_iovlen && rest_mlen > 0;) {
+    size_t len = std::min(rest_iov_len, rest_mlen);
+    size_t right_len = std::max(curr_msg_offset + len, capacity_) - capacity_;
+    size_t left_len = len - right_len;
+
+    memcpy(
+        static_cast<uint8_t*>(msg->msg_iov[iov_idx].iov_base) + curr_iov_offset,
+        buf_ + curr_msg_offset, left_len);
+    curr_msg_offset = (curr_msg_offset + left_len) % capacity_;
+    curr_iov_offset += left_len;
+
+    // cyclic case
+    if (right_len > 0) {
+      memcpy(static_cast<uint8_t*>(msg->msg_iov[iov_idx].iov_base) +
+                 curr_iov_offset,
+             buf_ + curr_msg_offset, right_len);
+      curr_msg_offset = (curr_msg_offset + right_len) % capacity_;
+      curr_iov_offset += right_len;
+    }
+
+    rest_iov_len -= len;
+    rest_mlen -= len;
+    total_read += len;
+
+    GPR_ASSERT(len < capacity_);
+    GPR_ASSERT(total_read < capacity_);
+
+    if (rest_iov_len == 0) {
+      iov_idx++;
+      curr_iov_offset = 0;
+      if (iov_idx < msg->msg_iovlen) {
+        rest_iov_len = msg->msg_iov[iov_idx].iov_len;
+      }
+    }
+
+    if (rest_mlen == 0) {
+      curr_head = next_head(curr_head);
+      curr_msg_offset = (curr_head + sizeof(size_t)) % capacity_;
+      rest_mlen = checkFirstMesssageLength(curr_head);
+    }
+  }
+
+  // partial read current msg
+  if (rest_mlen > 0) {
+    size_t consumed_mlen = checkFirstMesssageLength(curr_head) - rest_mlen;
+
+    // calculate new head
+    curr_head = (curr_head + consumed_mlen) % capacity_;
+
+    size_t right_len =
+        std::max(curr_head + sizeof(size_t), capacity_) - capacity_;
+    size_t left_len = sizeof(size_t) - right_len;
+    // write back rest_mlen
+    memcpy(buf_ + curr_head, &rest_mlen, left_len);
+    memcpy(buf_, reinterpret_cast<char*>(&rest_mlen) + left_len, right_len);
+  }
+
+  size_t read_lens = (curr_head - head_ + capacity_) % capacity_;
+  resetBufAndUpdateHead(read_lens);
+
+  garbage_ += read_lens;
+  recycle = false;
+  if (garbage_ >= capacity_ / 2) {
+    garbage_ = 0;
+    recycle = true;
+  }
+  return total_read;
+}
 
 bool RingBufferEvent::Read(msghdr* msg, size_t& expected_read_size) {
   auto head = head_;

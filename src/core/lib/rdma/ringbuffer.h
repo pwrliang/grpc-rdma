@@ -14,8 +14,10 @@
 #include <cassert>
 #include <fstream>
 #include <iomanip>
+#include <limits>
 #include <sstream>
 
+#include "grpc/impl/codegen/log.h"
 // the data size of ringbuffer should <= capacity - 1, which means the
 // ringbuffer cannot be full. if data size == capacity, then it is possible that
 // remote_head == remote_tail, then remote cannot tell if there it is full or
@@ -78,7 +80,9 @@ class RingBuffer {
 
 class RingBufferBP : public RingBuffer {
  public:
-  explicit RingBufferBP(size_t capacity) : RingBuffer(capacity) {}
+  explicit RingBufferBP(size_t capacity) : RingBuffer(capacity) {
+    GPR_ASSERT(capacity_ > 33);  // ensure get_max_send_size() > 0
+  }
 
   size_t CheckMessageLength() const { return checkMessageLength(head_); }
 
@@ -87,6 +91,8 @@ class RingBufferBP : public RingBuffer {
   }
 
   bool Read(msghdr* msg, size_t& expected_lens) override;
+
+  size_t Read(msghdr* msg, bool& recycle);
 
   size_t get_sendbuf_size() const override {
     /*
@@ -113,7 +119,9 @@ class RingBufferBP : public RingBuffer {
 
 class RingBufferEvent : public RingBuffer {
  public:
-  explicit RingBufferEvent(size_t capcatiy) : RingBuffer(capcatiy) {}
+  explicit RingBufferEvent(size_t capcatiy) : RingBuffer(capcatiy) {
+    GPR_ASSERT(capacity_ > 1);  // ensure get_max_send_size() > 0
+  }
 
   bool Read(msghdr* msg, size_t& size) override;
 
