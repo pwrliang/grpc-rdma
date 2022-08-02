@@ -18,6 +18,8 @@
 #include <sstream>
 
 #include "grpc/impl/codegen/log.h"
+
+void mt_memcpy(uint8_t* dest, const uint8_t* src, size_t size);
 // the data size of ringbuffer should <= capacity - 1, which means the
 // ringbuffer cannot be full. if data size == capacity, then it is possible that
 // remote_head == remote_tail, then remote cannot tell if there it is full or

@@ -161,7 +161,13 @@ int RDMASenderReceiverBP::Send(msghdr* msg, ssize_t* sz) {
       unfinished_zerocopy_send_size_.fetch_sub(iov_len);
       total_zerocopy_send_size += iov_len;
     } else {
-      memcpy(sendbuf_ptr, iov_base, iov_len);
+      //      memcpy(sendbuf_ptr, iov_base, iov_len);
+
+      {
+        GRPCProfiler profiler1(GRPC_STATS_TIME_ADHOC_3);
+        mt_memcpy(sendbuf_ptr, (uint8_t*)iov_base, iov_len);
+      }
+
       if (sges[sge_idx].lkey == sendbuf_mr_.lkey()) {  // last sge in sendbuf
         sges[sge_idx].length += iov_len;               // merge in last sge
       } else {  // last sge in zerocopy_sendbuf
@@ -208,6 +214,10 @@ int RDMASenderReceiverBP::Send(msghdr* msg, ssize_t* sz) {
     *sz = nwritten;
   }
   return 0;
+}
+
+int RDMASenderReceiverBP::SendEx(msghdr* msg, ssize_t* sz) {
+
 }
 
 int RDMASenderReceiverBP::Recv(msghdr* msg, ssize_t* sz) {
@@ -271,6 +281,77 @@ int RDMASenderReceiverBP::Recv(msghdr* msg, ssize_t* sz) {
     gpr_log(GPR_INFO, "%c recv %d, pos: %zu->%zu, mlens: %zu, read: %zu",
             is_server() ? 'S' : 'C', read_counter_.load(), head, new_head,
             mlens, read_mlens);
+  }
+
+  return 0;
+}
+
+int RDMASenderReceiverBP::RecvEx(msghdr* msg, ssize_t* sz) {
+  ContentAssertion cass(read_content_conter_);
+  size_t mlens =
+      dynamic_cast<RingBufferBP*>(ringbuf_)->CheckFirstMessageLength();
+
+  if (sz != nullptr) {
+    *sz = -1;
+  }
+
+  if (status_ == Status::kNew || status_ == Status::kDisconnected) {
+    return ENOTCONN;
+  }
+
+  if (mlens == 0) {
+    if (sz != nullptr && status_ == Status::kShutdown) {
+      *sz = 0;
+      return ECONNRESET;
+    }
+    return EAGAIN;
+  }
+
+  size_t head = ringbuf_->get_head();
+  cycles_t begin_cycles = get_cycles();
+  bool should_recycle;
+  size_t actual_read =
+      dynamic_cast<RingBufferBP*>(ringbuf_)->Read(msg, should_recycle);
+  cycles_t t_cycles = get_cycles() - begin_cycles;
+  size_t new_head = ringbuf_->get_head();
+
+  gpr_log(GPR_INFO,
+          "Size: %zu, msg_iovlen: %zu, Time: %.2lf us, Read Speed: %lf MB/s",
+          actual_read, msg->msg_iovlen, t_cycles / mhz_,
+          actual_read / (t_cycles / mhz_));
+
+  if (actual_read > 1024) {
+    grpc_stats_time_add_custom(GRPC_STATS_TIME_COPY_BW,
+                               actual_read / (t_cycles / mhz_));
+  }
+
+  if (sz != nullptr) {
+    *sz = actual_read;
+  }
+
+  if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_sr_bp_debug_trace) ||
+      GRPC_TRACE_FLAG_ENABLED(grpc_rdma_sr_bp_trace)) {
+    read_counter_++;
+    total_recv_ += actual_read;
+  }
+
+  if (should_recycle && status_ != Status::kShutdown) {
+    int r = updateRemoteMetadata();
+    // N.B. IsPeerAlive calls read, should put it on the rhs to reduce overhead
+    if (r != 0 && conn_metadata_->IsPeerAlive()) {
+      return r;
+    }
+    if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_sr_bp_trace)) {
+      gpr_log(GPR_INFO, "%c updateRemoteMetadata %d, head: %zu",
+              is_server() ? 'S' : 'C', read_counter_.load(),
+              reinterpret_cast<size_t*>(metadata_sendbuf_)[0]);
+    }
+  }
+
+  if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_sr_bp_trace)) {
+    gpr_log(GPR_INFO, "%c recv %d, pos: %zu->%zu, mlens: %zu, read: %zu",
+            is_server() ? 'S' : 'C', read_counter_.load(), head, new_head,
+            mlens, actual_read);
   }
 
   return 0;

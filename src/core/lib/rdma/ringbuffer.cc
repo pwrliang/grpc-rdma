@@ -1,10 +1,16 @@
 #include "grpc/impl/codegen/log.h"
-
+#include "include/grpcpp/stats_time.h"
 #include "src/core/lib/debug/trace.h"
 #include "src/core/lib/rdma/ringbuffer.h"
 #define MIN3(a, b, c) MIN(a, MIN(b, c))
 grpc_core::DebugOnlyTraceFlag grpc_trace_ringbuffer(false, "rdma_ringbuffer");
 
+void mt_memcpy(uint8_t* dest, const uint8_t* src, size_t size) {
+#pragma omp parallel for num_threads(4)
+  for (size_t i = 0; i < size; i++) {
+    dest[i] = src[i];
+  }
+}
 // to reduce operation, the caller should guarantee the arguments are valid
 uint8_t RingBufferBP::checkTail(size_t head, size_t mlen) const {
   return buf_[(head + mlen + sizeof(size_t) + capacity_) % capacity_];
@@ -136,11 +142,12 @@ bool RingBufferBP::Read(msghdr* msg, size_t& expected_mlens) {
 }
 
 size_t RingBufferBP::Read(msghdr* msg, bool& recycle) {
-  auto curr_head = head_;
-  GPR_ASSERT(curr_head < capacity_);
   if (msg->msg_iovlen == 0) {
+    recycle = false;
     return false;
   }
+  auto curr_head = head_;
+
   // iter on msg
   size_t curr_msg_offset = (curr_head + sizeof(size_t)) % capacity_;
   size_t rest_mlen = checkFirstMesssageLength(curr_head);
@@ -149,24 +156,23 @@ size_t RingBufferBP::Read(msghdr* msg, bool& recycle) {
   size_t rest_iov_len = msg->msg_iov[0].iov_len;
   size_t total_read = 0;
 
+  GPR_ASSERT(curr_head < capacity_);
+
   auto next_head = [this](size_t head) {
     return (head + sizeof(size_t) + checkFirstMesssageLength(head) + 1) %
            capacity_;
   };
-  size_t total_iovlen = 0;
 
-  for (size_t iov_idx = 0; iov_idx < msg->msg_iovlen; iov_idx++) {
-    total_iovlen += msg->msg_iov[iov_idx].iov_len;
-  }
-
-  size_t avail_bytes = CheckMessageLength();
+  cycles_t memcpy_cycles = 0;
 
   for (size_t iov_idx = 0; iov_idx < msg->msg_iovlen && rest_mlen > 0;) {
     size_t len = std::min(rest_iov_len, rest_mlen);
     size_t right_len = std::max(curr_msg_offset + len, capacity_) - capacity_;
     size_t left_len = len - right_len;
 
-    memcpy(
+    auto begin = get_cycles();
+
+    mt_memcpy(
         static_cast<uint8_t*>(msg->msg_iov[iov_idx].iov_base) + curr_iov_offset,
         buf_ + curr_msg_offset, left_len);
     curr_msg_offset = (curr_msg_offset + left_len) % capacity_;
@@ -174,19 +180,18 @@ size_t RingBufferBP::Read(msghdr* msg, bool& recycle) {
 
     // cyclic case
     if (right_len > 0) {
-      memcpy(static_cast<uint8_t*>(msg->msg_iov[iov_idx].iov_base) +
-                 curr_iov_offset,
-             buf_ + curr_msg_offset, right_len);
+      mt_memcpy(static_cast<uint8_t*>(msg->msg_iov[iov_idx].iov_base) +
+                    curr_iov_offset,
+                buf_ + curr_msg_offset, right_len);
       curr_msg_offset = (curr_msg_offset + right_len) % capacity_;
       curr_iov_offset += right_len;
     }
 
+    memcpy_cycles += get_cycles() - begin;
+
     rest_iov_len -= len;
     rest_mlen -= len;
     total_read += len;
-
-    GPR_ASSERT(len < capacity_);
-    GPR_ASSERT(total_read < capacity_);
 
     if (rest_iov_len == 0) {
       iov_idx++;
@@ -202,6 +207,8 @@ size_t RingBufferBP::Read(msghdr* msg, bool& recycle) {
       rest_mlen = checkFirstMesssageLength(curr_head);
     }
   }
+
+  grpc_stats_time_add(GRPC_STATS_TIME_ADHOC_1, memcpy_cycles);
 
   // partial read current msg
   if (rest_mlen > 0) {

@@ -15667,6 +15667,8 @@ endif()
 
 add_executable(rdma_ringbuffer_test
         src/core/lib/debug/trace.cc
+        src/core/lib/debug/stats_time.cc
+        src/core/lib/debug/get_clock.cc
         src/core/lib/rdma/ringbuffer.cc
         src/core/lib/rdma/ringbuffer_test.cc
         )

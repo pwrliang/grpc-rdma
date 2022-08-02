@@ -3,6 +3,8 @@
 #include <vector>
 #include "grpc/impl/codegen/log.h"
 #include "src/core/lib/debug/trace.h"
+#include "include/grpcpp/stats_time.h"
+
 size_t random_range(size_t min, size_t max) {  // range : [min, max]
   static bool first = true;
   if (first) {
@@ -118,9 +120,13 @@ void Test() {
 int main(int argc, char* argv[]) {
   gpr_log_verbosity_init();
   grpc_tracer_init();
+
+  grpc_stats_time_init(0);
+  GRPCProfiler profiler(GRPC_STATS_TIME_ADHOC_1);
   for (int i = 0; i < 100; i++) {
     Test();
   }
+  grpc_stats_time_print();
   printf("Tests pass\n");
   grpc_tracer_shutdown();
 }
