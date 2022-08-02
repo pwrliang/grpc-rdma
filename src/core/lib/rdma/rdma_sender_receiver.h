@@ -50,6 +50,7 @@ class RDMASenderReceiver {
         metadata_recvbuf_sz_(DEFAULT_HEADBUF_SZ),
         metadata_sendbuf_sz_(DEFAULT_HEADBUF_SZ),
         n_outstanding_send_(0),
+        bytes_outstanding_send_(0),
         last_failed_send_size_(0),
         read_content_conter_(0),
         write_content_counter_(0),
@@ -62,6 +63,8 @@ class RDMASenderReceiver {
     auto& node = RDMANode::GetInstance();
     auto pd = node.get_pd();
     size_t sendbuf_size = ringbuf->get_sendbuf_size();
+
+    send_chunk_size_ = MIN(RDMAConfig::GetInstance().get_send_chunk_size(), sendbuf_size - sizeof(size_t) - 1);
 
     sendbuf_ = new uint8_t[sendbuf_size];
 
@@ -130,11 +133,30 @@ class RDMASenderReceiver {
 
   size_t get_max_send_size() const { return ringbuf_->get_max_send_size(); }
 
+  double get_mhz() const { return mhz_; }
+
   virtual int Send(msghdr* msg, ssize_t* sz) = 0;
 
   virtual int Recv(msghdr* msg, ssize_t* sz) = 0;
 
   virtual size_t MarkMessageLength() = 0;
+
+  void pollLastSendCompletion() {
+    uint32_t n_poll = n_outstanding_send_.exchange(0);
+    bytes_outstanding_send_.exchange(0);
+
+    if (n_poll > 0) {
+      GRPCProfiler profiler(GRPC_STATS_TIME_SEND_POLL, 0);
+      int ret = conn_data_->PollSendCompletion(n_poll);
+
+      if (ret != 0) {
+        gpr_log(GPR_ERROR,
+                "rdmasr: %p pollLastSendCompletion failed, code: %d ", this,
+                ret);
+        abort();
+      }
+    }
+  }
 
   void* RequireZerocopySendSpace(size_t size) {
     pollLastSendCompletion();
@@ -157,22 +179,6 @@ class RDMASenderReceiver {
 
  protected:
   virtual int updateRemoteMetadata() = 0;
-
-  void pollLastSendCompletion() {
-    uint32_t n_poll = n_outstanding_send_.exchange(0);
-
-    if (n_poll > 0) {
-      GRPCProfiler profiler(GRPC_STATS_TIME_SEND_POLL, 0);
-      int ret = conn_data_->PollSendCompletion(n_poll);
-
-      if (ret != 0) {
-        gpr_log(GPR_ERROR,
-                "rdmasr: %p PollLastSendCompletion failed, code: %d ", this,
-                ret);
-        abort();
-      }
-    }
-  }
 
   bool ZerocopySendbufContains(void* bytes) {
     if (!zerocopy_) return false;
@@ -209,7 +215,9 @@ class RDMASenderReceiver {
   uint8_t *sendbuf_, *zerocopy_sendbuf_;
   MemRegion sendbuf_mr_, zerocopy_sendbuf_mr_;
   std::atomic_uint32_t n_outstanding_send_;
+  std::atomic_uint32_t bytes_outstanding_send_;
   std::atomic_uint32_t last_failed_send_size_;
+  size_t send_chunk_size_;
 
   bool zerocopy_;
   std::atomic_bool last_zerocopy_send_finished_;
@@ -254,6 +262,8 @@ class RDMASenderReceiverBP : public RDMASenderReceiver {
 
   int Send(msghdr* msg, ssize_t* sz) override;
 
+  int SendChunk(msghdr* msg, ssize_t* sz);
+
   int Recv(msghdr* msg, ssize_t* sz) override;
 
   // this should be thread safe,
@@ -279,7 +289,15 @@ class RDMASenderReceiverBP : public RDMASenderReceiver {
     return event;
   }
 
-  void PollLastSendCompletion();
+  size_t get_max_send_chunk_size() {
+    size_t remote_ringbuf_sz = remote_ringbuf_mr_.length();
+    size_t used =
+        (remote_ringbuf_sz + remote_ringbuf_tail_ - get_remote_ringbuf_head()) %
+        remote_ringbuf_sz;
+    size_t max_send_size = remote_ringbuf_sz - sizeof(size_t) - 1 - used;
+    size_t avail_send_size = ringbuf_->get_sendbuf_size() - bytes_outstanding_send_.load();
+    return MIN(MIN(max_send_size, send_chunk_size_), avail_send_size);
+  }
 
  private:
   bool isWritable(size_t mlen) override {
