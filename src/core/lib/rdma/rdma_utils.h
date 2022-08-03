@@ -42,6 +42,8 @@ class RDMAConfig {
 
   size_t get_ring_buffer_size() const { return ring_buffer_size_; }
 
+  size_t get_send_chunk_size() const { return send_chunk_size_; }
+
   bool is_zero_copy() const { return zero_copy_; }
 
  private:
@@ -99,8 +101,16 @@ class RDMAConfig {
       ring_buffer_size_ = 1024ull * 1024 * 10;
     }
 
+    s_val = getenv("GRPC_RDMA_SEND_CHUNK_SIZE");
+    if (s_val != nullptr) {
+      send_chunk_size_ = atoll(s_val);
+    } else {
+      send_chunk_size_ = 4 * 1024 * 1024;
+    }
+
     s_val = getenv("GRPC_RDMA_ZEROCOPY_ENABLE");
-    zero_copy_ = s_val == nullptr || strcmp(s_val, "true") == 0;
+    // zero_copy_ = s_val == nullptr || strcmp(s_val, "true") == 0;
+    zero_copy_ = false;
   }
 
   RDMAPollerMode poller_mode_;
@@ -109,6 +119,7 @@ class RDMAConfig {
   bool polling_yield_;
   bool affinity_;
   size_t ring_buffer_size_;
+  size_t send_chunk_size_;
   bool zero_copy_;
 };
 

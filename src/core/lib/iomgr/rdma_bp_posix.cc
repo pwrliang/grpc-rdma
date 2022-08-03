@@ -455,6 +455,89 @@ static void rdma_read(grpc_endpoint* ep, grpc_slice_buffer* incoming_buffer,
 
 #define MAX_WRITE_IOVEC 1000
 
+static bool rdma_flush_chunks(grpc_rdma* rdma, grpc_error_handle* error) {
+  GRPCProfiler profiler(GRPC_STATS_TIME_TRANSPORT_FLUSH, 0);
+  struct msghdr msg;
+  struct iovec iov[MAX_WRITE_IOVEC];
+  size_t iov_size;
+  size_t sending_length;
+  size_t unwind_slice_idx;
+  size_t unwind_byte_idx;
+
+  size_t outgoing_slice_idx = 0;
+  size_t total_sent_length = 0;
+  rdma->rdmasr->pollLastSendCompletion();
+
+  while (true) {
+    sending_length = 0;
+    unwind_slice_idx = outgoing_slice_idx;
+    unwind_byte_idx = rdma->outgoing_byte_idx;
+    size_t send_chunk_size = rdma->rdmasr->get_chunk_size();
+    for (iov_size = 0;
+         outgoing_slice_idx < rdma->outgoing_buffer->count && iov_size < MAX_WRITE_IOVEC && sending_length < send_chunk_size;
+         iov_size++) {
+      iov[iov_size].iov_base =
+        GRPC_SLICE_START_PTR(
+            rdma->outgoing_buffer->slices[outgoing_slice_idx]) +
+        rdma->outgoing_byte_idx;
+      size_t iov_len =
+        GRPC_SLICE_LENGTH(rdma->outgoing_buffer->slices[outgoing_slice_idx]) -
+        rdma->outgoing_byte_idx;
+      if (sending_length + iov_len < send_chunk_size) {
+        iov[iov_size].iov_len = iov_len;
+        outgoing_slice_idx++;
+        rdma->outgoing_byte_idx = 0;
+      } else {
+        iov[iov_size].iov_len = send_chunk_size - sending_length;
+        rdma->outgoing_byte_idx += iov[iov_size].iov_len;
+      }
+      sending_length += iov[iov_size].iov_len;
+    }
+
+    GPR_ASSERT(iov_size > 0);
+
+    msg.msg_iov = iov;
+    msg.msg_iovlen = iov_size;
+
+    if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_trace)) {
+      gpr_log(GPR_INFO, "rdma_flush try to send %zu bytes, %zu, %zu, %zu",
+              sending_length, iov_size, total_sent_length,
+              rdma->outgoing_buffer->length);
+    }
+    ssize_t sent_length;
+    int err = rdma->rdmasr->SendChunk(&msg, &sent_length);
+
+    if (sent_length < 0) {
+      if (err == EAGAIN) {
+        rdma->outgoing_byte_idx = unwind_byte_idx;
+        for (size_t idx = 0; idx < unwind_slice_idx; ++idx) {
+          grpc_slice_buffer_remove_first(rdma->outgoing_buffer);
+        }
+        return false;
+      } else if (err == EPIPE) {
+        *error = rdma_annotate_error(GRPC_OS_ERROR(err, "sendmsg"), rdma);
+        grpc_slice_buffer_reset_and_unref_internal(rdma->outgoing_buffer);
+        return true;
+      } else {
+        *error = rdma_annotate_error(GRPC_OS_ERROR(err, "sendmsg"), rdma);
+        grpc_slice_buffer_reset_and_unref_internal(rdma->outgoing_buffer);
+        return true;
+      }
+    }
+
+    total_sent_length += sent_length;
+
+    grpc_stats_time_add_custom(GRPC_STATS_TIME_SEND_SIZE, sent_length);
+    // TODO: trailing
+    if (outgoing_slice_idx == rdma->outgoing_buffer->count) {
+      *error = GRPC_ERROR_NONE;
+      grpc_slice_buffer_reset_and_unref_internal(rdma->outgoing_buffer);
+      return true;
+    }
+  }
+
+}
+
 static bool rdma_flush(grpc_rdma* rdma, grpc_error_handle* error) {
   GRPCProfiler profiler(GRPC_STATS_TIME_TRANSPORT_FLUSH, 0);
   struct msghdr msg;
@@ -549,7 +632,8 @@ static void rdma_handle_write(void* arg /* grpc_rdma */,
     return;
   }
 
-  bool flush_result = rdma_flush(rdma, &error);
+  // bool flush_result = rdma_flush(rdma, &error);
+  bool flush_result = rdma_flush_chunks(rdma, &error);
   if (!flush_result) {
     if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_trace)) {
       gpr_log(GPR_INFO, "write: delayed");
@@ -586,7 +670,8 @@ static void rdma_write(grpc_endpoint* ep, grpc_slice_buffer* buf,
   rdma->outgoing_buffer = buf;
   rdma->outgoing_byte_idx = 0;
 
-  bool flush_result = rdma_flush(rdma, &error);
+  // bool flush_result = rdma_flush(rdma, &error);
+  bool flush_result = rdma_flush_chunks(rdma, &error);
   if (!flush_result) {
     RDMA_REF(rdma, "write");
     rdma->write_cb = cb;

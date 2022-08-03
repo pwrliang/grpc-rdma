@@ -239,12 +239,12 @@ static void rdma_continue_read(grpc_rdma* rdma) {
   size_t target_read_size = rdma->rdmasr->MarkMessageLength();
 
   /* Wait for allocation only when there is no buffer left. */
-  if (rdma->incoming_buffer->length < target_read_size) {
+  if (rdma->incoming_buffer->length < target_read_size * 5) {
     if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_trace)) {
       gpr_log(GPR_INFO, "rdma allocate slice: %zu", target_read_size);
     }
     if (GPR_UNLIKELY(!grpc_resource_user_alloc_slices(&rdma->slice_allocator,
-                                                      target_read_size, 1,
+                                                      target_read_size * 5 - rdma->incoming_buffer->length, 1,
                                                       rdma->incoming_buffer))) {
       return;
     }
