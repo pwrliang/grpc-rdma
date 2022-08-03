@@ -153,8 +153,9 @@ int RDMASenderReceiverBP::SendChunk(msghdr* msg, ssize_t* sz) {
     cycles_t begin_cycles = get_cycles();
     memcpy(sendbuf_ptr, iov_base, iov_len);
     cycles_t t_cycles = get_cycles() - begin_cycles;
-    // gpr_log(GPR_INFO, "SendChunk memcpy: Size: %zu, Time: %.2lf us, Speed: %lf MB/s",
-    //       iov_len, t_cycles / mhz_, iov_len / (t_cycles / mhz_));
+    size_t mb_s = iov_len / (t_cycles / mhz_);
+    grpc_stats_time_add_custom(GRPC_STATS_TIME_ADHOC_2, mb_s);
+
     sendbuf_ptr += iov_len;
     nwritten += iov_len;
   }

@@ -1,5 +1,5 @@
 #include "grpc/impl/codegen/log.h"
-
+#include "include/grpcpp/stats_time.h"
 #include "src/core/lib/debug/trace.h"
 #include "src/core/lib/rdma/ringbuffer.h"
 #define MIN3(a, b, c) MIN(a, MIN(b, c))
@@ -81,7 +81,12 @@ bool RingBufferBP::Read(msghdr* msg, size_t& expected_mlens) {
     size_t n = MIN3(iov_rlen, m_rlen, capacity_ - buf_offset);
     auto* iov_rbase =
         static_cast<uint8_t*>(msg->msg_iov[iov_idx].iov_base) + iov_offset;
+    cycles_t begin_cycles = get_cycles();
     memcpy(iov_rbase, buf_ + buf_offset, n);
+    cycles_t t_cycles = get_cycles() - begin_cycles;
+    size_t mb_s = n / (t_cycles / mhz_);
+    grpc_stats_time_add_custom(GRPC_STATS_TIME_ADHOC_4, mb_s);
+
 #ifndef NDEBUG
     if (GRPC_TRACE_FLAG_ENABLED(grpc_trace_ringbuffer)) {
       gpr_log(GPR_DEBUG, "read_to_msghdr, read %zu bytes from head %zu", n,

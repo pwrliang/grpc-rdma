@@ -949,7 +949,9 @@ ssize_t tcp_send(int fd, const struct msghdr* msg, int additional_flags = 0) {
     /* TODO(klempner): Cork if this is a partial write */
     GRPC_STATS_INC_SYSCALL_WRITE();
     sent_length = sendmsg(fd, msg, SENDMSG_FLAGS | additional_flags);
-    grpc_stats_time_add_custom(GRPC_STATS_TIME_SEND_SIZE, sent_length);
+    if (sent_length > 0) {
+      grpc_stats_time_add_custom(GRPC_STATS_TIME_SEND_SIZE, sent_length);
+    }
   } while (sent_length < 0 && errno == EINTR);
   return sent_length;
 }
