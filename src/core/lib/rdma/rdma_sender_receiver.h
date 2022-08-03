@@ -68,6 +68,8 @@ class RDMASenderReceiver {
 
     sendbuf_ = new uint8_t[sendbuf_size];
 
+    sendbuf_sz_ = sendbuf_size;
+
     if (sendbuf_mr_.RegisterLocal(pd, sendbuf_, sendbuf_size)) {
       gpr_log(GPR_ERROR, "failed to RegisterLocal sendbuf_mr");
       exit(-1);
@@ -134,6 +136,8 @@ class RDMASenderReceiver {
   size_t get_max_send_size() const { return ringbuf_->get_max_send_size(); }
 
   double get_mhz() const { return mhz_; }
+
+  size_t get_chunk_size() const { return send_chunk_size_; }
 
   virtual int Send(msghdr* msg, ssize_t* sz) = 0;
 
@@ -218,6 +222,7 @@ class RDMASenderReceiver {
   std::atomic_uint32_t bytes_outstanding_send_;
   std::atomic_uint32_t last_failed_send_size_;
   size_t send_chunk_size_;
+  size_t sendbuf_sz_;
 
   bool zerocopy_;
   std::atomic_bool last_zerocopy_send_finished_;
@@ -287,16 +292,6 @@ class RDMASenderReceiverBP : public RDMASenderReceiver {
     }
 
     return event;
-  }
-
-  size_t get_max_send_chunk_size() {
-    size_t remote_ringbuf_sz = remote_ringbuf_mr_.length();
-    size_t used =
-        (remote_ringbuf_sz + remote_ringbuf_tail_ - get_remote_ringbuf_head()) %
-        remote_ringbuf_sz;
-    size_t max_send_size = remote_ringbuf_sz - sizeof(size_t) - 1 - used;
-    size_t avail_send_size = ringbuf_->get_sendbuf_size() - bytes_outstanding_send_.load();
-    return MIN(MIN(max_send_size, send_chunk_size_), avail_send_size);
   }
 
  private:

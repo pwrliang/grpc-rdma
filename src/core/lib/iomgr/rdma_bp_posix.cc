@@ -317,13 +317,13 @@ static bool rdma_flush_chunks(grpc_rdma* rdma, grpc_error_handle* error) {
   size_t total_sent_length = 0;
   rdma->rdmasr->pollLastSendCompletion();
 
-  while (rdma->rdmasr->get_max_send_chunk_size() > 0) {
+  while (true) {
     sending_length = 0;
     unwind_slice_idx = outgoing_slice_idx;
     unwind_byte_idx = rdma->outgoing_byte_idx;
-    size_t max_send_chunk_size = rdma->rdmasr->get_max_send_chunk_size();
+    size_t send_chunk_size = rdma->rdmasr->get_chunk_size();
     for (iov_size = 0;
-         outgoing_slice_idx < rdma->outgoing_buffer->count && iov_size < MAX_WRITE_IOVEC && sending_length < max_send_chunk_size;
+         outgoing_slice_idx < rdma->outgoing_buffer->count && iov_size < MAX_WRITE_IOVEC && sending_length < send_chunk_size;
          iov_size++) {
       iov[iov_size].iov_base =
         GRPC_SLICE_START_PTR(
@@ -332,12 +332,12 @@ static bool rdma_flush_chunks(grpc_rdma* rdma, grpc_error_handle* error) {
       size_t iov_len =
         GRPC_SLICE_LENGTH(rdma->outgoing_buffer->slices[outgoing_slice_idx]) -
         rdma->outgoing_byte_idx;
-      if (sending_length + iov_len < max_send_chunk_size) {
+      if (sending_length + iov_len < send_chunk_size) {
         iov[iov_size].iov_len = iov_len;
         outgoing_slice_idx++;
         rdma->outgoing_byte_idx = 0;
       } else {
-        iov[iov_size].iov_len = max_send_chunk_size - sending_length;
+        iov[iov_size].iov_len = send_chunk_size - sending_length;
         rdma->outgoing_byte_idx += iov[iov_size].iov_len;
       }
       sending_length += iov[iov_size].iov_len;
@@ -374,6 +374,8 @@ static bool rdma_flush_chunks(grpc_rdma* rdma, grpc_error_handle* error) {
       }
     }
 
+    total_sent_length += sent_length;
+
     grpc_stats_time_add_custom(GRPC_STATS_TIME_SEND_SIZE, sent_length);
     // TODO: trailing
     if (outgoing_slice_idx == rdma->outgoing_buffer->count) {
@@ -382,12 +384,6 @@ static bool rdma_flush_chunks(grpc_rdma* rdma, grpc_error_handle* error) {
       return true;
     }
   }
-
-  rdma->outgoing_byte_idx = unwind_byte_idx;
-  for (size_t idx = 0; idx < unwind_slice_idx; ++idx) {
-    grpc_slice_buffer_remove_first(rdma->outgoing_buffer);
-  }
-  return false;
 
 }
 

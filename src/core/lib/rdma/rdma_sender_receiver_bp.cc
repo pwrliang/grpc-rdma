@@ -116,6 +116,8 @@ int RDMASenderReceiverBP::SendChunk(msghdr* msg, ssize_t* sz) {
     mlen += msg->msg_iov[i].iov_len;
   }
 
+  size_t len = mlen + sizeof(size_t) + 1;
+
   if (mlen == 0 || mlen > ringbuf_->get_max_send_size()) {
     gpr_log(GPR_ERROR, "Invalid mlen, expected (0, %zu] actually size: %zu",
             ringbuf_->get_max_send_size(), mlen);
@@ -127,7 +129,7 @@ int RDMASenderReceiverBP::SendChunk(msghdr* msg, ssize_t* sz) {
   }
 
 
-  if (!isWritable(mlen)) {
+  if (!isWritable(mlen) || bytes_outstanding_send_.load() + len >= sendbuf_sz_) {
     if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_sr_bp_trace)) {
       size_t used = (remote_ringbuf_sz + remote_ringbuf_tail_ -
                      get_remote_ringbuf_head()) %
@@ -151,16 +153,14 @@ int RDMASenderReceiverBP::SendChunk(msghdr* msg, ssize_t* sz) {
     cycles_t begin_cycles = get_cycles();
     memcpy(sendbuf_ptr, iov_base, iov_len);
     cycles_t t_cycles = get_cycles() - begin_cycles;
-    gpr_log(GPR_INFO, "SendChunk memcpy: Size: %zu, Time: %.2lf us, Speed: %lf MB/s",
-          iov_len, t_cycles / mhz_, iov_len / (t_cycles / mhz_));
+    // gpr_log(GPR_INFO, "SendChunk memcpy: Size: %zu, Time: %.2lf us, Speed: %lf MB/s",
+    //       iov_len, t_cycles / mhz_, iov_len / (t_cycles / mhz_));
     sendbuf_ptr += iov_len;
     nwritten += iov_len;
   }
   *sendbuf_ptr = 1;
 
   GPR_ASSERT(nwritten == mlen);
-
-  size_t len = mlen + sizeof(size_t) + 1;
   {
     GRPCProfiler profiler(GRPC_STATS_TIME_SEND_POST);
     int n_post_send = conn_data_->PostSendRequest(remote_ringbuf_mr_, remote_ringbuf_tail_, 
@@ -175,8 +175,6 @@ int RDMASenderReceiverBP::SendChunk(msghdr* msg, ssize_t* sz) {
   if (sz != nullptr) {
     *sz = nwritten;
   }
-
-  // printf("send %lld bytes, total sent = %lld\n", mlen, total_sent_.load());
 
   return 0;
 }
@@ -319,8 +317,8 @@ int RDMASenderReceiverBP::Recv(msghdr* msg, ssize_t* sz) {
   cycles_t t_cycles = get_cycles() - begin_cycles;
   size_t new_head = ringbuf_->get_head();
 
-  gpr_log(GPR_INFO, "ringbuf Read: Size: %zu, Time: %.2lf us, Speed: %lf MB/s",
-          read_mlens, t_cycles / mhz_, read_mlens / (t_cycles / mhz_));
+  // gpr_log(GPR_INFO, "ringbuf Read: Size: %zu, Time: %.2lf us, Speed: %lf MB/s",
+  //         read_mlens, t_cycles / mhz_, read_mlens / (t_cycles / mhz_));
 
   if (sz != nullptr) {
     if (read_mlens == 0) {
