@@ -1,16 +1,24 @@
+#include "src/core/lib/rdma/ringbuffer.h"
 #include "grpc/impl/codegen/log.h"
 #include "include/grpcpp/stats_time.h"
 #include "src/core/lib/debug/trace.h"
-#include "src/core/lib/rdma/ringbuffer.h"
 #define MIN3(a, b, c) MIN(a, MIN(b, c))
 grpc_core::DebugOnlyTraceFlag grpc_trace_ringbuffer(false, "rdma_ringbuffer");
 
+void mt_memcpy(void* dest, const void* src, size_t size) {
+    using unit_t = uint64_t;
+    size_t n = size / sizeof(unit_t);
 
-void mt_memcpy(uint8_t* dest, const uint8_t* src, size_t size) {
-#pragma omp parallel for num_threads(4)
-  for (size_t i = 0; i < size; i++) {
-    dest[i] = src[i];
-  }
+#pragma omp parallel for num_threads(2)
+    for (size_t i = 0; i < n; i++) {
+      reinterpret_cast<unit_t*>(dest)[i] =
+          reinterpret_cast<const unit_t*>(src)[i];
+    }
+
+    for (size_t i = n * sizeof(unit_t); i < size; i++) {
+      reinterpret_cast<uint8_t*>(dest)[i] =
+          reinterpret_cast<const uint8_t*>(src)[i];
+    }
 }
 // to reduce operation, the caller should guarantee the arguments are valid
 uint8_t RingBufferBP::checkTail(size_t head, size_t mlen) const {
@@ -209,7 +217,7 @@ size_t RingBufferBP::Read(msghdr* msg, bool& recycle) {
     }
   }
 
-  grpc_stats_time_add(GRPC_STATS_TIME_ADHOC_1, memcpy_cycles);
+//  grpc_stats_time_add(GRPC_STATS_TIME_COPY_BW, memcpy_cycles);
 
   // partial read current msg
   if (rest_mlen > 0) {

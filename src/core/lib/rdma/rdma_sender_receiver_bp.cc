@@ -128,8 +128,8 @@ int RDMASenderReceiverBP::SendChunk(msghdr* msg, ssize_t* sz) {
     gpr_log(GPR_INFO, "rdmasr: %p send, mlen: %zu", this, mlen);
   }
 
-
-  if (!isWritable(mlen) || bytes_outstanding_send_.load() + len >= sendbuf_sz_) {
+  if (!isWritable(mlen) ||
+      bytes_outstanding_send_.load() + len >= sendbuf_sz_) {
     if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_sr_bp_trace)) {
       size_t used = (remote_ringbuf_sz + remote_ringbuf_tail_ -
                      get_remote_ringbuf_head()) %
@@ -147,25 +147,32 @@ int RDMASenderReceiverBP::SendChunk(msghdr* msg, ssize_t* sz) {
   sendbuf_ptr += sizeof(size_t);
   size_t nwritten = 0;
 
+  cycles_t begin_cycles = get_cycles();
   for (size_t iov_idx = 0; iov_idx < msg->msg_iovlen; iov_idx++) {
     void* iov_base = msg->msg_iov[iov_idx].iov_base;
     size_t iov_len = msg->msg_iov[iov_idx].iov_len;
-    cycles_t begin_cycles = get_cycles();
-    memcpy(sendbuf_ptr, iov_base, iov_len);
-    cycles_t t_cycles = get_cycles() - begin_cycles;
-    // gpr_log(GPR_INFO, "SendChunk memcpy: Size: %zu, Time: %.2lf us, Speed: %lf MB/s",
-    //       iov_len, t_cycles / mhz_, iov_len / (t_cycles / mhz_));
+
+    mt_memcpy(sendbuf_ptr, iov_base, iov_len);
     sendbuf_ptr += iov_len;
     nwritten += iov_len;
   }
+  cycles_t t_cycles = get_cycles() - begin_cycles;
+  if (nwritten > 1024) {
+    grpc_stats_time_add_custom(GRPC_STATS_TIME_SEND_COPY_BW,
+                               nwritten / (t_cycles / mhz_));
+  }
+  // gpr_log(GPR_INFO, "SendChunk memcpy: Size: %zu, Time: %.2lf us, Speed: %lf
+  // MB/s",
+  //       iov_len, t_cycles / mhz_, iov_len / (t_cycles / mhz_));
+
   *sendbuf_ptr = 1;
 
   GPR_ASSERT(nwritten == mlen);
   {
     GRPCProfiler profiler(GRPC_STATS_TIME_SEND_POST);
-    int n_post_send = conn_data_->PostSendRequest(remote_ringbuf_mr_, remote_ringbuf_tail_, 
-                                                sendbuf_mr_, bytes_outstanding_send_.load(), len, 
-                                                IBV_WR_RDMA_WRITE);
+    int n_post_send = conn_data_->PostSendRequest(
+        remote_ringbuf_mr_, remote_ringbuf_tail_, sendbuf_mr_,
+        bytes_outstanding_send_.load(), len, IBV_WR_RDMA_WRITE);
     n_outstanding_send_ += n_post_send;
   }
   bytes_outstanding_send_ += len;
@@ -241,12 +248,7 @@ int RDMASenderReceiverBP::Send(msghdr* msg, ssize_t* sz) {
       unfinished_zerocopy_send_size_.fetch_sub(iov_len);
       total_zerocopy_send_size += iov_len;
     } else {
-      //      memcpy(sendbuf_ptr, iov_base, iov_len);
-
-      {
-        GRPCProfiler profiler1(GRPC_STATS_TIME_ADHOC_3);
-        mt_memcpy(sendbuf_ptr, (uint8_t*)iov_base, iov_len);
-      }
+      mt_memcpy(sendbuf_ptr, iov_base, iov_len);
 
       if (sges[sge_idx].lkey == sendbuf_mr_.lkey()) {  // last sge in sendbuf
         sges[sge_idx].length += iov_len;               // merge in last sge
@@ -323,7 +325,8 @@ int RDMASenderReceiverBP::Recv(msghdr* msg, ssize_t* sz) {
   cycles_t t_cycles = get_cycles() - begin_cycles;
   size_t new_head = ringbuf_->get_head();
 
-  // gpr_log(GPR_INFO, "ringbuf Read: Size: %zu, Time: %.2lf us, Speed: %lf MB/s",
+  // gpr_log(GPR_INFO, "ringbuf Read: Size: %zu, Time: %.2lf us, Speed: %lf
+  // MB/s",
   //         read_mlens, t_cycles / mhz_, read_mlens / (t_cycles / mhz_));
 
   if (sz != nullptr) {
@@ -397,7 +400,7 @@ int RDMASenderReceiverBP::RecvEx(msghdr* msg, ssize_t* sz) {
           actual_read / (t_cycles / mhz_));
 
   if (actual_read > 1024) {
-    grpc_stats_time_add_custom(GRPC_STATS_TIME_COPY_BW,
+    grpc_stats_time_add_custom(GRPC_STATS_TIME_RECV_COPY_BW,
                                actual_read / (t_cycles / mhz_));
   }
 
