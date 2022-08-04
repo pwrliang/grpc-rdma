@@ -1,9 +1,177 @@
 #include "grpc/impl/codegen/log.h"
 #include "include/grpcpp/stats_time.h"
 #include "src/core/lib/debug/trace.h"
-#include "src/core/lib/rdma/ringbuffer.h"
+#include "ringbuffer.h"
+#include "rdma_conn.h"
 #define MIN3(a, b, c) MIN(a, MIN(b, c))
 grpc_core::DebugOnlyTraceFlag grpc_trace_ringbuffer(false, "rdma_ringbuffer");
+
+size_t MIN_ZEROCOPY_SIZE = 512;
+
+size_t global_sendbuf_capacities[GS_CAP_GENRES] = {1024, 
+                                                   32*1024, 
+                                                   1024*1024, 
+                                                   4*1024*1024, 
+                                                   16*1024*1024, 
+                                                   64*1024*1024, 
+                                                   256*1024*1024};
+
+size_t global_sendbuf_nums[GS_CAP_GENRES] = {64,  // 1KB
+                                             64,  // 32KB
+                                             64,  // 1MB
+                                             64,  // 4MB
+                                             16,  // 16MB
+                                             16,  // 64MB
+                                             4};  // 256MB
+
+uint8_t* global_sendbuf_alloc(size_t size) {
+  GlobalSendBufferManager& gsbm = GlobalSendBufferManager::GetInstance();
+  return gsbm.alloc(size);
+}
+
+bool global_sendbuf_free(uint8_t* buf) {
+  GlobalSendBufferManager& gsbm = GlobalSendBufferManager::GetInstance();
+  return gsbm.free(buf);
+}
+
+GlobalSendBuffer::GlobalSendBuffer(size_t capacity, int id) : capacity_(capacity), genre_id_(id) {
+  buf_ = new uint8_t[capacity];
+
+  auto& node = RDMANode::GetInstance();
+  auto pd = node.get_pd();
+
+  if (mr_.RegisterLocal(pd, buf_, capacity)) {
+    gpr_log(GPR_ERROR, "failed to RegisterLocal global_sendbuf_mr");
+    exit(-1);
+  }
+
+}
+
+GlobalSendBuffer::~GlobalSendBuffer() {
+  delete[] buf_;
+}
+
+GlobalSendBufferManager::GlobalSendBufferManager() {
+  for (int i = 0; i < GS_CAP_GENRES; i++) {
+    size_t cap = global_sendbuf_capacities[i];
+    size_t num = global_sendbuf_nums[i];
+    for (int j = 0; j < num; j++) {
+      GlobalSendBuffer* gsb = new GlobalSendBuffer(cap, i);
+      all_bufs_.insert(std::pair<uint8_t*, GlobalSendBuffer*>(gsb->buf_, gsb));
+      free_bufs_[i].insert(std::pair<uint8_t*, GlobalSendBuffer*>(gsb->buf_, gsb));
+    }
+    failed_alloc_num_[i].store(0);
+  }
+
+  alloc_num_[GS_CAP_GENRES].store(0);
+  failed_alloc_num_[GS_CAP_GENRES].store(0);
+}
+
+GlobalSendBufferManager::~GlobalSendBufferManager() {
+  for (std::map<uint8_t*, GlobalSendBuffer*>::iterator it = all_bufs_.begin(); it != all_bufs_.end(); it++) {
+    delete it->second;
+  }
+}
+
+uint8_t* GlobalSendBufferManager::alloc(size_t size) {
+  if (size < MIN_ZEROCOPY_SIZE) return nullptr;
+
+  std::lock_guard<std::mutex> lck(mtx_);
+  int i = 0;
+  while (i < GS_CAP_GENRES && size > global_sendbuf_capacities[i]) { i++; }
+
+  // size <= global_sendbuf_capacities[i] || i == GS_CAP_GENRES
+  if (i == GS_CAP_GENRES) { // size is larger than max capacity
+    failed_alloc_num_[GS_CAP_GENRES].fetch_add(1);
+    return nullptr; 
+  }
+
+  alloc_num_[i].fetch_add(1);
+  if (free_bufs_[i].size() == 0) { // no free bufs
+    failed_alloc_num_[i].fetch_add(1);
+    return nullptr;
+  }
+
+  std::map<uint8_t*, GlobalSendBuffer*>::iterator it = free_bufs_[i].begin();
+  uint8_t* buf = it->first;
+  GlobalSendBuffer* gsb = it->second;
+  gsb->used_ = size;
+  free_bufs_[i].erase(it);
+  // used_bufs_[i].insert(std::pair<uint8_t*, GlobalSendBuffer*>(buf, gsb));
+  used_bufs_[i][buf] = gsb;
+
+  printf("GSBM::alloc, buf = %p, size = %lld, capacity = %lld\n", buf, size, global_sendbuf_capacities[i]);
+
+  return buf;
+}
+
+bool GlobalSendBufferManager::free(uint8_t* buf) {
+  std::lock_guard<std::mutex> lck(mtx_);
+  std::map<uint8_t*, GlobalSendBuffer*>::iterator it = all_bufs_.find(buf);
+
+  if (it == all_bufs_.end()) {
+    return false; // this buffer is not a GlobalSendBuffer
+  }
+
+  GlobalSendBuffer* gsb = it->second;
+  int genre_id = gsb->genre_id_;
+  it = used_bufs_[genre_id].find(buf);
+
+  if (it == used_bufs_[genre_id].end()) {
+    return false; // this buffer is a GlobalSendBuffer, but it is a free buffer
+  }
+
+  printf("GSBM::free, buf = %p, size = %lld, capacity = %lld\n", buf, gsb->used_, global_sendbuf_capacities[genre_id]);
+
+  gsb->used_ = 0;
+  used_bufs_[genre_id].erase(it);
+  // free_bufs_[genre_id].insert(std::pair<uint8_t*, GlobalSendBuffer*>(buf, gsb));
+  free_bufs_[genre_id][buf] = gsb;
+  return true;
+}
+
+GlobalSendBuffer* GlobalSendBufferManager::contains(uint8_t* ptr) {
+  std::lock_guard<std::mutex> lck(mtx_);
+  std::map<uint8_t*, GlobalSendBuffer*>::iterator it = all_bufs_.find(ptr);
+  if (it != all_bufs_.end()) { // ptr is a buf
+    return it->second;
+  }
+
+  std::map<uint8_t*, uint8_t*>::iterator link = linkers_.find(ptr);
+  if (link == linkers_.end()) {
+    return nullptr;
+  }
+
+  // ptr is a head
+  it = all_bufs_.find(link->second);
+  if (it != all_bufs_.end()) {
+    return it->second;
+  }
+
+  return nullptr;
+}
+
+bool GlobalSendBufferManager::add_link(uint8_t* head, uint8_t* buf) {
+  std::lock_guard<std::mutex> lck(mtx_);
+  std::map<uint8_t*, GlobalSendBuffer*>::iterator it = all_bufs_.find(buf);
+  if (it == all_bufs_.end()) {
+    return false;
+  }
+
+  linkers_[head] = buf;
+  return true;
+}
+
+bool GlobalSendBufferManager::remove_link(uint8_t* head) {
+  std::lock_guard<std::mutex> lck(mtx_);
+  std::map<uint8_t*, uint8_t*>::iterator it = linkers_.find(head);
+  if (it == linkers_.end()) {
+    return false;
+  }
+
+  linkers_.erase(it);
+  return true;
+}
 
 // to reduce operation, the caller should guarantee the arguments are valid
 uint8_t RingBufferBP::checkTail(size_t head, size_t mlen) const {

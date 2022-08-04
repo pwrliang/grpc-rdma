@@ -3,6 +3,7 @@
 #include <string.h>
 #include <sys/epoll.h>
 #include "grpc/impl/codegen/log.h"
+#include "ringbuffer.h"
 
 int MemRegion::RegisterRemote(void* mem, uint32_t rkey, size_t len) {
   dereg();
