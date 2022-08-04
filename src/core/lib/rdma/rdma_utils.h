@@ -105,7 +105,7 @@ class RDMAConfig {
     if (s_val != nullptr) {
       send_chunk_size_ = atoll(s_val);
     } else {
-      send_chunk_size_ = 512ul * 1024;
+      send_chunk_size_ = 4 * 1024 * 1024;
     }
 
     s_val = getenv("GRPC_RDMA_ZEROCOPY_ENABLE");

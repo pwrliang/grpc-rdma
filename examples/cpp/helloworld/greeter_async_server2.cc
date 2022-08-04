@@ -121,28 +121,28 @@ class ServerImpl final {
         }
 
         if (request_.name() == "fin") {
-//          auto cpu_time2 = get_cpu_time_per_core();
-//
-//          int num_cores = sysconf(_SC_NPROCESSORS_ONLN);
-//          auto time_diff = cpu_time2["cpu"] - cpu_time1["cpu"];
-//          printf(
-//              "[S] CPU-TIME (s) user: %lf idle: %lf nice: %lf sys: %lf "
-//              "iowait: %lf "
-//              "irq: %lf softirq: %lf sum: %lf\n",
-//              time_diff.t_user, time_diff.t_idle, time_diff.t_nice,
-//              time_diff.t_system, time_diff.t_iowait, time_diff.t_irq,
-//              time_diff.t_softirq, time_diff.t_sum);
-//          for (int i = 0; i < num_cores; i++) {
-//            auto cpu_name = "cpu" + std::to_string(i);
-//            time_diff = cpu_time2[cpu_name] - cpu_time1[cpu_name];
-//            printf(
-//                "[S] CPU%d-TIME (s) user: %lf idle: %lf nice: %lf sys: %lf "
-//                "iowait: %lf "
-//                "irq: %lf softirq: %lf sum: %lf\n",
-//                i, time_diff.t_user, time_diff.t_idle, time_diff.t_nice,
-//                time_diff.t_system, time_diff.t_iowait, time_diff.t_irq,
-//                time_diff.t_softirq, time_diff.t_sum);
-//          }
+          auto cpu_time2 = get_cpu_time_per_core();
+
+          int num_cores = sysconf(_SC_NPROCESSORS_ONLN);
+          auto time_diff = cpu_time2["cpu"] - cpu_time1["cpu"];
+          printf(
+              "[S] CPU-TIME (s) user: %lf idle: %lf nice: %lf sys: %lf "
+              "iowait: %lf "
+              "irq: %lf softirq: %lf sum: %lf\n",
+              time_diff.t_user, time_diff.t_idle, time_diff.t_nice,
+              time_diff.t_system, time_diff.t_iowait, time_diff.t_irq,
+              time_diff.t_softirq, time_diff.t_sum);
+          for (int i = 0; i < num_cores; i++) {
+            auto cpu_name = "cpu" + std::to_string(i);
+            time_diff = cpu_time2[cpu_name] - cpu_time1[cpu_name];
+            printf(
+                "[S] CPU%d-TIME (s) user: %lf idle: %lf nice: %lf sys: %lf "
+                "iowait: %lf "
+                "irq: %lf softirq: %lf sum: %lf\n",
+                i, time_diff.t_user, time_diff.t_idle, time_diff.t_nice,
+                time_diff.t_system, time_diff.t_iowait, time_diff.t_irq,
+                time_diff.t_softirq, time_diff.t_sum);
+          }
         }
 
         status_ = FINISH;
@@ -204,7 +204,6 @@ class ServerImpl final {
                                ("work_th" + std::to_string(idx)).c_str());
             grpc_stats_time_init(idx);
 
-            int i= 0;
             while (true) {
               cycles_t c1 = get_cycles();
               GPR_ASSERT(cq->Next(&tag, &ok));

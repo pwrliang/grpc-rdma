@@ -1,35 +1,20 @@
-#include "src/core/lib/rdma/ringbuffer.h"
 #include "grpc/impl/codegen/log.h"
 #include "include/grpcpp/stats_time.h"
 #include "src/core/lib/debug/trace.h"
+#include "ringbuffer.h"
+#include "rdma_conn.h"
 #define MIN3(a, b, c) MIN(a, MIN(b, c))
 grpc_core::DebugOnlyTraceFlag grpc_trace_ringbuffer(false, "rdma_ringbuffer");
 
-void mt_memcpy(void* dest, const void* src, size_t size) {
-  using unit_t = uint64_t;
-  size_t n = size / sizeof(unit_t);
-
-#pragma omp parallel for num_threads(2)
-  for (size_t i = 0; i < n; i++) {
-    reinterpret_cast<unit_t*>(dest)[i] =
-        reinterpret_cast<const unit_t*>(src)[i];
-  }
-
-  for (size_t i = n * sizeof(unit_t); i < size; i++) {
-    reinterpret_cast<uint8_t*>(dest)[i] =
-        reinterpret_cast<const uint8_t*>(src)[i];
-  }
-}
-
 size_t MIN_ZEROCOPY_SIZE = 512;
 
-size_t global_sendbuf_capacities[GS_CAP_GENRES] = {1024,
-                                                   32 * 1024,
-                                                   1024 * 1024,
-                                                   4 * 1024 * 1024,
-                                                   16 * 1024 * 1024,
-                                                   64 * 1024 * 1024,
-                                                   256 * 1024 * 1024};
+size_t global_sendbuf_capacities[GS_CAP_GENRES] = {1024, 
+                                                   32*1024, 
+                                                   1024*1024, 
+                                                   4*1024*1024, 
+                                                   16*1024*1024, 
+                                                   64*1024*1024, 
+                                                   256*1024*1024};
 
 size_t global_sendbuf_nums[GS_CAP_GENRES] = {64,  // 1KB
                                              64,  // 32KB
@@ -49,8 +34,7 @@ bool global_sendbuf_free(uint8_t* buf) {
   return gsbm.free(buf);
 }
 
-GlobalSendBuffer::GlobalSendBuffer(size_t capacity, int id)
-    : capacity_(capacity), genre_id_(id) {
+GlobalSendBuffer::GlobalSendBuffer(size_t capacity, int id) : capacity_(capacity), genre_id_(id) {
   buf_ = new uint8_t[capacity];
 
   auto& node = RDMANode::GetInstance();
@@ -60,9 +44,12 @@ GlobalSendBuffer::GlobalSendBuffer(size_t capacity, int id)
     gpr_log(GPR_ERROR, "failed to RegisterLocal global_sendbuf_mr");
     exit(-1);
   }
+
 }
 
-GlobalSendBuffer::~GlobalSendBuffer() { delete[] buf_; }
+GlobalSendBuffer::~GlobalSendBuffer() {
+  delete[] buf_;
+}
 
 GlobalSendBufferManager::GlobalSendBufferManager() {
   for (int i = 0; i < GS_CAP_GENRES; i++) {
@@ -71,8 +58,7 @@ GlobalSendBufferManager::GlobalSendBufferManager() {
     for (int j = 0; j < num; j++) {
       GlobalSendBuffer* gsb = new GlobalSendBuffer(cap, i);
       all_bufs_.insert(std::pair<uint8_t*, GlobalSendBuffer*>(gsb->buf_, gsb));
-      free_bufs_[i].insert(
-          std::pair<uint8_t*, GlobalSendBuffer*>(gsb->buf_, gsb));
+      free_bufs_[i].insert(std::pair<uint8_t*, GlobalSendBuffer*>(gsb->buf_, gsb));
     }
     failed_alloc_num_[i].store(0);
   }
@@ -82,8 +68,7 @@ GlobalSendBufferManager::GlobalSendBufferManager() {
 }
 
 GlobalSendBufferManager::~GlobalSendBufferManager() {
-  for (std::map<uint8_t*, GlobalSendBuffer*>::iterator it = all_bufs_.begin();
-       it != all_bufs_.end(); it++) {
+  for (std::map<uint8_t*, GlobalSendBuffer*>::iterator it = all_bufs_.begin(); it != all_bufs_.end(); it++) {
     delete it->second;
   }
 }
@@ -93,18 +78,16 @@ uint8_t* GlobalSendBufferManager::alloc(size_t size) {
 
   std::lock_guard<std::mutex> lck(mtx_);
   int i = 0;
-  while (i < GS_CAP_GENRES && size > global_sendbuf_capacities[i]) {
-    i++;
-  }
+  while (i < GS_CAP_GENRES && size > global_sendbuf_capacities[i]) { i++; }
 
   // size <= global_sendbuf_capacities[i] || i == GS_CAP_GENRES
-  if (i == GS_CAP_GENRES) {  // size is larger than max capacity
+  if (i == GS_CAP_GENRES) { // size is larger than max capacity
     failed_alloc_num_[GS_CAP_GENRES].fetch_add(1);
-    return nullptr;
+    return nullptr; 
   }
 
   alloc_num_[i].fetch_add(1);
-  if (free_bufs_[i].size() == 0) {  // no free bufs
+  if (free_bufs_[i].size() == 0) { // no free bufs
     failed_alloc_num_[i].fetch_add(1);
     return nullptr;
   }
@@ -117,8 +100,7 @@ uint8_t* GlobalSendBufferManager::alloc(size_t size) {
   // used_bufs_[i].insert(std::pair<uint8_t*, GlobalSendBuffer*>(buf, gsb));
   used_bufs_[i][buf] = gsb;
 
-  printf("GSBM::alloc, buf = %p, size = %lld, capacity = %lld\n", buf, size,
-         global_sendbuf_capacities[i]);
+  printf("GSBM::alloc, buf = %p, size = %lld, capacity = %lld\n", buf, size, global_sendbuf_capacities[i]);
 
   return buf;
 }
@@ -128,7 +110,7 @@ bool GlobalSendBufferManager::free(uint8_t* buf) {
   std::map<uint8_t*, GlobalSendBuffer*>::iterator it = all_bufs_.find(buf);
 
   if (it == all_bufs_.end()) {
-    return false;  // this buffer is not a GlobalSendBuffer
+    return false; // this buffer is not a GlobalSendBuffer
   }
 
   GlobalSendBuffer* gsb = it->second;
@@ -136,16 +118,14 @@ bool GlobalSendBufferManager::free(uint8_t* buf) {
   it = used_bufs_[genre_id].find(buf);
 
   if (it == used_bufs_[genre_id].end()) {
-    return false;  // this buffer is a GlobalSendBuffer, but it is a free buffer
+    return false; // this buffer is a GlobalSendBuffer, but it is a free buffer
   }
 
-  printf("GSBM::free, buf = %p, size = %lld, capacity = %lld\n", buf,
-         gsb->used_, global_sendbuf_capacities[genre_id]);
+  printf("GSBM::free, buf = %p, size = %lld, capacity = %lld\n", buf, gsb->used_, global_sendbuf_capacities[genre_id]);
 
   gsb->used_ = 0;
   used_bufs_[genre_id].erase(it);
-  // free_bufs_[genre_id].insert(std::pair<uint8_t*, GlobalSendBuffer*>(buf,
-  // gsb));
+  // free_bufs_[genre_id].insert(std::pair<uint8_t*, GlobalSendBuffer*>(buf, gsb));
   free_bufs_[genre_id][buf] = gsb;
   return true;
 }
@@ -153,7 +133,7 @@ bool GlobalSendBufferManager::free(uint8_t* buf) {
 GlobalSendBuffer* GlobalSendBufferManager::contains(uint8_t* ptr) {
   std::lock_guard<std::mutex> lck(mtx_);
   std::map<uint8_t*, GlobalSendBuffer*>::iterator it = all_bufs_.find(ptr);
-  if (it != all_bufs_.end()) {  // ptr is a buf
+  if (it != all_bufs_.end()) { // ptr is a buf
     return it->second;
   }
 
@@ -192,6 +172,7 @@ bool GlobalSendBufferManager::remove_link(uint8_t* head) {
   linkers_.erase(it);
   return true;
 }
+
 // to reduce operation, the caller should guarantee the arguments are valid
 uint8_t RingBufferBP::checkTail(size_t head, size_t mlen) const {
   return buf_[(head + mlen + sizeof(size_t) + capacity_) % capacity_];
@@ -327,101 +308,7 @@ bool RingBufferBP::Read(msghdr* msg, size_t& expected_mlens) {
   return false;
 }
 
-size_t RingBufferBP::Read(msghdr* msg, bool& recycle) {
-  if (msg->msg_iovlen == 0) {
-    recycle = false;
-    return false;
-  }
-  auto curr_head = head_;
-
-  // iter on msg
-  size_t curr_msg_offset = (curr_head + sizeof(size_t)) % capacity_;
-  size_t rest_mlen = checkFirstMesssageLength(curr_head);
-  // inter on iov
-  size_t curr_iov_offset = 0;
-  size_t rest_iov_len = msg->msg_iov[0].iov_len;
-  size_t total_read = 0;
-
-  GPR_ASSERT(curr_head < capacity_);
-
-  auto next_head = [this](size_t head) {
-    return (head + sizeof(size_t) + checkFirstMesssageLength(head) + 1) %
-           capacity_;
-  };
-
-  cycles_t memcpy_cycles = 0;
-
-  for (size_t iov_idx = 0; iov_idx < msg->msg_iovlen && rest_mlen > 0;) {
-    size_t len = std::min(rest_iov_len, rest_mlen);
-    size_t right_len = std::max(curr_msg_offset + len, capacity_) - capacity_;
-    size_t left_len = len - right_len;
-
-    auto begin = get_cycles();
-
-    mt_memcpy(
-        static_cast<uint8_t*>(msg->msg_iov[iov_idx].iov_base) + curr_iov_offset,
-        buf_ + curr_msg_offset, left_len);
-    curr_msg_offset = (curr_msg_offset + left_len) % capacity_;
-    curr_iov_offset += left_len;
-
-    // cyclic case
-    if (right_len > 0) {
-      mt_memcpy(static_cast<uint8_t*>(msg->msg_iov[iov_idx].iov_base) +
-                    curr_iov_offset,
-                buf_ + curr_msg_offset, right_len);
-      curr_msg_offset = (curr_msg_offset + right_len) % capacity_;
-      curr_iov_offset += right_len;
-    }
-
-    memcpy_cycles += get_cycles() - begin;
-
-    rest_iov_len -= len;
-    rest_mlen -= len;
-    total_read += len;
-
-    if (rest_iov_len == 0) {
-      iov_idx++;
-      curr_iov_offset = 0;
-      if (iov_idx < msg->msg_iovlen) {
-        rest_iov_len = msg->msg_iov[iov_idx].iov_len;
-      }
-    }
-
-    if (rest_mlen == 0) {
-      curr_head = next_head(curr_head);
-      curr_msg_offset = (curr_head + sizeof(size_t)) % capacity_;
-      rest_mlen = checkFirstMesssageLength(curr_head);
-    }
-  }
-
-  //  grpc_stats_time_add(GRPC_STATS_TIME_COPY_BW, memcpy_cycles);
-
-  // partial read current msg
-  if (rest_mlen > 0) {
-    size_t consumed_mlen = checkFirstMesssageLength(curr_head) - rest_mlen;
-
-    // calculate new head
-    curr_head = (curr_head + consumed_mlen) % capacity_;
-
-    size_t right_len =
-        std::max(curr_head + sizeof(size_t), capacity_) - capacity_;
-    size_t left_len = sizeof(size_t) - right_len;
-    // write back rest_mlen
-    memcpy(buf_ + curr_head, &rest_mlen, left_len);
-    memcpy(buf_, reinterpret_cast<char*>(&rest_mlen) + left_len, right_len);
-  }
-
-  size_t read_lens = (curr_head - head_ + capacity_) % capacity_;
-  resetBufAndUpdateHead(read_lens);
-
-  garbage_ += read_lens;
-  recycle = false;
-  if (garbage_ >= capacity_ / 2) {
-    garbage_ = 0;
-    recycle = true;
-  }
-  return total_read;
-}
+// -----< RingBufferEvent >-----
 
 bool RingBufferEvent::Read(msghdr* msg, size_t& expected_read_size) {
   auto head = head_;
