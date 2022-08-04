@@ -16,6 +16,81 @@
 #include <iomanip>
 #include <limits>
 #include <sstream>
+#include <set>
+#include <map>
+#include <mutex>
+#include <thread>
+#include "rdma_conn.h"
+#include "grpcpp/get_clock.h"
+
+typedef enum {
+  GS1KB,
+  GS32KB,
+  GS1MB,
+  GS4MB,
+  GS16MB,
+  GS64MB,
+  GS256MB,
+  GS_CAP_GENRES,
+} rdma_global_sendbuf_capacity_genre;
+
+class GlobalSendBufferManager;
+
+class GlobalSendBuffer {
+  public:
+    GlobalSendBuffer(size_t capacity, int id);
+    ~GlobalSendBuffer();
+
+    uint8_t* get_buf() const { return buf_; }
+
+    size_t get_capacity() const { return capacity_; }
+
+    size_t get_used() const { return used_; }
+
+    int get_genre_id() const { return genre_id_; }
+
+    MemRegion& get_mr() { return mr_; }
+
+  private:
+    friend class GlobalSendBufferManager;
+    uint8_t* buf_;
+    uint8_t* end_;
+    size_t capacity_;
+    int genre_id_;
+    size_t used_ = 0;
+    MemRegion mr_;
+};
+
+class GlobalSendBufferManager {
+  public:
+    GlobalSendBufferManager();
+    ~GlobalSendBufferManager();
+
+    static GlobalSendBufferManager& GetInstance() {
+      static GlobalSendBufferManager gsbm;
+      return gsbm;
+    }
+
+    uint8_t* alloc(size_t size);
+
+    bool free(uint8_t* buf);
+
+    GlobalSendBuffer* contains(uint8_t* ptr);
+
+    bool add_link(uint8_t* head, uint8_t* buf);
+
+    bool remove_link(uint8_t* head);
+
+  private:
+    std::mutex mtx_;
+    std::map<uint8_t*, GlobalSendBuffer*> all_bufs_;
+    std::map<uint8_t*, GlobalSendBuffer*> free_bufs_[GS_CAP_GENRES];
+    std::map<uint8_t*, GlobalSendBuffer*> used_bufs_[GS_CAP_GENRES];
+    std::map<uint8_t*, uint8_t*> linkers_; // first is head, second is buf: buf < head < buf + capacity
+
+    std::atomic_size_t alloc_num_[GS_CAP_GENRES];
+    std::atomic_size_t failed_alloc_num_[GS_CAP_GENRES + 1];
+};
 
 #include "grpc/impl/codegen/log.h"
 
@@ -32,6 +107,7 @@ class RingBuffer {
         head_(0),
         garbage_(0) {
     memset(buf_, 0, capacity);
+    mhz_ = get_cpu_mhz(0);
   }
   virtual ~RingBuffer() { delete[] buf_; }
 
@@ -78,6 +154,7 @@ class RingBuffer {
   uint8_t* buf_;
   size_t head_;
   size_t garbage_;
+  double mhz_;
 };
 
 class RingBufferBP : public RingBuffer {

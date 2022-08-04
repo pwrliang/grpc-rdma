@@ -192,7 +192,9 @@ static void rdma_do_read(grpc_rdma* rdma) {
   msg.msg_iovlen = iov_len;
 
   ssize_t read_bytes;
+  cycles_t begin_cycles = get_cycles();
   int err = rdma->rdmasr->Recv(&msg, &read_bytes);
+  cycles_t t_cycles = get_cycles() - begin_cycles;
 
   if (read_bytes < 0) {
     if (err == EAGAIN) {
@@ -215,6 +217,9 @@ static void rdma_do_read(grpc_rdma* rdma) {
     RDMA_UNREF(rdma, "read");
     return;
   }
+
+  size_t mb_s = read_bytes / (t_cycles / rdma->rdmasr->get_mhz());
+  grpc_stats_time_add_custom(GRPC_STATS_TIME_ADHOC_3, mb_s);
 
   if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_trace)) {
     gpr_log(GPR_INFO, "rdma_do_read recv %zu bytes", read_bytes);
@@ -505,7 +510,10 @@ static bool rdma_flush_chunks(grpc_rdma* rdma, grpc_error_handle* error) {
               rdma->outgoing_buffer->length);
     }
     ssize_t sent_length;
+
+    cycles_t begin_cycles = get_cycles();
     int err = rdma->rdmasr->SendChunk(&msg, &sent_length);
+    cycles_t t_cycles = get_cycles() - begin_cycles;
 
     if (sent_length < 0) {
       if (err == EAGAIN) {
@@ -524,6 +532,9 @@ static bool rdma_flush_chunks(grpc_rdma* rdma, grpc_error_handle* error) {
         return true;
       }
     }
+
+    size_t mb_s = sent_length / (t_cycles / rdma->rdmasr->get_mhz());
+    grpc_stats_time_add_custom(GRPC_STATS_TIME_ADHOC_1, mb_s);
 
     total_sent_length += sent_length;
 

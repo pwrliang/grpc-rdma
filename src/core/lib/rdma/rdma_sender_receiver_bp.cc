@@ -142,18 +142,55 @@ int RDMASenderReceiverBP::SendChunk(msghdr* msg, ssize_t* sz) {
     return EAGAIN;
   }
 
+  GlobalSendBufferManager& gsbm = GlobalSendBufferManager::GetInstance();
+  struct ibv_sge sges[RDMA_MAX_WRITE_IOVEC];
+  size_t sge_idx = 0;
   uint8_t* sendbuf_ptr = sendbuf_ + bytes_outstanding_send_.load();
   *reinterpret_cast<size_t*>(sendbuf_ptr) = mlen;
+  init_sge(sges, sendbuf_ptr, sizeof(size_t), sendbuf_mr_.lkey());
   sendbuf_ptr += sizeof(size_t);
-  size_t nwritten = 0;
 
   cycles_t begin_cycles = get_cycles();
+  size_t nwritten = 0;
+  bool zerocopy = false;
   for (size_t iov_idx = 0; iov_idx < msg->msg_iovlen; iov_idx++) {
-    void* iov_base = msg->msg_iov[iov_idx].iov_base;
+    uint8_t* iov_base = (uint8_t*)(msg->msg_iov[iov_idx].iov_base);
     size_t iov_len = msg->msg_iov[iov_idx].iov_len;
+    uint32_t lkey = sendbuf_mr_.lkey();
 
-    mt_memcpy(sendbuf_ptr, iov_base, iov_len);
-    sendbuf_ptr += iov_len;
+    GlobalSendBuffer* gsb = gsbm.contains(iov_base);
+    if (gsb != nullptr) {
+      zerocopy = true;
+      total_zerocopy_send_size += iov_len;
+      uint8_t* buf = gsb->get_buf();
+      uint8_t* end = buf + gsb->get_used();
+      size_t remaining = end - iov_base - iov_len;
+      if (buf != iov_base) {
+        gsbm.remove_link(iov_base);
+      }
+      if (remaining > 0) {
+        gsbm.add_link(iov_base + iov_len, buf);
+      }
+      lkey = gsb->get_mr().lkey();
+    } else {
+      cycles_t begin_cycles = get_cycles();
+      memcpy(sendbuf_ptr, iov_base, iov_len);
+      cycles_t t_cycles = get_cycles() - begin_cycles;
+      size_t mb_s = iov_len / (t_cycles / mhz_);
+      grpc_stats_time_add_custom(GRPC_STATS_TIME_ADHOC_2, mb_s);
+      iov_base = sendbuf_ptr;
+      sendbuf_ptr += iov_len;
+      // printf("SendChunk no zerocopy = %lld, speed = %lld\n", iov_len, mb_s);
+    }
+
+    uint64_t iov_addr = (uint64_t)iov_base;
+
+    if (sges[sge_idx].addr + sges[sge_idx].length == iov_addr) {
+      sges[sge_idx].length += iov_len;
+    } else {
+      init_sge(&sges[++sge_idx], iov_base, iov_len, lkey);
+    }
+
     nwritten += iov_len;
   }
   cycles_t t_cycles = get_cycles() - begin_cycles;
@@ -166,19 +203,31 @@ int RDMASenderReceiverBP::SendChunk(msghdr* msg, ssize_t* sz) {
   //       iov_len, t_cycles / mhz_, iov_len / (t_cycles / mhz_));
 
   *sendbuf_ptr = 1;
+  if (sges[sge_idx].addr + sges[sge_idx].length == (uint64_t)sendbuf_ptr) {
+    sges[sge_idx].length += 1;
+  } else {
+    init_sge(&sges[++sge_idx], sendbuf_ptr, 1, sendbuf_mr_.lkey());
+  }
 
   GPR_ASSERT(nwritten == mlen);
+  int n_post_send;
   {
     GRPCProfiler profiler(GRPC_STATS_TIME_SEND_POST);
-    int n_post_send = conn_data_->PostSendRequest(
-        remote_ringbuf_mr_, remote_ringbuf_tail_, sendbuf_mr_,
-        bytes_outstanding_send_.load(), len, IBV_WR_RDMA_WRITE);
+    if (zerocopy) {
+      n_post_send = conn_data_->PostSendRequests(
+          remote_ringbuf_mr_, remote_ringbuf_tail_, sges, sge_idx + 1, len,
+          IBV_WR_RDMA_WRITE);
+    } else {
+      n_post_send = conn_data_->PostSendRequest(
+          remote_ringbuf_mr_, remote_ringbuf_tail_, sendbuf_mr_,
+          bytes_outstanding_send_.load(), len, IBV_WR_RDMA_WRITE);
+    }
     n_outstanding_send_ += n_post_send;
   }
   bytes_outstanding_send_ += len;
   remote_ringbuf_tail_ = (remote_ringbuf_tail_ + len) % remote_ringbuf_sz;
   last_failed_send_size_ = 0;
-  total_sent_ += mlen;
+  total_sent_ += len;
   if (sz != nullptr) {
     *sz = nwritten;
   }

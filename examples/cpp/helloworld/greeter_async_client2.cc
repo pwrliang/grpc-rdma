@@ -51,6 +51,9 @@ class Client {
     rest_resp_ = FLAGS_batch;
     total_data_size_ = 0;
   }
+
+  virtual ~Client() {}
+
   virtual void Warmup(const CommSpec& comm_spec) = 0;
 
   virtual void SayHello(const std::string& user) = 0;
@@ -165,11 +168,26 @@ class GenericClient : public Client {
     req_buf_ = SerializeToByteBuffer(&req_);
   }
 
+  // ~GenericClient() {}
+
   std::unique_ptr<grpc::ByteBuffer> SerializeToByteBuffer(
       grpc::protobuf::Message* message) {
-    std::string buf;
-    message->SerializeToString(&buf);
-    grpc::Slice slice(buf);
+    std::string str;
+    message->SerializeToString(&str);
+
+    auto destroy = [](void* buf){
+      bool ret = global_sendbuf_free((uint8_t*)buf);
+    };
+
+    uint8_t* buf = global_sendbuf_alloc(str.size());
+    if (buf == nullptr) {
+      grpc::Slice slice(str);
+      return absl::make_unique<grpc::ByteBuffer>(&slice, 1);
+    }
+    size_t len = str.length();
+    grpc::Slice slice(buf, len, destroy);
+    // printf("slice = %p\n", &slice);
+    memcpy(buf, str.c_str(), str.size());
     return absl::make_unique<grpc::ByteBuffer>(&slice, 1);
   }
 
@@ -403,6 +421,9 @@ int main(int argc, char** argv) {
              max_lat_ms * 1000);
       cli->NotifyFinish();
     }
+
+    delete cli;
+
   }
 
   FinalizeMPIComm();
