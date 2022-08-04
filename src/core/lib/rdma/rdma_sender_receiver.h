@@ -274,6 +274,8 @@ class RDMASenderReceiverBP : public RDMASenderReceiver {
 
   int Recv(msghdr* msg, ssize_t* sz) override;
 
+  int RecvEx(msghdr* msg, ssize_t* sz);
+
   // this should be thread safe,
   bool HasMessage() const;
 

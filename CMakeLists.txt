@@ -15665,10 +15665,23 @@ target_link_libraries(uri_fuzzer_test_one_entry
 endif()
 
 
+add_executable(rdma_ringbuffer_test
+        src/core/lib/debug/trace.cc
+        src/core/lib/debug/stats_time.cc
+        src/core/lib/debug/get_clock.cc
+        src/core/lib/rdma/ringbuffer.cc
+        src/core/lib/rdma/ringbuffer_test.cc
+        )
 
+target_include_directories(rdma_ringbuffer_test
+        PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+        )
 
-
-
+target_link_libraries(rdma_ringbuffer_test
+        gpr
+        )
 
 if(gRPC_INSTALL)
   install(EXPORT gRPCTargets

@@ -131,6 +131,10 @@ std::string grpc_stats_time_op_to_str(int op) {
       return "BEGIN_WORKER";
     case GRPC_STATS_TIME_ASYNC_NEXT_INTERNAL:
       return "ASYNC_NEXT_INTERNAL";
+    case GRPC_STATS_TIME_SEND_COPY_BW:
+      return "SEND_COPY_BW";
+    case GRPC_STATS_TIME_RECV_COPY_BW:
+      return "RECV_COPY_BW";
     case GRPC_STATS_TIME_ADHOC_1:
       return "ADHOC_1";
     case GRPC_STATS_TIME_ADHOC_2:
