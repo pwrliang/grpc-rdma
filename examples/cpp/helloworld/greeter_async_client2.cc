@@ -180,6 +180,7 @@ class GenericClient : public Client {
     };
 
     uint8_t* buf = global_sendbuf_alloc(str.size());
+    // uint8_t* buf = nullptr;
     if (buf == nullptr) {
       grpc::Slice slice(str);
       return absl::make_unique<grpc::ByteBuffer>(&slice, 1);

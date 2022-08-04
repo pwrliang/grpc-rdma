@@ -171,6 +171,7 @@ int RDMASenderReceiverBP::SendChunk(msghdr* msg, ssize_t* sz) {
         gsbm.add_link(iov_base + iov_len, buf);
       }
       lkey = gsb->get_mr().lkey();
+      // printf("SendChunk find zerocopy = %lld\n", iov_len);
     } else {
       cycles_t begin_cycles = get_cycles();
       memcpy(sendbuf_ptr, iov_base, iov_len);
@@ -179,7 +180,7 @@ int RDMASenderReceiverBP::SendChunk(msghdr* msg, ssize_t* sz) {
       grpc_stats_time_add_custom(GRPC_STATS_TIME_ADHOC_2, mb_s);
       iov_base = sendbuf_ptr;
       sendbuf_ptr += iov_len;
-      // printf("SendChunk no zerocopy = %lld, speed = %lld\n", iov_len, mb_s);
+      // printf("SendChunk no zerocopy = %lld\n", iov_len);
     }
 
     uint64_t iov_addr = (uint64_t)iov_base;
@@ -220,6 +221,8 @@ int RDMASenderReceiverBP::SendChunk(msghdr* msg, ssize_t* sz) {
   if (sz != nullptr) {
     *sz = nwritten;
   }
+
+  // printf("SendChunk, zerocopy = %d, len = %lld, sge_num = %d\n", zerocopy, len, sge_idx + 1);
 
   return 0;
 }

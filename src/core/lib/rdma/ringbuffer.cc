@@ -16,13 +16,21 @@ size_t global_sendbuf_capacities[GS_CAP_GENRES] = {1024,
                                                    64*1024*1024, 
                                                    256*1024*1024};
 
-size_t global_sendbuf_nums[GS_CAP_GENRES] = {64,  // 1KB
-                                             64,  // 32KB
-                                             64,  // 1MB
-                                             64,  // 4MB
-                                             16,  // 16MB
-                                             16,  // 64MB
-                                             4};  // 256MB
+// size_t global_sendbuf_nums[GS_CAP_GENRES] = {64,  // 1KB
+//                                              64,  // 32KB
+//                                              64,  // 1MB
+//                                              64,  // 4MB
+//                                              16,  // 16MB
+//                                              16,  // 64MB
+//                                              4};  // 256MB
+
+size_t global_sendbuf_nums[GS_CAP_GENRES] = {1,  // 1KB
+                                             1,  // 32KB
+                                             1,  // 1MB
+                                             1,  // 4MB
+                                             1,  // 16MB
+                                             1,  // 64MB
+                                             1};  // 256MB
 
 uint8_t* global_sendbuf_alloc(size_t size) {
   GlobalSendBufferManager& gsbm = GlobalSendBufferManager::GetInstance();
