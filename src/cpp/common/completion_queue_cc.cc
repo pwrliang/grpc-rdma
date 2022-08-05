@@ -24,6 +24,7 @@
 #include <grpc/support/log.h>
 #include <grpcpp/impl/grpc_library.h>
 #include <grpcpp/support/time.h>
+#include <grpcpp/stats_time.h>
 
 #include "src/core/lib/gpr/useful.h"
 #include "src/core/lib/gprpp/manual_constructor.h"
@@ -155,8 +156,11 @@ CompletionQueue::NextStatus CompletionQueue::AsyncNextInternal(
             static_cast<::grpc::internal::CompletionQueueTag*>(ev.tag);
         *ok = ev.success != 0;
         *tag = core_cq_tag;
-        if (core_cq_tag->FinalizeResult(tag, ok)) {
-          return GOT_EVENT;
+        {
+          GRPCProfiler profiler(GRPC_STATS_TIME_ADHOC_5);
+          if (core_cq_tag->FinalizeResult(tag, ok)) {
+            return GOT_EVENT;
+          }
         }
         break;
     }

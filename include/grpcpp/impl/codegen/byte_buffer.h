@@ -28,6 +28,8 @@
 #include <grpcpp/impl/codegen/status.h>
 
 #include <vector>
+#include <grpcpp/stats_time.h>
+#include "grpcpp/get_clock.h"
 
 namespace grpc {
 
@@ -215,7 +217,13 @@ template <>
 class SerializationTraits<ByteBuffer, void> {
  public:
   static Status Deserialize(ByteBuffer* byte_buffer, ByteBuffer* dest) {
+    static double mhz = get_cpu_mhz(0);
+    cycles_t begin = get_cycles();
+    size_t len = byte_buffer->Length();
     dest->set_buffer(byte_buffer->buffer_);
+    cycles_t cycles = get_cycles() - begin;
+    double micro = cycles / mhz;
+    printf("byte_buffer Deserialize. time = %.4lf us, bytes = %lld, speed = %.4lf MB/s\n", micro, len, len / micro);
     return Status::OK;
   }
   static Status Serialize(const ByteBuffer& source, ByteBuffer* buffer,

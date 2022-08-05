@@ -189,6 +189,7 @@ class GenericClient : public Client {
     grpc::Slice slice(buf, len, destroy);
     // printf("slice = %p\n", &slice);
     memcpy(buf, str.c_str(), str.size());
+    // memset(buf, 7, len);
     return absl::make_unique<grpc::ByteBuffer>(&slice, 1);
   }
 

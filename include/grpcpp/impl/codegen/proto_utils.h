@@ -32,6 +32,8 @@
 #include <grpcpp/impl/codegen/serialization_traits.h>
 #include <grpcpp/impl/codegen/slice.h>
 #include <grpcpp/impl/codegen/status.h>
+#include <grpcpp/stats_time.h>
+#include "grpcpp/get_clock.h"
 
 /// This header provides serialization and deserialization between gRPC
 /// messages serialized using protobuf and the C++ objects they represent.
@@ -115,6 +117,7 @@ Status GenericDeserialize(ByteBuffer* buffer,
     if (!reader.status().ok()) {
       return reader.status();
     }
+    GRPCProfiler profiler(GRPC_STATS_TIME_ADHOC_9);
     if (!msg->ParseFromZeroCopyStream(&reader)) {
       result = Status(StatusCode::INTERNAL, msg->InitializationErrorString());
     }
@@ -146,7 +149,14 @@ class SerializationTraits<
 
   static Status Deserialize(ByteBuffer* buffer,
                             grpc::protobuf::MessageLite* msg) {
-    return GenericDeserialize<ProtoBufferReader, T>(buffer, msg);
+    static double mhz = get_cpu_mhz(0);
+    cycles_t begin = get_cycles();
+    size_t len = buffer->Length();
+    Status ret = GenericDeserialize<ProtoBufferReader, T>(buffer, msg);
+    cycles_t cycles = get_cycles() - begin;
+    double micro = cycles / mhz;
+    printf("proto_utils Deserialize. time = %.4lf us, bytes = %lld, speed = %.4lf MB/s\n", micro, len, len / micro);
+    return ret;
   }
 };
 #endif
