@@ -139,7 +139,14 @@ class SerializationTraits<
  public:
   static Status Serialize(const grpc::protobuf::MessageLite& msg,
                           ByteBuffer* bb, bool* own_buffer) {
-    return GenericSerialize<ProtoBufferWriter, T>(msg, bb, own_buffer);
+    static double mhz = get_cpu_mhz(0);                        
+    cycles_t begin = get_cycles();
+    Status ret = GenericSerialize<ProtoBufferWriter, T>(msg, bb, own_buffer);
+    cycles_t cycles = get_cycles() - begin;
+    double micro = cycles / mhz;
+    size_t len = bb->Length();
+    printf("proto_utils Serialize. time = %.4lf us, bytes = %lld, speed = %.4lf MB/s\n", micro, len, len / micro);
+    return ret;
   }
 
   static Status Serialize(const grpc::protobuf::MessageLite& msg,

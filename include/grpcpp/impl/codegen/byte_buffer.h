@@ -230,6 +230,10 @@ class SerializationTraits<ByteBuffer, void> {
                           bool* own_buffer) {
     *buffer = source;
     *own_buffer = true;
+
+    size_t len = buffer->Length();
+    printf("byte_buffer Serialize. bytes = %lld\n", len);
+
     return g_core_codegen_interface->ok();
   }
   static Status Serialize(const ByteBuffer& source, ByteBuffer* buffer,
