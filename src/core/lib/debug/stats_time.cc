@@ -186,6 +186,16 @@ std::string grpc_stats_time_op_to_str(int op) {
       return "ADHOC_4";
     case GRPC_STATS_TIME_ADHOC_5:
       return "ADHOC_5";
+    case GRPC_STATS_TIME_ADHOC_6:
+      return "ADHOC_6";
+    case GRPC_STATS_TIME_ADHOC_7:
+      return "ADHOC_7";
+    case GRPC_STATS_TIME_ADHOC_8:
+      return "ADHOC_8";
+    case GRPC_STATS_TIME_ADHOC_9:
+      return "ADHOC_9";
+    case GRPC_STATS_TIME_ADHOC_10:
+      return "ADHOC_10";
     default:
       return std::to_string(static_cast<int>(op));
   }
