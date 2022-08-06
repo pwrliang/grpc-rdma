@@ -638,8 +638,8 @@ static void rdma_handle_write(void* arg /* grpc_rdma */,
     return;
   }
 
-  // bool flush_result = rdma_flush(rdma, &error);
-  bool flush_result = rdma_flush_chunks(rdma, &error);
+   bool flush_result = rdma_flush(rdma, &error);
+//  bool flush_result = rdma_flush_chunks(rdma, &error);
   if (!flush_result) {
     if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_trace)) {
       gpr_log(GPR_INFO, "write: delayed");
@@ -676,8 +676,8 @@ static void rdma_write(grpc_endpoint* ep, grpc_slice_buffer* buf,
   rdma->outgoing_buffer = buf;
   rdma->outgoing_byte_idx = 0;
 
-  // bool flush_result = rdma_flush(rdma, &error);
-  bool flush_result = rdma_flush_chunks(rdma, &error);
+   bool flush_result = rdma_flush(rdma, &error);
+//  bool flush_result = rdma_flush_chunks(rdma, &error);
   if (!flush_result) {
     RDMA_REF(rdma, "write");
     rdma->write_cb = cb;
