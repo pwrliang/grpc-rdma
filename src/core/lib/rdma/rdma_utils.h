@@ -109,8 +109,8 @@ class RDMAConfig {
     }
 
     s_val = getenv("GRPC_RDMA_ZEROCOPY_ENABLE");
-    // zero_copy_ = s_val == nullptr || strcmp(s_val, "true") == 0;
-    zero_copy_ = false;
+    zero_copy_ = s_val == nullptr || strcmp(s_val, "true") == 0;
+    // zero_copy_ = false;
   }
 
   RDMAPollerMode poller_mode_;
