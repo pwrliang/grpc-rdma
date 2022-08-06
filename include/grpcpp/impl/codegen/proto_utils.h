@@ -162,7 +162,7 @@ class SerializationTraits<
     Status ret = GenericDeserialize<ProtoBufferReader, T>(buffer, msg);
     cycles_t cycles = get_cycles() - begin;
     double micro = cycles / mhz;
-    printf("proto_utils Deserialize. time = %.4lf us, bytes = %lld, speed = %.4lf MB/s\n", micro, len, len / micro);
+    // printf("proto_utils Deserialize. time = %.4lf us, bytes = %lld, speed = %.4lf MB/s\n", micro, len, len / micro);
     return ret;
   }
 };

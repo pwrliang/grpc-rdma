@@ -232,7 +232,7 @@ class SerializationTraits<ByteBuffer, void> {
     *own_buffer = true;
 
     size_t len = buffer->Length();
-    printf("byte_buffer Serialize. bytes = %lld\n", len);
+    // printf("byte_buffer Serialize. bytes = %lld\n", len);
 
     return g_core_codegen_interface->ok();
   }
