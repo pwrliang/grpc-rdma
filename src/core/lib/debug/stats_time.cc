@@ -8,6 +8,7 @@ thread_local grpc_stats_time_data* grpc_stats_time_storage = nullptr;
 bool grpc_stats_time_enabled = false;
 std::vector<grpc_stats_time_data*> grpc_stats_time_vec;
 std::mutex grpc_stats_time_mtx;
+std::atomic_int32_t profiler_thread_id(100);
 
 GRPCProfiler::GRPCProfiler(grpc_stats_time op, int group)
     : op_(op), group_(group), begin_(get_cycles()) {}
@@ -20,17 +21,47 @@ void grpc_stats_time_init(int thread_id) {
   auto* unit = getenv("GRPC_PROFILING");
 
   if (unit != nullptr) {
-    std::lock_guard<std::mutex> lg(grpc_stats_time_mtx);
-
     if (grpc_stats_time_storage != nullptr) {
-      gpr_log(GPR_ERROR, "grpc_stats_time_storage already initialized");
       return;
     }
+    std::lock_guard<std::mutex> lg(grpc_stats_time_mtx);
+    auto s_unit = std::string(unit);
 
+    GPR_ASSERT(thread_id < 100);
+    grpc_stats_time_storage = new grpc_stats_time_data();
+    grpc_stats_time_storage->thread_id = thread_id;
+
+    if (s_unit == "micro") {
+      grpc_stats_time_storage->unit = GRPC_STATS_TIME_MICRO;
+    } else if (s_unit == "milli") {
+      grpc_stats_time_storage->unit = GRPC_STATS_TIME_MILLI;
+    } else if (s_unit == "s") {
+      grpc_stats_time_storage->unit = GRPC_STATS_TIME_SEC;
+    } else {
+      printf("Invalid profiling time unit: %s\n", unit);
+      exit(1);
+    }
+
+    for (int i = 0; i < GRPC_STATS_TIME_MAX_OP_SIZE; i++) {
+      grpc_stats_time_storage->stats_per_op.push_back(
+          new grpc_stats_time_entry());
+    }
+    grpc_stats_time_vec.push_back(grpc_stats_time_storage);
+  }
+}
+
+void grpc_stats_time_init() {
+  auto* unit = getenv("GRPC_PROFILING");
+
+  if (unit != nullptr) {
+    if (grpc_stats_time_storage != nullptr) {
+      return;
+    }
+    std::lock_guard<std::mutex> lg(grpc_stats_time_mtx);
     auto s_unit = std::string(unit);
 
     grpc_stats_time_storage = new grpc_stats_time_data();
-    grpc_stats_time_storage->thread_id = thread_id;
+    grpc_stats_time_storage->thread_id = profiler_thread_id++;
 
     if (s_unit == "micro") {
       grpc_stats_time_storage->unit = GRPC_STATS_TIME_MICRO;
@@ -131,6 +162,14 @@ std::string grpc_stats_time_op_to_str(int op) {
       return "BEGIN_WORKER";
     case GRPC_STATS_TIME_ASYNC_NEXT_INTERNAL:
       return "ASYNC_NEXT_INTERNAL";
+    case GRPC_STATS_TIME_SEND_COPY_BW:
+      return "SEND_COPY_BW";
+    case GRPC_STATS_TIME_RECV_COPY_BW:
+      return "RECV_COPY_BW";
+    case GRPC_STATS_TIME_FINALIZE_RESULT:
+      return "FINALIZE_RESULT";
+    case GRPC_STATS_TIME_DESERIALIZE:
+      return "DESERIALIZE";
     case GRPC_STATS_TIME_ADHOC_1:
       return "ADHOC_1";
     case GRPC_STATS_TIME_ADHOC_2:
