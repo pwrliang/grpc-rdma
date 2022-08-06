@@ -332,6 +332,12 @@ int RDMASenderReceiverBP::Send(msghdr* msg, ssize_t* sz) {
     last_zerocopy_send_finished_ = true;
   }
   total_sent_ += mlen;
+
+  if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_sr_bp_debug_trace)) {
+    total_sent_ += nwritten;
+    printf("zerocopy send = %lld, total send = %lld, ratio = %.4lf\n", 
+      total_zerocopy_send_size, total_sent_.load(), double(total_zerocopy_send_size) / total_sent_.load());
+  }
   if (sz != nullptr) {
     *sz = nwritten;
   }
