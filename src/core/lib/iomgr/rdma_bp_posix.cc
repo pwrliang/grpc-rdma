@@ -14,7 +14,6 @@
 #include <grpc/slice.h>
 #include <grpc/support/log.h>
 #include <grpc/support/sync.h>
-#include <src/core/lib/debug/stats_data.h>
 #include "include/grpcpp/stats_time.h"
 
 #include "src/core/lib/address_utils/sockaddr_utils.h"
@@ -263,9 +262,6 @@ static void rdma_do_readex(grpc_rdma* rdma) {
     msg.msg_iov = iov;
     msg.msg_iovlen = static_cast<msg_iovlen_type>(iov_len);
 
-    GRPC_STATS_INC_TCP_READ_OFFER(rdma->incoming_buffer->length);
-    GRPC_STATS_INC_TCP_READ_OFFER_IOV_SIZE(rdma->incoming_buffer->count);
-
     int err = rdma->rdmasr->RecvEx(&msg, &read_bytes);
 
     /* We have read something in previous reads. We need to deliver those
@@ -305,7 +301,6 @@ static void rdma_do_readex(grpc_rdma* rdma) {
       return;
     }
 
-    GRPC_STATS_INC_TCP_READ_SIZE(read_bytes);
     GPR_ASSERT((size_t)read_bytes <=
                rdma->incoming_buffer->length - total_read_bytes);
 
