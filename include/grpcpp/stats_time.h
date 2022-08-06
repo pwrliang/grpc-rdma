@@ -33,6 +33,8 @@ typedef enum {
   GRPC_STATS_TIME_ASYNC_NEXT_INTERNAL,
   GRPC_STATS_TIME_SEND_COPY_BW,
   GRPC_STATS_TIME_RECV_COPY_BW,
+  GRPC_STATS_TIME_FINALIZE_RESULT,
+  GRPC_STATS_TIME_DESERIALIZE,
   GRPC_STATS_TIME_ADHOC_1,
   GRPC_STATS_TIME_ADHOC_2,
   GRPC_STATS_TIME_ADHOC_3,
@@ -76,6 +78,7 @@ extern std::vector<grpc_stats_time_data*> grpc_stats_time_vec;
 extern std::mutex grpc_stats_time_mtx;
 
 void grpc_stats_time_init(int);
+void grpc_stats_time_init();
 void grpc_stats_time_shutdown(void);
 void grpc_stats_time_enable();
 void grpc_stats_time_disable();
