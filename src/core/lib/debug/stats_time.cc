@@ -21,13 +21,11 @@ void grpc_stats_time_init(int thread_id) {
   auto* unit = getenv("GRPC_PROFILING");
 
   if (unit != nullptr) {
-    std::lock_guard<std::mutex> lg(grpc_stats_time_mtx);
-
     if (grpc_stats_time_storage != nullptr) {
-      gpr_log(GPR_ERROR, "grpc_stats_time_storage already initialized");
+      gpr_log(GPR_INFO, "grpc_stats_time_storage already initialized");
       return;
     }
-
+    std::lock_guard<std::mutex> lg(grpc_stats_time_mtx);
     auto s_unit = std::string(unit);
 
     GPR_ASSERT(thread_id < 100);
@@ -57,13 +55,11 @@ void grpc_stats_time_init() {
   auto* unit = getenv("GRPC_PROFILING");
 
   if (unit != nullptr) {
-    std::lock_guard<std::mutex> lg(grpc_stats_time_mtx);
-
     if (grpc_stats_time_storage != nullptr) {
-      gpr_log(GPR_ERROR, "grpc_stats_time_storage already initialized");
+      gpr_log(GPR_INFO, "grpc_stats_time_storage already initialized");
       return;
     }
-
+    std::lock_guard<std::mutex> lg(grpc_stats_time_mtx);
     auto s_unit = std::string(unit);
 
     grpc_stats_time_storage = new grpc_stats_time_data();
