@@ -449,7 +449,10 @@ static bool rdma_flush(grpc_rdma* rdma, grpc_error_handle* error) {
               rdma->outgoing_buffer->length);
     }
     ssize_t sent_length;
+
+    cycles_t begin_cycles = get_cycles();
     int err = rdma->rdmasr->Send(&msg, &sent_length);
+    cycles_t t_cycles = get_cycles() - begin_cycles;
 
     if (sent_length < 0) {
       if (err == EAGAIN) {
@@ -469,7 +472,12 @@ static bool rdma_flush(grpc_rdma* rdma, grpc_error_handle* error) {
       }
     }
 
-    grpc_stats_time_add_custom(GRPC_STATS_TIME_SEND_SIZE, sending_length);
+    size_t mb_s = sent_length / (t_cycles / rdma->rdmasr->get_mhz());
+    grpc_stats_time_add_custom(GRPC_STATS_TIME_ADHOC_1, mb_s);
+
+    total_sent_length += sent_length;
+
+    grpc_stats_time_add_custom(GRPC_STATS_TIME_SEND_SIZE, sent_length);
     // TODO: trailing
     if (outgoing_slice_idx == rdma->outgoing_buffer->count) {
       *error = GRPC_ERROR_NONE;
