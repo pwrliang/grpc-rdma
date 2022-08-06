@@ -145,7 +145,7 @@ class SerializationTraits<
     cycles_t cycles = get_cycles() - begin;
     double micro = cycles / mhz;
     size_t len = bb->Length();
-    printf("proto_utils Serialize. time = %.4lf us, bytes = %lld, speed = %.4lf MB/s\n", micro, len, len / micro);
+    // printf("proto_utils Serialize. time = %.4lf us, bytes = %lld, speed = %.4lf MB/s\n", micro, len, len / micro);
     return ret;
   }
 

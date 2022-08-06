@@ -223,7 +223,7 @@ class SerializationTraits<ByteBuffer, void> {
     dest->set_buffer(byte_buffer->buffer_);
     cycles_t cycles = get_cycles() - begin;
     double micro = cycles / mhz;
-    printf("byte_buffer Deserialize. time = %.4lf us, bytes = %lld, speed = %.4lf MB/s\n", micro, len, len / micro);
+    // printf("byte_buffer Deserialize. time = %.4lf us, bytes = %lld, speed = %.4lf MB/s\n", micro, len, len / micro);
     return Status::OK;
   }
   static Status Serialize(const ByteBuffer& source, ByteBuffer* buffer,
