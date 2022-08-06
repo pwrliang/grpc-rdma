@@ -299,6 +299,38 @@ int RDMAConn::PollSendCompletion(int expected_num_entries) {
   return 0;
 }
 
+int RDMAConn::PollSendCompletion(int expected_num_entries, const char* debug) {
+  int initial_expected_num_entries = expected_num_entries;
+  while (expected_num_entries > 0) {
+    ibv_wc wc[DEFAULT_MAX_POST_SEND];
+    int r;
+
+    while ((r = ibv_poll_cq(scq_.get(), DEFAULT_MAX_POST_SEND, wc)) > 0) {
+      for (int i = 0; i < r; i++) {
+        if (wc[i].status != IBV_WC_SUCCESS) {
+          gpr_log(GPR_ERROR, "PollRecvCompletion, wc status = %d",
+                  wc[i].status);
+          return wc[i].status;
+        }
+      }
+      expected_num_entries -= r;
+      if (expected_num_entries < 0) {
+        gpr_log(
+            GPR_ERROR,
+            "channel: %s initial_expected_num_entries: %d curr_expected_num_entries: %d",
+            debug, initial_expected_num_entries, expected_num_entries);
+      }
+      GPR_ASSERT(expected_num_entries >= 0);
+    }
+
+    if (r < 0) {
+      gpr_log(GPR_ERROR, "PollSendCompletion, ibv_poll_cq return %d", r);
+      return r;
+    }
+  }
+  return 0;
+}
+
 void RDMAConn::PostRecvRequests(size_t n) {
   if (n == 0) return;
   struct ibv_recv_wr* bad_wr = nullptr;

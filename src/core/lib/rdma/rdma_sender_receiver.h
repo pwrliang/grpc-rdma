@@ -154,7 +154,7 @@ class RDMASenderReceiver {
 
     if (n_poll > 0) {
       GRPCProfiler profiler(GRPC_STATS_TIME_SEND_POLL, 0);
-      int ret = conn_data_->PollSendCompletion(n_poll);
+      int ret = conn_data_->PollSendCompletion(n_poll, "data");
 
       if (ret != 0) {
         gpr_log(GPR_ERROR,
@@ -321,7 +321,7 @@ class RDMASenderReceiverBP : public RDMASenderReceiver {
         remote_metadata_recvbuf_mr_, metadata_sendbuf_mr_, metadata_sendbuf_sz_,
         IBV_WR_RDMA_WRITE);
     MEM_BAR();
-    int ret = conn_metadata_->PollSendCompletion(n_entries);
+    int ret = conn_metadata_->PollSendCompletion(n_entries, "meta");
     MEM_BAR();
     if (ret != 0) {
       gpr_log(GPR_ERROR,
@@ -385,7 +385,7 @@ class RDMASenderReceiverEvent : public RDMASenderReceiver {
     int n_entries = conn_metadata_->PostSendRequest(
         remote_metadata_recvbuf_mr_, metadata_sendbuf_mr_, metadata_sendbuf_sz_,
         IBV_WR_RDMA_WRITE_WITH_IMM);
-    int ret = conn_metadata_->PollSendCompletion(n_entries);
+    int ret = conn_metadata_->PollSendCompletion(n_entries, "meta");
 
     if (ret != 0) {
       gpr_log(GPR_ERROR,

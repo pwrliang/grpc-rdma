@@ -34,6 +34,8 @@ class RDMAConn {
 
   int PollSendCompletion(int expected_num_entries);
 
+  int PollSendCompletion(int expected_num_entries, const char* debug);
+
   int PostSendRequest(MemRegion& remote_mr, MemRegion& local_mr, size_t sz,
                       ibv_wr_opcode opcode);
 
