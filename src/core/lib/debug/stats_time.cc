@@ -22,7 +22,6 @@ void grpc_stats_time_init(int thread_id) {
 
   if (unit != nullptr) {
     if (grpc_stats_time_storage != nullptr) {
-      gpr_log(GPR_INFO, "grpc_stats_time_storage already initialized");
       return;
     }
     std::lock_guard<std::mutex> lg(grpc_stats_time_mtx);
@@ -56,7 +55,6 @@ void grpc_stats_time_init() {
 
   if (unit != nullptr) {
     if (grpc_stats_time_storage != nullptr) {
-      gpr_log(GPR_INFO, "grpc_stats_time_storage already initialized");
       return;
     }
     std::lock_guard<std::mutex> lg(grpc_stats_time_mtx);
