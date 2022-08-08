@@ -35,6 +35,7 @@
 #include "gflags/gflags.h"
 #include "grpcpp/stats_time.h"
 #include "proc_parser.h"
+#include "stopwatch.h"
 
 using grpc::Server;
 using grpc::ServerAsyncResponseWriter;
@@ -45,6 +46,9 @@ using grpc::Status;
 using helloworld::Greeter;
 using helloworld::HelloReply;
 using helloworld::HelloRequest;
+using helloworld::RecvBufRequest;
+using helloworld::RecvBufResponse;
+using helloworld::RecvBufRespExtra;
 
 std::map<std::string, cpu_time_t> cpu_time1;
 
@@ -91,7 +95,27 @@ class ServerImpl final {
     HandleRpcs();
   }
 
- private:
+  void RunRecvBuf() {
+    std::string server_address("0.0.0.0:50051");
+
+    ServerBuilder builder;
+    builder.SetOption(
+        grpc::MakeChannelArgumentOption(GRPC_ARG_ALLOW_REUSEPORT, 0));
+    builder.AddListeningPort(server_address, grpc::InsecureServerCredentials());
+    builder.RegisterService(&service_);
+    builder.SetMaxReceiveMessageSize(-1);
+    for (int i = 0; i < FLAGS_cqs; i++) {
+      cqs_.emplace_back(builder.AddCompletionQueue());
+    }
+    server_ = builder.BuildAndStart();
+    std::cout << "Server listening on " << server_address
+              << ", thread: " << FLAGS_threads << ", cq: " << FLAGS_cqs
+              << std::endl;
+
+    // HandleRpcs();
+    HandleRecvBuf();
+  }
+
   class CallData {
    public:
     CallData(HelloReply& reply, Greeter::AsyncService* service,
@@ -167,6 +191,63 @@ class ServerImpl final {
     CallStatus status_;
   };
 
+  class RecvBufCallData {
+    public:
+      static std::string tensor_buf;
+      static void set_tensor_buf(size_t size) {
+        RecvBufCallData::tensor_buf.resize(size);
+      }
+
+      RecvBufCallData(Greeter::AsyncService* service, ServerCompletionQueue* cq)
+        : service_(service),
+          cq_(cq),
+          responder_(&ctx_),
+          status_(CREATE) {
+        Proceed();
+      }
+
+      void Proceed() {
+        if (status_ == CREATE) {
+          status_ = PROCESS;
+          // service_->RequestAsyncUnary(5, &ctx_, &request_, &responder_, cq_, cq_, this);
+          service_->RequestRecvBuf(&ctx_, &request_, &responder_, cq_, cq_, this);
+        } else if (status_ == PROCESS) {
+          Stopwatch sw;
+          sw.start();
+          new RecvBufCallData(service_, cq_);
+
+          RecvBufRespExtra extra;
+          int64_t num_bytes = request_.num_bytes();
+          int64_t offset = request_.offset();
+          const char* head = RecvBufCallData::tensor_buf.c_str() + offset;
+          while (num_bytes > 0) {
+            int64_t bytes = std::min(num_bytes, max_chunk_bytes_);
+            extra.add_tensor_content(head, bytes);
+            head += bytes;
+            num_bytes -= bytes;
+          }
+          response_.mutable_transport_options()->PackFrom(extra);
+
+          status_ = FINISH;
+          sw.stop();
+          response_.set_micros(sw.us());
+          responder_.Finish(response_, Status::OK, this);
+        }
+      }
+
+    private:
+      Greeter::AsyncService* service_;
+      ServerCompletionQueue* cq_;
+      ServerContext ctx_;
+      RecvBufRequest request_;
+      RecvBufResponse response_;
+      ServerAsyncResponseWriter<RecvBufResponse> responder_;
+      enum CallStatus { CREATE, PROCESS, FINISH };
+      CallStatus status_;
+      int64_t max_chunk_bytes_ = 4096;
+  };
+
+ private:
   void HandleRpcs() {
     std::vector<std::thread> ths;
 
@@ -221,11 +302,31 @@ class ServerImpl final {
     }
   }
 
+  void HandleRecvBuf() {
+    auto& cq = cqs_[0];
+    new RecvBufCallData(&service_, cq.get());
+    void* tag;
+    bool ok;
+    // RecvBufCallData::tensor_buf.resize(256*1024*1024);
+    RecvBufCallData::set_tensor_buf(256*1024*1024);
+    grpc_stats_time_init(0);
+    int i = 0;
+    while (true) {
+      GPR_ASSERT(cq->Next(&tag, &ok));
+      GPR_ASSERT(ok);
+      // printf("%lld-th call\n", i);
+      static_cast<RecvBufCallData*>(tag)->Proceed();
+      i++;
+    }
+  }
+
   std::vector<std::unique_ptr<ServerCompletionQueue>> cqs_;
   Greeter::AsyncService service_;
   std::unique_ptr<Server> server_;
   std::thread grab_mem_th_;
 };
+
+std::string ServerImpl::RecvBufCallData::tensor_buf;
 
 void grpc_stats_time_print();
 
@@ -254,7 +355,8 @@ int main(int argc, char** argv) {
     setenv("GRPC_EXECUTOR", std::to_string(FLAGS_executor).c_str(), 1);
   }
   ServerImpl server;
-  server.Run();
+  // server.Run();
+  server.RunRecvBuf();
   gflags::ShutDownCommandLineFlags();
 
   return 0;

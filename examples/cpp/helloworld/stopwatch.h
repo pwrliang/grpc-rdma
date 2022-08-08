@@ -23,6 +23,11 @@ class Stopwatch {
            1000.0;
   }
 
+  int64_t us() const {
+    return std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1)
+               .count();
+  }
+
   double s() const { return ms() / 1000; }
 };
 #endif  // RDMASCRATCH_STOPWATCH_H
