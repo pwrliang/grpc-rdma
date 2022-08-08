@@ -265,6 +265,7 @@ class GenericClient : public Client {
     recv_buf_req_.set_offset(offset);
     bool own_buffer;
     grpc::GenericSerialize<grpc::ProtoBufferWriter, grpc::protobuf::Message>(recv_buf_req_, &recv_buf_req_buf_, &own_buffer);
+    // printf("req buf = %lld\n", recv_buf_req_buf_.Length());
     AsyncClientCall* call = new AsyncClientCall;
     call->context.set_wait_for_ready(true);
     call->recv_buf_enable = true;
@@ -405,6 +406,16 @@ int main(int argc, char** argv) {
 
     grpc_stats_time_enable();
 
+    for (size_t i = 0; i < FLAGS_warmup; i++) {
+      cli->RecvBuf(FLAGS_req, 0);
+      cli->AsyncCompleteRpc();
+    }
+
+    cli->total_data_size_ = 0;
+    cli->total_comm_micros_ = 0;
+    cli->total_rpc_micros_ = 0;
+    cli->rest_resp_ = batch_size;
+
     MPI_Barrier(comm_spec.comm());
     sw.start();
     sw1.start();
@@ -435,8 +446,10 @@ int main(int argc, char** argv) {
           size_t data_size = cli->this_data_size_;
           double comm_band = double(data_size) / (rpc_micros - exec_micros);
           double band = double(data_size) / rpc_micros;
-          printf("%lld: rpc micros = %lld, exec micros = %lld, comm micros = (%lld, %.4lf), bandwidth = (%.4lf, %.4lf) MB/s\n", 
-            j, rpc_micros, exec_micros, rpc_micros - exec_micros, double(rpc_micros - exec_micros) / rpc_micros, comm_band, band);
+          cli->total_comm_micros_ += rpc_micros - exec_micros;
+          cli->total_rpc_micros_ += rpc_micros;
+          printf("%lld: data size = %lld bytes, rpc micros = %lld, exec micros = %lld, comm micros = (%lld, %.4lf), bandwidth = (%.4lf, %.4lf) MB/s\n", 
+            j, data_size, rpc_micros, exec_micros, rpc_micros - exec_micros, double(rpc_micros - exec_micros) / rpc_micros, comm_band, band);
 
           // printf("batch %lld done\n", j);
 
@@ -448,6 +461,15 @@ int main(int argc, char** argv) {
                  absl::Microseconds(send_interval_us)) {
           }
         }
+
+        size_t total_data_size = cli->total_data_size_.load();
+        size_t total_rpc_micros = cli->total_rpc_micros_;
+        size_t total_comm_micros = cli->total_comm_micros_;
+        size_t total_exec_micros = total_rpc_micros - total_comm_micros;
+        printf("total data size = %lld bytes, total time = %lld us, total exec time = %lld us, total comm time = (%lld us, %.4lf), bandwidth = (%.4lf, %.4lf) MB/s\n",
+          total_data_size, total_rpc_micros, total_exec_micros, total_comm_micros, double(total_comm_micros) / total_rpc_micros,
+          double(total_data_size) / total_comm_micros, double(total_data_size) / total_rpc_micros);
+
       });
     }
 

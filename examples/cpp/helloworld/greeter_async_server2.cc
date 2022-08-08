@@ -244,7 +244,7 @@ class ServerImpl final {
       ServerAsyncResponseWriter<RecvBufResponse> responder_;
       enum CallStatus { CREATE, PROCESS, FINISH };
       CallStatus status_;
-      int64_t max_chunk_bytes_ = 4096;
+      int64_t max_chunk_bytes_ = 4*1024*1024;
   };
 
  private:
