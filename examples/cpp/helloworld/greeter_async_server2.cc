@@ -202,7 +202,7 @@ class ServerImpl final {
 
             pthread_setname_np(pthread_self(),
                                ("work_th" + std::to_string(idx)).c_str());
-            grpc_stats_time_init(idx);
+            grpc_stats_time_init();
 
             int i= 0;
             while (true) {

@@ -13,7 +13,7 @@
 // limitations under the License.
 
 syntax = "proto3";
-
+import "google/protobuf/any.proto";
 option java_multiple_files = true;
 option java_package = "io.grpc.examples.helloworld";
 option java_outer_classname = "HelloWorldProto";
@@ -73,4 +73,14 @@ message HelloRequest4 {
 
 message HelloReply4 {
   bytes message = 1;
+}
+
+
+message RecvBufRespExtra {
+  repeated bytes tensor_content = 1;
+}
+
+message RecvBufRequest {
+  // Optional, implementation-specific data.
+  google.protobuf.Any transport_options = 1;
 }
