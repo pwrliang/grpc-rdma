@@ -30,6 +30,7 @@
 #include "flags.h"
 #include "gflags/gflags.h"
 #include "grpcpp/stats_time.h"
+#include "object_pool.h"
 #include "stopwatch.h"
 #ifdef BAZEL_BUILD
 #include "examples/protos/helloworld.grpc.pb.h"
@@ -48,6 +49,9 @@ using helloworld::HelloRequest;
 using helloworld::RecvBufRequest;
 using helloworld::RecvBufRespExtra;
 using helloworld::RecvBufResponse;
+
+ObjectPool<RecvBufResponse> resp_pool;
+ObjectPool<RecvBufRespExtra> extra_pool;
 
 class Client {
  public:
@@ -299,18 +303,21 @@ class GenericClient : public Client {
           sw.start();
           sw_parse.start();
           grpc::ProtoBufferReader reader(&call->reply);
-          RecvBufResponse resp;
-          resp.ParseFromZeroCopyStream(&reader);
+          auto resp = resp_pool.TakeObject();
+          resp->Clear();  // N.B. This is important, clean content
+
+          resp->ParseFromZeroCopyStream(&reader);
           sw_parse.stop();
 
           sw_unpack.start();
-          RecvBufRespExtra extra;
-          resp.transport_options().UnpackTo(&extra);
+          auto extra = extra_pool.TakeObject();
+          extra->Clear();  // N.B. This is important, clean content
+          resp->transport_options().UnpackTo(extra.get());
           sw_unpack.stop();
 
           if (start_record_) {
-            parse_bytes_ += resp.ByteSizeLong();
-            unpack_bytes_ += extra.ByteSizeLong();
+            parse_bytes_ += resp->ByteSizeLong();
+            unpack_bytes_ += extra->ByteSizeLong();
             parse_time_ += sw_parse.us();
             unpack_time_ += sw_unpack.us();
           }
@@ -323,7 +330,9 @@ class GenericClient : public Client {
           //          }
           sw.stop();
 
-          ret = resp.micros() + sw.us();
+          ret = resp->micros() + sw.us();
+          resp_pool.PutObject(std::move(resp));
+          extra_pool.PutObject(std::move(extra));
         }
 
         delete call;

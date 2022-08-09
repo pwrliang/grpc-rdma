@@ -25,6 +25,7 @@
 #include <set>
 #include <string>
 #include <thread>
+#include "object_pool.h"
 
 #ifdef BAZEL_BUILD
 #include "examples/protos/helloworld.grpc.pb.h"
@@ -51,6 +52,9 @@ using helloworld::RecvBufRespExtra;
 using helloworld::RecvBufResponse;
 
 std::map<std::string, cpu_time_t> cpu_time1;
+ObjectPool<RecvBufRequest> req_pool;
+ObjectPool<RecvBufResponse> resp_pool;
+ObjectPool<RecvBufRespExtra> extra_pool;
 
 int bind_thread_to_core(int core_id) {
   int num_cores = sysconf(_SC_NPROCESSORS_ONLN);
@@ -200,7 +204,14 @@ class ServerImpl final {
 
     RecvBufCallData(Greeter::AsyncService* service, ServerCompletionQueue* cq)
         : service_(service), cq_(cq), responder_(&ctx_), status_(CREATE) {
+      request_ = req_pool.TakeObject();
+      response_ = resp_pool.TakeObject();
       Proceed();
+    }
+
+    ~RecvBufCallData() {
+      req_pool.PutObject(std::move(request_));
+      resp_pool.PutObject(std::move(response_));
     }
 
     void Proceed() {
@@ -208,38 +219,44 @@ class ServerImpl final {
         status_ = PROCESS;
         // service_->RequestAsyncUnary(5, &ctx_, &request_, &responder_, cq_,
         // cq_, this);
-        service_->RequestRecvBuf(&ctx_, &request_, &responder_, cq_, cq_, this);
+        service_->RequestRecvBuf(&ctx_, request_.get(), &responder_, cq_, cq_,
+                                 this);
       } else if (status_ == PROCESS) {
         Stopwatch sw, sw_ser, sw_pack;
         sw.start();
         new RecvBufCallData(service_, cq_);
 
-        RecvBufRespExtra extra;
-        int64_t num_bytes = request_.num_bytes();
-        int64_t offset = request_.offset();
+        auto extra = extra_pool.TakeObject();
+        extra->Clear();  // N.B. This is important, clear content
+        int64_t num_bytes = request_->num_bytes();
+        int64_t offset = request_->offset();
         const char* head = RecvBufCallData::tensor_buf.c_str() + offset;
 
         sw_ser.start();
         while (num_bytes > 0) {
           int64_t bytes = std::min(num_bytes, max_chunk_bytes_);
-          extra.add_tensor_content(head, bytes);
+          extra->add_tensor_content(head, bytes);
           head += bytes;
           num_bytes -= bytes;
         }
         sw_ser.stop();
 
         sw_pack.start();
-        response_.mutable_transport_options()->PackFrom(extra);
+        response_->mutable_transport_options()->PackFrom(*extra);
         sw_pack.stop();
 
         printf("Ser: %zu MB/s, Pack: %zu MB/s\n",
-               extra.ByteSizeLong() / sw_ser.us(),
-               response_.ByteSizeLong() / sw_pack.us());
+               extra->ByteSizeLong() / sw_ser.us(),
+               response_->ByteSizeLong() / sw_pack.us());
+        extra_pool.PutObject(std::move(extra));
 
         status_ = FINISH;
         sw.stop();
-        response_.set_micros(sw.us());
-        responder_.Finish(response_, Status::OK, this);
+        response_->set_micros(sw.us());
+        responder_.Finish(*response_, Status::OK, this);
+      } else {
+        GPR_ASSERT(status_ == FINISH);
+        delete this;
       }
     }
 
@@ -247,12 +264,13 @@ class ServerImpl final {
     Greeter::AsyncService* service_;
     ServerCompletionQueue* cq_;
     ServerContext ctx_;
-    RecvBufRequest request_;
-    RecvBufResponse response_;
+
+    std::unique_ptr<RecvBufRequest> request_;
+    std::unique_ptr<RecvBufResponse> response_;
     ServerAsyncResponseWriter<RecvBufResponse> responder_;
     enum CallStatus { CREATE, PROCESS, FINISH };
     CallStatus status_;
-    int64_t max_chunk_bytes_ = 4 * 1024 * 1024;
+    int64_t max_chunk_bytes_ = 1 * 1024 * 1024;
   };
 
  private:
