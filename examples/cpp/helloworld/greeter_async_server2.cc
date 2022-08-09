@@ -47,8 +47,8 @@ using helloworld::Greeter;
 using helloworld::HelloReply;
 using helloworld::HelloRequest;
 using helloworld::RecvBufRequest;
-using helloworld::RecvBufResponse;
 using helloworld::RecvBufRespExtra;
+using helloworld::RecvBufResponse;
 
 std::map<std::string, cpu_time_t> cpu_time1;
 
@@ -145,28 +145,28 @@ class ServerImpl final {
         }
 
         if (request_.name() == "fin") {
-//          auto cpu_time2 = get_cpu_time_per_core();
-//
-//          int num_cores = sysconf(_SC_NPROCESSORS_ONLN);
-//          auto time_diff = cpu_time2["cpu"] - cpu_time1["cpu"];
-//          printf(
-//              "[S] CPU-TIME (s) user: %lf idle: %lf nice: %lf sys: %lf "
-//              "iowait: %lf "
-//              "irq: %lf softirq: %lf sum: %lf\n",
-//              time_diff.t_user, time_diff.t_idle, time_diff.t_nice,
-//              time_diff.t_system, time_diff.t_iowait, time_diff.t_irq,
-//              time_diff.t_softirq, time_diff.t_sum);
-//          for (int i = 0; i < num_cores; i++) {
-//            auto cpu_name = "cpu" + std::to_string(i);
-//            time_diff = cpu_time2[cpu_name] - cpu_time1[cpu_name];
-//            printf(
-//                "[S] CPU%d-TIME (s) user: %lf idle: %lf nice: %lf sys: %lf "
-//                "iowait: %lf "
-//                "irq: %lf softirq: %lf sum: %lf\n",
-//                i, time_diff.t_user, time_diff.t_idle, time_diff.t_nice,
-//                time_diff.t_system, time_diff.t_iowait, time_diff.t_irq,
-//                time_diff.t_softirq, time_diff.t_sum);
-//          }
+          //          auto cpu_time2 = get_cpu_time_per_core();
+          //
+          //          int num_cores = sysconf(_SC_NPROCESSORS_ONLN);
+          //          auto time_diff = cpu_time2["cpu"] - cpu_time1["cpu"];
+          //          printf(
+          //              "[S] CPU-TIME (s) user: %lf idle: %lf nice: %lf sys:
+          //              %lf " "iowait: %lf " "irq: %lf softirq: %lf sum:
+          //              %lf\n", time_diff.t_user, time_diff.t_idle,
+          //              time_diff.t_nice, time_diff.t_system,
+          //              time_diff.t_iowait, time_diff.t_irq,
+          //              time_diff.t_softirq, time_diff.t_sum);
+          //          for (int i = 0; i < num_cores; i++) {
+          //            auto cpu_name = "cpu" + std::to_string(i);
+          //            time_diff = cpu_time2[cpu_name] - cpu_time1[cpu_name];
+          //            printf(
+          //                "[S] CPU%d-TIME (s) user: %lf idle: %lf nice: %lf
+          //                sys: %lf " "iowait: %lf " "irq: %lf softirq: %lf
+          //                sum: %lf\n", i, time_diff.t_user, time_diff.t_idle,
+          //                time_diff.t_nice, time_diff.t_system,
+          //                time_diff.t_iowait, time_diff.t_irq,
+          //                time_diff.t_softirq, time_diff.t_sum);
+          //          }
         }
 
         status_ = FINISH;
@@ -192,59 +192,67 @@ class ServerImpl final {
   };
 
   class RecvBufCallData {
-    public:
-      static std::string tensor_buf;
-      static void set_tensor_buf(size_t size) {
-        RecvBufCallData::tensor_buf.resize(size);
-      }
+   public:
+    static std::string tensor_buf;
+    static void set_tensor_buf(size_t size) {
+      RecvBufCallData::tensor_buf.resize(size);
+    }
 
-      RecvBufCallData(Greeter::AsyncService* service, ServerCompletionQueue* cq)
-        : service_(service),
-          cq_(cq),
-          responder_(&ctx_),
-          status_(CREATE) {
-        Proceed();
-      }
+    RecvBufCallData(Greeter::AsyncService* service, ServerCompletionQueue* cq)
+        : service_(service), cq_(cq), responder_(&ctx_), status_(CREATE) {
+      Proceed();
+    }
 
-      void Proceed() {
-        if (status_ == CREATE) {
-          status_ = PROCESS;
-          // service_->RequestAsyncUnary(5, &ctx_, &request_, &responder_, cq_, cq_, this);
-          service_->RequestRecvBuf(&ctx_, &request_, &responder_, cq_, cq_, this);
-        } else if (status_ == PROCESS) {
-          Stopwatch sw;
-          sw.start();
-          new RecvBufCallData(service_, cq_);
+    void Proceed() {
+      if (status_ == CREATE) {
+        status_ = PROCESS;
+        // service_->RequestAsyncUnary(5, &ctx_, &request_, &responder_, cq_,
+        // cq_, this);
+        service_->RequestRecvBuf(&ctx_, &request_, &responder_, cq_, cq_, this);
+      } else if (status_ == PROCESS) {
+        Stopwatch sw, sw_ser, sw_pack;
+        sw.start();
+        new RecvBufCallData(service_, cq_);
 
-          RecvBufRespExtra extra;
-          int64_t num_bytes = request_.num_bytes();
-          int64_t offset = request_.offset();
-          const char* head = RecvBufCallData::tensor_buf.c_str() + offset;
-          while (num_bytes > 0) {
-            int64_t bytes = std::min(num_bytes, max_chunk_bytes_);
-            extra.add_tensor_content(head, bytes);
-            head += bytes;
-            num_bytes -= bytes;
-          }
-          response_.mutable_transport_options()->PackFrom(extra);
+        RecvBufRespExtra extra;
+        int64_t num_bytes = request_.num_bytes();
+        int64_t offset = request_.offset();
+        const char* head = RecvBufCallData::tensor_buf.c_str() + offset;
 
-          status_ = FINISH;
-          sw.stop();
-          response_.set_micros(sw.us());
-          responder_.Finish(response_, Status::OK, this);
+        sw_ser.start();
+        while (num_bytes > 0) {
+          int64_t bytes = std::min(num_bytes, max_chunk_bytes_);
+          extra.add_tensor_content(head, bytes);
+          head += bytes;
+          num_bytes -= bytes;
         }
-      }
+        sw_ser.stop();
 
-    private:
-      Greeter::AsyncService* service_;
-      ServerCompletionQueue* cq_;
-      ServerContext ctx_;
-      RecvBufRequest request_;
-      RecvBufResponse response_;
-      ServerAsyncResponseWriter<RecvBufResponse> responder_;
-      enum CallStatus { CREATE, PROCESS, FINISH };
-      CallStatus status_;
-      int64_t max_chunk_bytes_ = 4*1024*1024;
+        sw_pack.start();
+        response_.mutable_transport_options()->PackFrom(extra);
+        sw_pack.stop();
+
+        printf("Ser: %zu MB/s, Pack: %zu MB/s\n",
+               extra.ByteSizeLong() / sw_ser.us(),
+               response_.ByteSizeLong() / sw_pack.us());
+
+        status_ = FINISH;
+        sw.stop();
+        response_.set_micros(sw.us());
+        responder_.Finish(response_, Status::OK, this);
+      }
+    }
+
+   private:
+    Greeter::AsyncService* service_;
+    ServerCompletionQueue* cq_;
+    ServerContext ctx_;
+    RecvBufRequest request_;
+    RecvBufResponse response_;
+    ServerAsyncResponseWriter<RecvBufResponse> responder_;
+    enum CallStatus { CREATE, PROCESS, FINISH };
+    CallStatus status_;
+    int64_t max_chunk_bytes_ = 4 * 1024 * 1024;
   };
 
  private:
@@ -285,7 +293,7 @@ class ServerImpl final {
                                ("work_th" + std::to_string(idx)).c_str());
             grpc_stats_time_init();
 
-            int i= 0;
+            int i = 0;
             while (true) {
               cycles_t c1 = get_cycles();
               GPR_ASSERT(cq->Next(&tag, &ok));
@@ -309,15 +317,18 @@ class ServerImpl final {
     void* tag;
     bool ok;
     // RecvBufCallData::tensor_buf.resize(256*1024*1024);
-    RecvBufCallData::set_tensor_buf(256*1024*1024);
+    RecvBufCallData::set_tensor_buf(256 * 1024 * 1024);
     grpc_stats_time_init(0);
+
     int i = 0;
     while (true) {
       GPR_ASSERT(cq->Next(&tag, &ok));
-      GPR_ASSERT(ok);
       // printf("%lld-th call\n", i);
       static_cast<RecvBufCallData*>(tag)->Proceed();
       i++;
+      if (i > FLAGS_warmup) {
+        grpc_stats_time_enable();
+      }
     }
   }
 
