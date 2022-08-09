@@ -19,6 +19,7 @@
 #include <grpc/support/log.h>
 #include <grpcpp/generic/generic_stub.h>
 #include <grpcpp/grpcpp.h>
+#include <grpcpp/impl/codegen/proto_utils.h>
 #include <iostream>
 #include <memory>
 #include <sstream>
@@ -44,6 +45,9 @@ using grpc::Status;
 using helloworld::Greeter;
 using helloworld::HelloReply;
 using helloworld::HelloRequest;
+using helloworld::RecvBufRequest;
+using helloworld::RecvBufResponse;
+using helloworld::RecvBufRespExtra;
 
 class Client {
  public:
@@ -58,12 +62,17 @@ class Client {
 
   virtual void SayHello(const std::string& user) = 0;
 
-  virtual void AsyncCompleteRpc() = 0;
+  virtual size_t AsyncCompleteRpc() = 0;
 
   virtual void NotifyFinish() = 0;
 
+  virtual void RecvBuf(size_t size, size_t offset) = 0;
+
   std::atomic_int rest_resp_;
   std::atomic_size_t total_data_size_;
+  size_t this_data_size_ = 0;
+  size_t total_rpc_micros_ = 0;
+  size_t total_comm_micros_ = 0;
 };
 
 class GreeterClient : public Client {
@@ -109,7 +118,9 @@ class GreeterClient : public Client {
     call->response_reader->Finish(&call->reply, &call->status, (void*)call);
   }
 
-  void AsyncCompleteRpc() override {
+  void RecvBuf(size_t size, size_t offset) override {}
+
+  size_t AsyncCompleteRpc() override {
     GRPCProfiler profiler(GRPC_STATS_TIME_CLIENT_CQ_NEXT);
     void* got_tag;
     bool ok = false;
@@ -127,6 +138,7 @@ class GreeterClient : public Client {
         gpr_log(GPR_ERROR, "RPC Failed");
       }
     }
+    return 0;
   }
 
   void NotifyFinish() override {
@@ -166,9 +178,12 @@ class GenericClient : public Client {
       : stub_(new grpc::GenericStub(channel)) {
     req_.mutable_name()->resize(FLAGS_req);
     req_buf_ = SerializeToByteBuffer(&req_);
+    recv_buf_ = new uint8_t[1024*1024*256];
   }
 
-  // ~GenericClient() {}
+  ~GenericClient() {
+    delete[] recv_buf_;
+  }
 
   std::unique_ptr<grpc::ByteBuffer> SerializeToByteBuffer(
       grpc::protobuf::Message* message) {
@@ -180,6 +195,7 @@ class GenericClient : public Client {
     };
 
     uint8_t* buf = global_sendbuf_alloc(str.size());
+    // uint8_t* buf = nullptr;
     if (buf == nullptr) {
       grpc::Slice slice(str);
       return absl::make_unique<grpc::ByteBuffer>(&slice, 1);
@@ -188,6 +204,7 @@ class GenericClient : public Client {
     grpc::Slice slice(buf, len, destroy);
     // printf("slice = %p\n", &slice);
     memcpy(buf, str.c_str(), str.size());
+    // memset(buf, 7, len);
     return absl::make_unique<grpc::ByteBuffer>(&slice, 1);
   }
 
@@ -243,10 +260,25 @@ class GenericClient : public Client {
     call->response_reader->Finish(&call->reply, &call->status, (void*)call);
   }
 
-  void AsyncCompleteRpc() override {
+  void RecvBuf(size_t size, size_t offset) override {
+    recv_buf_req_.set_num_bytes(size);
+    recv_buf_req_.set_offset(offset);
+    bool own_buffer;
+    grpc::GenericSerialize<grpc::ProtoBufferWriter, grpc::protobuf::Message>(recv_buf_req_, &recv_buf_req_buf_, &own_buffer);
+    // printf("req buf = %lld\n", recv_buf_req_buf_.Length());
+    AsyncClientCall* call = new AsyncClientCall;
+    call->context.set_wait_for_ready(true);
+    call->recv_buf_enable = true;
+    call->response_reader = stub_->PrepareUnaryCall(&call->context, recv_buf_method_name_, recv_buf_req_buf_, &cq_);
+    call->response_reader->StartCall();
+    call->response_reader->Finish(&call->reply, &call->status, (void*)call);
+  }
+
+  size_t AsyncCompleteRpc() override {
     GRPCProfiler profiler(GRPC_STATS_TIME_CLIENT_CQ_NEXT);
     void* got_tag;
     bool ok = false;
+    int64_t ret = 0;
 
     if (rest_resp_-- > 0) {
       if (cq_.Next(&got_tag, &ok)) {
@@ -255,12 +287,32 @@ class GenericClient : public Client {
         GPR_ASSERT(ok);
         checkError(call->status);
         total_data_size_ += call->reply.Length();
+        this_data_size_ = call->reply.Length();
+        // printf("reply length = %lld\n", call->reply.Length());
+        if (call->recv_buf_enable) {
+          Stopwatch sw;
+          sw.start();
+          grpc::ProtoBufferReader reader(&call->reply);
+          RecvBufResponse resp;
+          resp.ParseFromZeroCopyStream(&reader);
+          RecvBufRespExtra extra;
+          resp.transport_options().UnpackTo(&extra);
+          uint8_t* head = recv_buf_;
+          for (const auto& tensor_content_chunk : extra.tensor_content()){
+            memcpy(head, std::string(tensor_content_chunk).data(), tensor_content_chunk.size());
+            head += tensor_content_chunk.size();
+          }
+          sw.stop();
+          ret = resp.micros() + sw.us();
+        }
+        
         delete call;
       } else {
         rest_resp_++;
         gpr_log(GPR_ERROR, "RPC Failed");
       }
     }
+    return ret;
   }
 
   void NotifyFinish() override {
@@ -289,6 +341,7 @@ class GenericClient : public Client {
     grpc::ByteBuffer reply;
     ClientContext context;
     Status status;
+    bool recv_buf_enable = false;
 
     std::unique_ptr<ClientAsyncResponseReader<grpc::ByteBuffer>>
         response_reader;
@@ -306,6 +359,11 @@ class GenericClient : public Client {
   std::string methodName = "/helloworld.Greeter/SayHello";
   HelloRequest req_;
   std::unique_ptr<grpc::ByteBuffer> req_buf_;
+
+  RecvBufRequest recv_buf_req_;
+  grpc::ByteBuffer recv_buf_req_buf_;
+  std::string recv_buf_method_name_ = "/helloworld.Greeter/RecvBuf";
+  uint8_t* recv_buf_;
 };
 
 int main(int argc, char** argv) {
@@ -344,9 +402,19 @@ int main(int argc, char** argv) {
     int batch_size = FLAGS_batch;
     Stopwatch sw, sw1;
 
-    cli->Warmup(comm_spec);
+    // cli->Warmup(comm_spec);
 
     grpc_stats_time_enable();
+
+    for (size_t i = 0; i < FLAGS_warmup; i++) {
+      cli->RecvBuf(FLAGS_req, 0);
+      cli->AsyncCompleteRpc();
+    }
+
+    cli->total_data_size_ = 0;
+    cli->total_comm_micros_ = 0;
+    cli->total_rpc_micros_ = 0;
+    cli->rest_resp_ = batch_size;
 
     MPI_Barrier(comm_spec.comm());
     sw.start();
@@ -355,17 +423,37 @@ int main(int argc, char** argv) {
     for (int i = 0; i < FLAGS_threads; i++) {
       threads.emplace_back([&]() {
         auto chunk_size = (batch_size + FLAGS_threads - 1) / FLAGS_threads;
-        std::string user;
-        user.resize(FLAGS_req);
-        const std::string& s_cli =
-            std::to_string(comm_spec.worker_id()) + "_" + std::to_string(i);
-        user.copy(const_cast<char*>(s_cli.c_str()), s_cli.length());
+        // std::string user;
+        // user.resize(FLAGS_req);
+        // const std::string& s_cli =
+        //     std::to_string(comm_spec.worker_id()) + "_" + std::to_string(i);
+        // user.copy(const_cast<char*>(s_cli.c_str()), s_cli.length());
 
         grpc_stats_time_init(0);
 
+        size_t offset = 0;
+
         for (int j = 0; j < chunk_size; j++) {
-          cli->SayHello(user);
-          cli->AsyncCompleteRpc();
+          // cli->SayHello(user);
+          // printf("batch %lld RecvBuf\n", j);
+          Stopwatch sw2;
+          sw2.start();
+          cli->RecvBuf(FLAGS_req, offset);
+          // printf("batch %lld AsyncCompleteRpc\n", j);
+          int64_t exec_micros = cli->AsyncCompleteRpc();
+          sw2.stop();
+          int64_t rpc_micros = sw2.us();
+          size_t data_size = cli->this_data_size_;
+          double comm_band = double(data_size) / (rpc_micros - exec_micros);
+          double band = double(data_size) / rpc_micros;
+          cli->total_comm_micros_ += rpc_micros - exec_micros;
+          cli->total_rpc_micros_ += rpc_micros;
+          printf("%lld: data size = %lld bytes, rpc micros = %lld, exec micros = %lld, comm micros = (%lld, %.4lf), bandwidth = (%.4lf, %.4lf) MB/s\n", 
+            j, data_size, rpc_micros, exec_micros, rpc_micros - exec_micros, double(rpc_micros - exec_micros) / rpc_micros, comm_band, band);
+
+          // printf("batch %lld done\n", j);
+
+          offset = (offset + FLAGS_req) % (128*1024*1024);
 
           auto send_interval_us = FLAGS_send_interval;
           absl::Time begin_poll = absl::Now();
@@ -373,6 +461,15 @@ int main(int argc, char** argv) {
                  absl::Microseconds(send_interval_us)) {
           }
         }
+
+        size_t total_data_size = cli->total_data_size_.load();
+        size_t total_rpc_micros = cli->total_rpc_micros_;
+        size_t total_comm_micros = cli->total_comm_micros_;
+        size_t total_exec_micros = total_rpc_micros - total_comm_micros;
+        printf("total data size = %lld bytes, total time = %lld us, total exec time = %lld us, total comm time = (%lld us, %.4lf), bandwidth = (%.4lf, %.4lf) MB/s\n",
+          total_data_size, total_rpc_micros, total_exec_micros, total_comm_micros, double(total_comm_micros) / total_rpc_micros,
+          double(total_data_size) / total_comm_micros, double(total_data_size) / total_rpc_micros);
+
       });
     }
 
@@ -419,7 +516,7 @@ int main(int argc, char** argv) {
       printf("Throughput: %lf req/s, avg latency: %f us, [%f, %f]\n",
              total_throughput, avg_lat_ms * 1000, min_lat_ms * 1000,
              max_lat_ms * 1000);
-      cli->NotifyFinish();
+      // cli->NotifyFinish();
     }
 
     delete cli;

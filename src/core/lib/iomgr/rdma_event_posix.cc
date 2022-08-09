@@ -238,13 +238,15 @@ static void rdma_continue_read(grpc_rdma* rdma) {
   GRPCProfiler profiler(GRPC_STATS_TIME_TRANSPORT_CONTINUE_READ);
   size_t target_read_size = rdma->rdmasr->MarkMessageLength();
 
+  target_read_size = MAX(5 * target_read_size, 1024*1024*1024);
+
   /* Wait for allocation only when there is no buffer left. */
-  if (rdma->incoming_buffer->length < target_read_size * 5) {
+  if (rdma->incoming_buffer->length < target_read_size) {
     if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_trace)) {
       gpr_log(GPR_INFO, "rdma allocate slice: %zu", target_read_size);
     }
     if (GPR_UNLIKELY(!grpc_resource_user_alloc_slices(&rdma->slice_allocator,
-                                                      target_read_size * 5 - rdma->incoming_buffer->length, 1,
+                                                      target_read_size - rdma->incoming_buffer->length, 1,
                                                       rdma->incoming_buffer))) {
       return;
     }
@@ -354,7 +356,10 @@ static bool rdma_flush(grpc_rdma* rdma, grpc_error_handle* error) {
               rdma->outgoing_buffer->length);
     }
     ssize_t sent_length;
+
+    cycles_t begin_cycles = get_cycles();
     int err = rdma->rdmasr->Send(&msg, &sent_length);
+    cycles_t t_cycles = get_cycles() - begin_cycles;
 
     if (sent_length < 0) {
       if (err == EAGAIN) {
@@ -373,6 +378,11 @@ static bool rdma_flush(grpc_rdma* rdma, grpc_error_handle* error) {
         return true;
       }
     }
+
+    size_t mb_s = sent_length / (t_cycles / rdma->rdmasr->get_mhz());
+    grpc_stats_time_add_custom(GRPC_STATS_TIME_ADHOC_1, mb_s);
+
+    grpc_stats_time_add_custom(GRPC_STATS_TIME_SEND_SIZE, sent_length);
 
     if (outgoing_slice_idx == rdma->outgoing_buffer->count) {
       *error = GRPC_ERROR_NONE;

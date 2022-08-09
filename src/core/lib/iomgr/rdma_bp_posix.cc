@@ -37,7 +37,7 @@ typedef size_t msg_iovlen_type;
 #endif
 extern grpc_core::TraceFlag grpc_rdma_trace;
 
-#define READ_BLOCK_SIZE (8ul * 1024 * 1024)
+#define READ_BLOCK_SIZE (4ul * 1024 * 1024)
 
 namespace {
 struct grpc_rdma {
@@ -340,8 +340,8 @@ static void rdma_do_readex(grpc_rdma* rdma) {
   }
   call_read_cb(rdma, GRPC_ERROR_NONE);
   RDMA_UNREF(rdma, "read");
-//  printf("iov_len: %zu, total iov_len: %zu total read: %zu\n", iov_len,
-//         total_size, total_read_bytes);
+  //  printf("iov_len: %zu, total iov_len: %zu total read: %zu\n", iov_len,
+  //         total_size, total_read_bytes);
 }
 
 static void rdma_read_allocation_done(void* rdmap, grpc_error_handle error) {
@@ -474,15 +474,16 @@ static bool rdma_flush_chunks(grpc_rdma* rdma, grpc_error_handle* error) {
     unwind_byte_idx = rdma->outgoing_byte_idx;
     size_t send_chunk_size = rdma->rdmasr->get_chunk_size();
     for (iov_size = 0;
-         outgoing_slice_idx < rdma->outgoing_buffer->count && iov_size < MAX_WRITE_IOVEC && sending_length < send_chunk_size;
+         outgoing_slice_idx < rdma->outgoing_buffer->count &&
+         iov_size < MAX_WRITE_IOVEC && sending_length < send_chunk_size;
          iov_size++) {
       iov[iov_size].iov_base =
-        GRPC_SLICE_START_PTR(
-            rdma->outgoing_buffer->slices[outgoing_slice_idx]) +
-        rdma->outgoing_byte_idx;
+          GRPC_SLICE_START_PTR(
+              rdma->outgoing_buffer->slices[outgoing_slice_idx]) +
+          rdma->outgoing_byte_idx;
       size_t iov_len =
-        GRPC_SLICE_LENGTH(rdma->outgoing_buffer->slices[outgoing_slice_idx]) -
-        rdma->outgoing_byte_idx;
+          GRPC_SLICE_LENGTH(rdma->outgoing_buffer->slices[outgoing_slice_idx]) -
+          rdma->outgoing_byte_idx;
       if (sending_length + iov_len < send_chunk_size) {
         iov[iov_size].iov_len = iov_len;
         outgoing_slice_idx++;
@@ -541,7 +542,6 @@ static bool rdma_flush_chunks(grpc_rdma* rdma, grpc_error_handle* error) {
       return true;
     }
   }
-
 }
 
 static bool rdma_flush(grpc_rdma* rdma, grpc_error_handle* error) {
@@ -594,7 +594,10 @@ static bool rdma_flush(grpc_rdma* rdma, grpc_error_handle* error) {
               rdma->outgoing_buffer->length);
     }
     ssize_t sent_length;
+
+    cycles_t begin_cycles = get_cycles();
     int err = rdma->rdmasr->Send(&msg, &sent_length);
+    cycles_t t_cycles = get_cycles() - begin_cycles;
 
     if (sent_length < 0) {
       if (err == EAGAIN) {
@@ -614,7 +617,12 @@ static bool rdma_flush(grpc_rdma* rdma, grpc_error_handle* error) {
       }
     }
 
-    grpc_stats_time_add_custom(GRPC_STATS_TIME_SEND_SIZE, sending_length);
+    size_t mb_s = sent_length / (t_cycles / rdma->rdmasr->get_mhz());
+    grpc_stats_time_add_custom(GRPC_STATS_TIME_ADHOC_1, mb_s);
+
+    total_sent_length += sent_length;
+
+    grpc_stats_time_add_custom(GRPC_STATS_TIME_SEND_SIZE, sent_length);
     // TODO: trailing
     if (outgoing_slice_idx == rdma->outgoing_buffer->count) {
       *error = GRPC_ERROR_NONE;
@@ -638,8 +646,8 @@ static void rdma_handle_write(void* arg /* grpc_rdma */,
     return;
   }
 
-   bool flush_result = rdma_flush(rdma, &error);
-//  bool flush_result = rdma_flush_chunks(rdma, &error);
+//  bool flush_result = rdma_flush(rdma, &error);
+    bool flush_result = rdma_flush_chunks(rdma, &error);
   if (!flush_result) {
     if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_trace)) {
       gpr_log(GPR_INFO, "write: delayed");
@@ -676,8 +684,8 @@ static void rdma_write(grpc_endpoint* ep, grpc_slice_buffer* buf,
   rdma->outgoing_buffer = buf;
   rdma->outgoing_byte_idx = 0;
 
-   bool flush_result = rdma_flush(rdma, &error);
-//  bool flush_result = rdma_flush_chunks(rdma, &error);
+//  bool flush_result = rdma_flush(rdma, &error);
+    bool flush_result = rdma_flush_chunks(rdma, &error);
   if (!flush_result) {
     RDMA_REF(rdma, "write");
     rdma->write_cb = cb;

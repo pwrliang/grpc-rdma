@@ -13,13 +13,15 @@
 // limitations under the License.
 
 syntax = "proto3";
+package helloworld;
+
 import "google/protobuf/any.proto";
+
 option java_multiple_files = true;
 option java_package = "io.grpc.examples.helloworld";
 option java_outer_classname = "HelloWorldProto";
 option objc_class_prefix = "HLW";
-
-package helloworld;
+option go_package = "github.com/tensorflow/tensorflow/tensorflow/go/core/protobuf/for_core_protos_go_proto";
 
 // The greeting service definition.
 service Greeter {
@@ -29,6 +31,7 @@ service Greeter {
   rpc SayHello2 (HelloRequest2) returns (HelloReply2) {}
   rpc SayHello3 (HelloRequest3) returns (HelloReply3) {}
   rpc SayHello4 (HelloRequest4) returns (HelloReply4) {}
+  rpc RecvBuf(RecvBufRequest) returns (RecvBufResponse) {}
 }
 
 // The request message containing the user's name.
@@ -75,12 +78,19 @@ message HelloReply4 {
   bytes message = 1;
 }
 
+message RecvBufRequest {
+  int64 num_bytes = 1;
+  int64 offset = 2;
+  google.protobuf.Any transport_options = 3;
+}
+
+message RecvBufResponse {
+  fixed64 buf_ptr = 1;
+  int64 num_bytes = 2;
+  google.protobuf.Any transport_options = 3;
+  int64 micros = 4;
+}
 
 message RecvBufRespExtra {
   repeated bytes tensor_content = 1;
-}
-
-message RecvBufRequest {
-  // Optional, implementation-specific data.
-  google.protobuf.Any transport_options = 1;
 }

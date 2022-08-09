@@ -161,6 +161,8 @@ int RDMASenderReceiverEvent::Send(msghdr* msg, ssize_t* sz) {
   }
   if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_sr_event_debug_trace)) {
     total_sent_ += nwritten;
+    printf("zerocopy send = %lld, total send = %lld, ratio = %.4lf\n", 
+      total_zerocopy_send_size, total_sent_.load(), double(total_zerocopy_send_size) / total_sent_.load());
   }
   if (sz != nullptr) {
     *sz = nwritten;

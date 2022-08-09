@@ -146,6 +146,8 @@ std::string grpc_stats_time_op_to_str(int op) {
       return "SEND_POLL";
     case GRPC_STATS_TIME_SEND_SIZE:
       return "SEND_SIZE";
+    case GRPC_STATS_TIME_RECV_SIZE:
+      return "RECV_SIZE";
     case GRPC_STATS_TIME_CLIENT_PREPARE:
       return "CLIENT_PREPARE";
     case GRPC_STATS_TIME_CLIENT_CQ_NEXT:
