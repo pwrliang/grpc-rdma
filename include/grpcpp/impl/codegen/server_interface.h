@@ -290,14 +290,11 @@ class ServerInterface : public internal::CallHook {
     }
 
     bool FinalizeResult(void** tag, bool* status) override {
-      GRPCProfiler profiler(GRPC_STATS_TIME_ADHOC_6);
       /* If we are done intercepting, then there is nothing more for us to do */
       if (done_intercepting_) {
-        GRPCProfiler profiler(GRPC_STATS_TIME_ADHOC_7);
         return RegisteredAsyncRequest::FinalizeResult(tag, status);
       }
       if (*status) {
-        GRPCProfiler profiler(GRPC_STATS_TIME_ADHOC_8);
         if (!payload_.Valid() || !SerializationTraits<Message>::Deserialize(
                                       payload_.bbuf_ptr(), request_)
                                       .ok()) {

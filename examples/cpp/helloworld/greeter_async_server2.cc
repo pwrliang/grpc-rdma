@@ -18,6 +18,7 @@
 
 #include <grpc/support/log.h>
 #include <grpcpp/completion_queue.h>
+#include <grpcpp/generic/async_generic_service.h>
 #include <grpcpp/grpcpp.h>
 #include <signal.h>
 #include <iostream>
@@ -25,6 +26,7 @@
 #include <set>
 #include <string>
 #include <thread>
+#include "bytebuffer_util.h"
 #include "object_pool.h"
 
 #ifdef BAZEL_BUILD
@@ -51,10 +53,7 @@ using helloworld::RecvBufRequest;
 using helloworld::RecvBufRespExtra;
 using helloworld::RecvBufResponse;
 
-std::map<std::string, cpu_time_t> cpu_time1;
-ObjectPool<RecvBufRequest> req_pool;
-ObjectPool<RecvBufResponse> resp_pool;
-ObjectPool<RecvBufRespExtra> extra_pool;
+void* tag(int i) { return reinterpret_cast<void*>(i); }
 
 int bind_thread_to_core(int core_id) {
   int num_cores = sysconf(_SC_NPROCESSORS_ONLN);
@@ -79,7 +78,7 @@ class ServerImpl final {
     }
   }
 
-  void Run() {
+  void StartService() {
     std::string server_address("0.0.0.0:50051");
 
     ServerBuilder builder;
@@ -95,18 +94,16 @@ class ServerImpl final {
     std::cout << "Server listening on " << server_address
               << ", thread: " << FLAGS_threads << ", cq: " << FLAGS_cqs
               << std::endl;
-
-    HandleRpcs();
   }
 
-  void RunRecvBuf() {
+  void StartGenericService() {
     std::string server_address("0.0.0.0:50051");
 
     ServerBuilder builder;
     builder.SetOption(
         grpc::MakeChannelArgumentOption(GRPC_ARG_ALLOW_REUSEPORT, 0));
     builder.AddListeningPort(server_address, grpc::InsecureServerCredentials());
-    builder.RegisterService(&service_);
+    builder.RegisterAsyncGenericService(&generic_service_);
     builder.SetMaxReceiveMessageSize(-1);
     for (int i = 0; i < FLAGS_cqs; i++) {
       cqs_.emplace_back(builder.AddCompletionQueue());
@@ -115,9 +112,6 @@ class ServerImpl final {
     std::cout << "Server listening on " << server_address
               << ", thread: " << FLAGS_threads << ", cq: " << FLAGS_cqs
               << std::endl;
-
-    // HandleRpcs();
-    HandleRecvBuf();
   }
 
   class CallData {
@@ -144,33 +138,7 @@ class ServerImpl final {
         new CallData(reply_, service_, cq_);
 
         if (request_.has_start_benchmark() && request_.start_benchmark()) {
-          cpu_time1 = get_cpu_time_per_core();
           grpc_stats_time_enable();
-        }
-
-        if (request_.name() == "fin") {
-          //          auto cpu_time2 = get_cpu_time_per_core();
-          //
-          //          int num_cores = sysconf(_SC_NPROCESSORS_ONLN);
-          //          auto time_diff = cpu_time2["cpu"] - cpu_time1["cpu"];
-          //          printf(
-          //              "[S] CPU-TIME (s) user: %lf idle: %lf nice: %lf sys:
-          //              %lf " "iowait: %lf " "irq: %lf softirq: %lf sum:
-          //              %lf\n", time_diff.t_user, time_diff.t_idle,
-          //              time_diff.t_nice, time_diff.t_system,
-          //              time_diff.t_iowait, time_diff.t_irq,
-          //              time_diff.t_softirq, time_diff.t_sum);
-          //          for (int i = 0; i < num_cores; i++) {
-          //            auto cpu_name = "cpu" + std::to_string(i);
-          //            time_diff = cpu_time2[cpu_name] - cpu_time1[cpu_name];
-          //            printf(
-          //                "[S] CPU%d-TIME (s) user: %lf idle: %lf nice: %lf
-          //                sys: %lf " "iowait: %lf " "irq: %lf softirq: %lf
-          //                sum: %lf\n", i, time_diff.t_user, time_diff.t_idle,
-          //                time_diff.t_nice, time_diff.t_system,
-          //                time_diff.t_iowait, time_diff.t_irq,
-          //                time_diff.t_softirq, time_diff.t_sum);
-          //          }
         }
 
         status_ = FINISH;
@@ -195,65 +163,49 @@ class ServerImpl final {
     CallStatus status_;
   };
 
-  class RecvBufCallData {
+  class GenericCallData {
    public:
-    static std::string tensor_buf;
-    static void set_tensor_buf(size_t size) {
-      RecvBufCallData::tensor_buf.resize(size);
-    }
-
-    RecvBufCallData(Greeter::AsyncService* service, ServerCompletionQueue* cq)
-        : service_(service), cq_(cq), responder_(&ctx_), status_(CREATE) {
-      request_ = req_pool.TakeObject();
-      response_ = resp_pool.TakeObject();
+    GenericCallData(grpc::AsyncGenericService* service,
+                    ServerCompletionQueue* cq)
+        : service_(service),
+          stream_(grpc::GenericServerAsyncReaderWriter(&ctx_)),
+          cq_(cq),
+          status_(CREATE) {
       Proceed();
     }
 
-    ~RecvBufCallData() {
-      req_pool.PutObject(std::move(request_));
-      resp_pool.PutObject(std::move(response_));
-    }
+    ~GenericCallData() {}
 
     void Proceed() {
       if (status_ == CREATE) {
-        status_ = PROCESS;
-        // service_->RequestAsyncUnary(5, &ctx_, &request_, &responder_, cq_,
-        // cq_, this);
-        service_->RequestRecvBuf(&ctx_, request_.get(), &responder_, cq_, cq_,
-                                 this);
-      } else if (status_ == PROCESS) {
-        Stopwatch sw, sw_ser, sw_pack;
-        sw.start();
-        new RecvBufCallData(service_, cq_);
+        service_->RequestCall(&ctx_, &stream_, cq_, cq_, this);
+        status_ = READ;
+      } else if (status_ == READ) {
+        stream_.Read(&req_, this);
 
-        auto extra = extra_pool.TakeObject();
-        extra->Clear();  // N.B. This is important, clear content
-        int64_t num_bytes = request_->num_bytes();
-        int64_t offset = request_->offset();
-        const char* head = RecvBufCallData::tensor_buf.c_str() + offset;
+        new GenericCallData(service_, cq_);
 
-        sw_ser.start();
-        while (num_bytes > 0) {
-          int64_t bytes = std::min(num_bytes, max_chunk_bytes_);
-          extra->add_tensor_content(head, bytes);
-          head += bytes;
-          num_bytes -= bytes;
+        status_ = WRITE;
+      } else if (status_ == WRITE) {
+        std::vector<grpc::Slice> slices;
+
+        req_.Dump(&slices);
+        // Server got a notification that we should start benchmark
+        if (*slices[0].begin() == 0xab) {
+          gpr_log(GPR_INFO, "Start benchmark\n");
+          grpc_stats_time_enable();
         }
-        sw_ser.stop();
 
-        sw_pack.start();
-        response_->mutable_transport_options()->PackFrom(*extra);
-        sw_pack.stop();
+        gpr_log(GPR_INFO, "Got rpc %s,len: %zu\n", ctx_.method().c_str(),
+                req_.Length());
+        grpc::WriteOptions options;
 
-        printf("Ser: %zu MB/s, Pack: %zu MB/s\n",
-               extra->ByteSizeLong() / sw_ser.us(),
-               response_->ByteSizeLong() / sw_pack.us());
-        extra_pool.PutObject(std::move(extra));
-
+        // create response
+        slices.clear();
+        slices.push_back(grpc::Slice(FLAGS_resp));
+        resp_ = grpc::ByteBuffer(slices.data(), slices.size());
+        stream_.WriteAndFinish(resp_, options, Status::OK, this);
         status_ = FINISH;
-        sw.stop();
-        response_->set_micros(sw.us());
-        responder_.Finish(*response_, Status::OK, this);
       } else {
         GPR_ASSERT(status_ == FINISH);
         delete this;
@@ -261,19 +213,16 @@ class ServerImpl final {
     }
 
    private:
-    Greeter::AsyncService* service_;
+    grpc::AsyncGenericService* service_;
     ServerCompletionQueue* cq_;
-    ServerContext ctx_;
+    grpc::GenericServerContext ctx_;
+    grpc::ByteBuffer req_, resp_;
 
-    std::unique_ptr<RecvBufRequest> request_;
-    std::unique_ptr<RecvBufResponse> response_;
-    ServerAsyncResponseWriter<RecvBufResponse> responder_;
-    enum CallStatus { CREATE, PROCESS, FINISH };
+    grpc::GenericServerAsyncReaderWriter stream_;
+    enum CallStatus { CREATE, READ, WRITE, FINISH };
     CallStatus status_;
-    int64_t max_chunk_bytes_ = 1 * 1024 * 1024;
   };
 
- private:
   void HandleRpcs() {
     std::vector<std::thread> ths;
 
@@ -287,31 +236,10 @@ class ServerImpl final {
             void* tag;
             bool ok;
 
-            if (FLAGS_affinity) {
-              int num_cores = sysconf(_SC_NPROCESSORS_ONLN);
-              const char* type = getenv("GRPC_PLATFORM_TYPE");
-              int core_id;
-
-              if (type != nullptr && strcmp(type, "RDMA_BPEV") == 0) {
-                // Leave core 1 to polling thread
-                core_id = idx % (num_cores - 1) + 1;
-              } else {
-                core_id = idx % num_cores;
-              }
-
-              int rc = bind_thread_to_core(core_id);
-              printf("Bind thread %d to core %d\n", idx, core_id);
-              if (rc != 0) {
-                std::cerr << "Error calling pthread_setaffinity_np: " << rc
-                          << "\n";
-              }
-            }
-
             pthread_setname_np(pthread_self(),
                                ("work_th" + std::to_string(idx)).c_str());
             grpc_stats_time_init();
 
-            int i = 0;
             while (true) {
               cycles_t c1 = get_cycles();
               GPR_ASSERT(cq->Next(&tag, &ok));
@@ -329,34 +257,43 @@ class ServerImpl final {
     }
   }
 
-  void HandleRecvBuf() {
-    auto& cq = cqs_[0];
-    new RecvBufCallData(&service_, cq.get());
-    void* tag;
-    bool ok;
-    // RecvBufCallData::tensor_buf.resize(256*1024*1024);
-    RecvBufCallData::set_tensor_buf(256 * 1024 * 1024);
-    grpc_stats_time_init(0);
+  void HandleGenericRpcs() {
+    std::vector<std::thread> ths;
 
-    int i = 0;
-    while (true) {
-      GPR_ASSERT(cq->Next(&tag, &ok));
-      // printf("%lld-th call\n", i);
-      static_cast<RecvBufCallData*>(tag)->Proceed();
-      i++;
-      if (i > FLAGS_warmup) {
-        grpc_stats_time_enable();
-      }
+    for (int i = 0; i < FLAGS_threads; i++) {
+      ths.emplace_back(
+          [this](int idx) {
+            auto& cq = cqs_[idx % cqs_.size()];
+            new GenericCallData(&generic_service_, cq.get());
+            void* tag;
+            bool ok;
+
+            pthread_setname_np(pthread_self(),
+                               ("work_th" + std::to_string(idx)).c_str());
+            grpc_stats_time_init();
+
+            while (true) {
+              cycles_t c1 = get_cycles();
+              GPR_ASSERT(cq->Next(&tag, &ok));
+              GPR_ASSERT(ok);
+              cycles_t c2 = get_cycles();
+              static_cast<GenericCallData*>(tag)->Proceed();
+              grpc_stats_time_add(GRPC_STATS_TIME_SERVER_CQ_NEXT, c2 - c1);
+            }
+          },
+          i);
+    }
+
+    for (auto& th : ths) {
+      th.join();
     }
   }
 
   std::vector<std::unique_ptr<ServerCompletionQueue>> cqs_;
   Greeter::AsyncService service_;
+  grpc::AsyncGenericService generic_service_;
   std::unique_ptr<Server> server_;
-  std::thread grab_mem_th_;
 };
-
-std::string ServerImpl::RecvBufCallData::tensor_buf;
 
 void grpc_stats_time_print();
 
@@ -385,8 +322,15 @@ int main(int argc, char** argv) {
     setenv("GRPC_EXECUTOR", std::to_string(FLAGS_executor).c_str(), 1);
   }
   ServerImpl server;
-  // server.Run();
-  server.RunRecvBuf();
+
+  if (FLAGS_generic) {
+    server.StartGenericService();
+    server.HandleGenericRpcs();
+  } else {
+    server.StartService();
+    server.HandleRpcs();
+  }
+
   gflags::ShutDownCommandLineFlags();
 
   return 0;
