@@ -18,6 +18,7 @@ N_REPEAT=1
 SEND_INTERVAL=0
 PROFILING=""
 AFFINITY="false"
+GENERIC="false"
 OVERWRITE=0
 N_WARMUP=100000
 
@@ -75,6 +76,10 @@ for i in "$@"; do
     AFFINITY="${i#*=}"
     shift
     ;;
+  --generic)
+    GENERIC="true"
+    shift
+    ;;
   --warmup=*)
     N_WARMUP="${i#*=}"
     shift
@@ -100,6 +105,10 @@ else
   LOG_PATH="$LOG_PATH/bench_cli_$NP"
 fi
 
+if [[ $GENERIC == "true" ]]; then
+  LOG_PATH="${LOG_PATH}_generic"
+fi
+
 if [[ -n "$LOG_SUFFIX" ]]; then
   LOG_PATH="${LOG_PATH}_${LOG_SUFFIX}"
 fi
@@ -117,7 +126,8 @@ function start_server() {
     -threads="$SERVER_THREADS" \
     -cqs="$SERVER_THREADS" \
     -resp "$RESP_SIZE" \
-    -affinity="$AFFINITY" |& tee "$1" &
+    -affinity="$AFFINITY" \
+    -generic="$GENERIC" |& tee "$1" &
 }
 
 WORKLOADS="greeter_async_client2"
@@ -147,7 +157,8 @@ for workload in ${WORKLOADS}; do
         -cqs "$CLIENT_THREADS" \
         -batch "$BATCH_SIZE" \
         -req "$REQ_SIZE" \
-        -send_interval "$SEND_INTERVAL" | tee -a "${curr_log_path}.tmp" 2>&1
+        -send_interval "$SEND_INTERVAL" \
+        -generic="$GENERIC" | tee -a "${curr_log_path}.tmp" 2>&1
       sleep 1 # Wait for server print out
       kill_server
 

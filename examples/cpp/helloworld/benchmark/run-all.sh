@@ -119,6 +119,42 @@ function varying_data_size_zero_cp() {
   done
 }
 
+function varying_data_size_large() {
+  server_thread=1
+  REQs=(1 1 1 1 1 1)
+  RESPs=(4194304 8388608 16777216 33554432 67108864 134217728)
+  BATCH_SIZEs=(1024 512 256 128 64 32)
+  n_client=1
+  set_hostfile "$n_client"
+  GRPC_MODES=(RDMA_BP)
+
+  for grp_mode in "${GRPC_MODES[@]}"; do
+    for i in "${!REQs[@]}"; do
+      REQ=${REQs[i]}
+      RESP=${RESPs[i]}
+      batch_size=${BATCH_SIZEs[i]}
+
+      export GRPC_PLATFORM_TYPE=$grp_mode
+      export LOG_SUFFIX="${grp_mode}_${REQ}_${RESP}"
+      ./run.sh --server_thread=$server_thread \
+        --client_thread=1 \
+        --req="$REQ" \
+        --resp="$RESP" \
+        --bp-timeout=$bp_timeout \
+        --batch="$batch_size" \
+        --warmup=5
+      ./run.sh --server_thread=$server_thread \
+        --client_thread=1 \
+        --req="$REQ" \
+        --resp="$RESP" \
+        --bp-timeout=$bp_timeout \
+        --batch="$batch_size" \
+        --warmup=5 \
+        --generic
+    done
+  done
+}
+
 function throughput() {
   REQs=(128 256 512 1024 16384 32768 65536 131072 524288 1048576 2097152 4194304)
   RESPs=(128 256 512 1024 16384 32768 65536 131072 524288 1048576 2097152 4194304)
@@ -331,6 +367,10 @@ for i in "$@"; do
     ;;
   --varying-data-size-zerocp)
     varying_data_size_zero_cp
+    shift
+    ;;
+  --varying-data-size-large)
+    varying_data_size_large
     shift
     ;;
   --throughput)
