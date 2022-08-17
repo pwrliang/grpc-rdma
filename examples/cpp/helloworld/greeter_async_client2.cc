@@ -171,10 +171,8 @@ class GenericClient : public Client {
  public:
   explicit GenericClient(std::shared_ptr<Channel> channel)
       : stub_(new grpc::GenericStub(channel)) {
-    recv_buf_ = new uint8_t[1024 * 1024 * 256];
   }
 
-  ~GenericClient() { delete[] recv_buf_; }
 
   void Warmup(const CommSpec& comm_spec) override {
     auto rpc = [this](const grpc::ByteBuffer& byte_buffer) {
@@ -269,8 +267,6 @@ class GenericClient : public Client {
   CompletionQueue cq_;
   std::string methodName_ = "This can be any name";
   grpc::ByteBuffer req_buf_;
-
-  uint8_t* recv_buf_;
 };
 
 int main(int argc, char** argv) {
