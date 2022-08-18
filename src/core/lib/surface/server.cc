@@ -937,6 +937,7 @@ grpc_call_error Server::RequestCall(grpc_call** call,
   size_t cq_idx;
   grpc_call_error error = ValidateServerRequestAndCq(
       &cq_idx, cq_for_notification, tag, nullptr, nullptr);
+  gpr_log(GPR_ERROR, "call error: %d", error);
   if (error != GRPC_CALL_OK) {
     return error;
   }
@@ -954,6 +955,7 @@ grpc_call_error Server::RequestRegisteredCall(
   grpc_call_error error = ValidateServerRequestAndCq(
       &cq_idx, cq_for_notification, tag_new, optional_payload, rm);
   if (error != GRPC_CALL_OK) {
+    printf("Error: %d\n", error);
     return error;
   }
   RequestedCall* rc =

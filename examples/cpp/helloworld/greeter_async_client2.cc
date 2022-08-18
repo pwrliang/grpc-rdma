@@ -72,6 +72,8 @@ class Client {
   std::atomic_size_t total_data_size_;
 };
 
+
+
 class GreeterClient : public Client {
  public:
   explicit GreeterClient(std::shared_ptr<Channel> channel)
@@ -105,6 +107,7 @@ class GreeterClient : public Client {
   void SayHello(const std::string& user) override {
     GRPCProfiler profiler(GRPC_STATS_TIME_CLIENT_PREPARE);
     HelloRequest request;
+
     request.set_name(user);
     total_data_size_ += request.ByteSizeLong();
     AsyncClientCall* call = new AsyncClientCall;
@@ -173,7 +176,6 @@ class GenericClient : public Client {
       : stub_(new grpc::GenericStub(channel)) {
   }
 
-
   void Warmup(const CommSpec& comm_spec) override {
     auto rpc = [this](const grpc::ByteBuffer& byte_buffer) {
       void* got_tag;
@@ -235,6 +237,7 @@ class GenericClient : public Client {
         checkError(call->status);
         total_data_size_ += call->reply.Length();
         gpr_log(GPR_INFO, "Got len: %zu\n", call->reply.Length());
+
         delete call;
       } else {
         rest_resp_++;
@@ -291,8 +294,11 @@ int main(int argc, char** argv) {
 
     grpc::ChannelArguments args;
     args.SetMaxReceiveMessageSize(-1);
+#if 0
     auto channel = grpc::CreateCustomChannel(
-        FLAGS_host + ":50051", grpc::InsecureChannelCredentials(), args);
+        FLAGS_host + (FLAGS_generic ? ":50052" : ":50051"),
+        grpc::InsecureChannelCredentials(), args);
+
 
     Client* cli;
     if (FLAGS_generic) {
@@ -339,7 +345,70 @@ int main(int argc, char** argv) {
       th.join();
     }
     local_sw.stop();
+#else
+    Client *cli, *cli_generic;
 
+    cli = new GreeterClient(grpc::CreateCustomChannel(
+        FLAGS_host + ":50051", grpc::InsecureChannelCredentials(), args));
+    cli_generic = new GenericClient(grpc::CreateCustomChannel(
+        FLAGS_host + ":50052", grpc::InsecureChannelCredentials(), args));
+
+    std::vector<std::thread> threads;
+    int batch_size = FLAGS_batch;
+    Stopwatch global_sw, local_sw;
+
+    cli->Warmup(comm_spec);
+    cli_generic->Warmup(comm_spec);
+
+    MPI_Barrier(comm_spec.comm());
+    global_sw.start();
+    local_sw.start();
+
+    grpc_stats_time_enable();
+
+    std::string user;
+    user.resize(FLAGS_req);
+
+    threads.emplace_back([&]() {
+      auto chunk_size = batch_size;
+
+      grpc_stats_time_init(0);
+
+      for (int j = 0; j < chunk_size; j++) {
+        cli->SayHello(user);
+        cli->AsyncCompleteRpc();
+        printf("Sayhello\n");
+
+        auto send_interval_us = FLAGS_send_interval;
+        absl::Time begin_poll = absl::Now();
+        while ((absl::Now() - begin_poll) <
+               absl::Microseconds(send_interval_us)) {
+        }
+      }
+    });
+
+    threads.emplace_back([&]() {
+      auto chunk_size = batch_size;
+
+      grpc_stats_time_init(1);
+
+      for (int j = 0; j < chunk_size; j++) {
+        cli_generic->SayHello(user);
+        cli_generic->AsyncCompleteRpc();
+        printf("Sayhello generic\n");
+
+        auto send_interval_us = FLAGS_send_interval;
+        absl::Time begin_poll = absl::Now();
+        while ((absl::Now() - begin_poll) <
+               absl::Microseconds(send_interval_us)) {
+        }
+      }
+    });
+    for (std::thread& th : threads) {
+      th.join();
+    }
+    local_sw.stop();
+#endif
     MPI_Barrier(comm_spec.comm());
     global_sw.stop();
     double throughput = batch_size / global_sw.s();
