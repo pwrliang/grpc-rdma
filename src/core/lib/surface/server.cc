@@ -924,9 +924,7 @@ grpc_call_error Server::QueueRequestedCall(size_t cq_idx, RequestedCall* rc) {
       rm = rc->data.registered.method->matcher.get();
       break;
   }
-  gpr_log(GPR_INFO, "Before RequestCallWithPossiblePublish");
   rm->RequestCallWithPossiblePublish(cq_idx, rc);
-  gpr_log(GPR_INFO, "After RequestCallWithPossiblePublish");
   return GRPC_CALL_OK;
 }
 
@@ -939,7 +937,6 @@ grpc_call_error Server::RequestCall(grpc_call** call,
   size_t cq_idx;
   grpc_call_error error = ValidateServerRequestAndCq(
       &cq_idx, cq_for_notification, tag, nullptr, nullptr);
-  gpr_log(GPR_ERROR, "call error: %d", error);
   if (error != GRPC_CALL_OK) {
     return error;
   }
@@ -957,7 +954,6 @@ grpc_call_error Server::RequestRegisteredCall(
   grpc_call_error error = ValidateServerRequestAndCq(
       &cq_idx, cq_for_notification, tag_new, optional_payload, rm);
   if (error != GRPC_CALL_OK) {
-    gpr_log(GPR_ERROR, "ValidateServerRequestAndCq failed, error: %d", error);
     return error;
   }
   RequestedCall* rc =
