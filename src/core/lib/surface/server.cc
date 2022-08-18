@@ -924,7 +924,9 @@ grpc_call_error Server::QueueRequestedCall(size_t cq_idx, RequestedCall* rc) {
       rm = rc->data.registered.method->matcher.get();
       break;
   }
+  gpr_log(GPR_INFO, "Before RequestCallWithPossiblePublish");
   rm->RequestCallWithPossiblePublish(cq_idx, rc);
+  gpr_log(GPR_INFO, "After RequestCallWithPossiblePublish");
   return GRPC_CALL_OK;
 }
 
@@ -955,7 +957,7 @@ grpc_call_error Server::RequestRegisteredCall(
   grpc_call_error error = ValidateServerRequestAndCq(
       &cq_idx, cq_for_notification, tag_new, optional_payload, rm);
   if (error != GRPC_CALL_OK) {
-    printf("Error: %d\n", error);
+    gpr_log(GPR_ERROR, "ValidateServerRequestAndCq failed, error: %d", error);
     return error;
   }
   RequestedCall* rc =
@@ -1286,7 +1288,7 @@ void Server::CallData::Publish(size_t cq_idx, RequestedCall* rc) {
       }
       break;
     default:
-      GPR_UNREACHABLE_CODE(return );
+      GPR_UNREACHABLE_CODE(return);
   }
   grpc_cq_end_op(cq_new_, rc->tag, GRPC_ERROR_NONE, Server::DoneRequestEvent,
                  rc, &rc->completion, true);
