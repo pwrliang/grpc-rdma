@@ -241,12 +241,10 @@ ServerInterface::GenericAsyncRequest::GenericAsyncRequest(
   GPR_ASSERT(call_cq);
   // The following call_start_batch is internally-generated so no need for an
   // explanatory log on failure.
-  auto err = grpc_server_request_call(server->server(), &call_, &call_details_,
+  GPR_ASSERT(grpc_server_request_call(server->server(), &call_, &call_details_,
                                       context->client_metadata_.arr(),
                                       call_cq->cq(), notification_cq->cq(),
-                                      this);
-  gpr_log(GPR_ERROR, "grpc_server_request_call Err: %d", err);
-  GPR_ASSERT(err == GRPC_CALL_OK);
+                                      this) == GRPC_CALL_OK);
 }
 
 bool ServerInterface::GenericAsyncRequest::FinalizeResult(void** tag,
