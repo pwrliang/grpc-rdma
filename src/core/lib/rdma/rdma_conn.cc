@@ -279,7 +279,9 @@ int RDMAConn::PollSendCompletion(int expected_num_entries) {
     ibv_wc wc[DEFAULT_MAX_POST_SEND];
     int r;
 
-    while ((r = ibv_poll_cq(scq_.get(), MIN(DEFAULT_MAX_POST_SEND, expected_num_entries), wc)) > 0) {
+    while ((r = ibv_poll_cq(scq_.get(),
+                            MIN(DEFAULT_MAX_POST_SEND, expected_num_entries),
+                            wc)) > 0) {
       for (int i = 0; i < r; i++) {
         if (wc[i].status != IBV_WC_SUCCESS) {
           gpr_log(GPR_ERROR, "PollRecvCompletion, wc status = %d",
@@ -305,7 +307,9 @@ int RDMAConn::PollSendCompletion(int expected_num_entries, const char* debug) {
     ibv_wc wc[DEFAULT_MAX_POST_SEND];
     int r;
 
-    while ((r = ibv_poll_cq(scq_.get(), DEFAULT_MAX_POST_SEND, wc)) > 0) {
+    while ((r = ibv_poll_cq(scq_.get(),
+                            MIN(DEFAULT_MAX_POST_SEND, expected_num_entries),
+                            wc)) > 0) {
       for (int i = 0; i < r; i++) {
         if (wc[i].status != IBV_WC_SUCCESS) {
           gpr_log(GPR_ERROR, "PollRecvCompletion, wc status = %d",
@@ -315,10 +319,10 @@ int RDMAConn::PollSendCompletion(int expected_num_entries, const char* debug) {
       }
       expected_num_entries -= r;
       if (expected_num_entries < 0) {
-        gpr_log(
-            GPR_ERROR,
-            "channel: %s initial_expected_num_entries: %d curr_expected_num_entries: %d",
-            debug, initial_expected_num_entries, expected_num_entries);
+        gpr_log(GPR_ERROR,
+                "channel: %s initial_expected_num_entries: %d "
+                "curr_expected_num_entries: %d",
+                debug, initial_expected_num_entries, expected_num_entries);
       }
       GPR_ASSERT(expected_num_entries >= 0);
     }
