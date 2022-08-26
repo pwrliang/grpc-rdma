@@ -312,7 +312,7 @@ int RDMAConn::PollSendCompletion(int expected_num_entries, const char* debug) {
                             wc)) > 0) {
       for (int i = 0; i < r; i++) {
         if (wc[i].status != IBV_WC_SUCCESS) {
-          gpr_log(GPR_ERROR, "PollRecvCompletion, wc status = %d",
+          gpr_log(GPR_ERROR, "PollSendCompletion, wc status = %d",
                   wc[i].status);
           return wc[i].status;
         }

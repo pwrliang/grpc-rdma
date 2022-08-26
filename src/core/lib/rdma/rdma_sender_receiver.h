@@ -366,6 +366,8 @@ class RDMASenderReceiverEvent : public RDMASenderReceiver {
 
   int Recv(msghdr* msg, ssize_t* sz) override;
 
+  int SendChunk(msghdr* msg, ssize_t* sz);
+
   size_t MarkMessageLength() override;
 
   int get_recv_channel_fd() const { return conn_data_->get_recv_channel_fd(); }
@@ -408,7 +410,7 @@ class RDMASenderReceiverEvent : public RDMASenderReceiver {
     size_t avail_rr_num =
         (remote_rr_tail - remote_rr_head_ + DEFAULT_MAX_POST_RECV) %
         DEFAULT_MAX_POST_RECV;
-    if (avail_rr_num == 0) {
+    if (avail_rr_num <= 5) {
       return false;
     }
 

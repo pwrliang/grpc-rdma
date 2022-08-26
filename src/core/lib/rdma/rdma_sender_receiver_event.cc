@@ -161,8 +161,9 @@ int RDMASenderReceiverEvent::Send(msghdr* msg, ssize_t* sz) {
   }
   if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_sr_event_debug_trace)) {
     total_sent_ += nwritten;
-    printf("zerocopy send = %lld, total send = %lld, ratio = %.4lf\n", 
-      total_zerocopy_send_size, total_sent_.load(), double(total_zerocopy_send_size) / total_sent_.load());
+    printf("zerocopy send = %lld, total send = %lld, ratio = %.4lf\n",
+           total_zerocopy_send_size, total_sent_.load(),
+           double(total_zerocopy_send_size) / total_sent_.load());
   }
   if (sz != nullptr) {
     *sz = nwritten;
@@ -170,6 +171,87 @@ int RDMASenderReceiverEvent::Send(msghdr* msg, ssize_t* sz) {
 
   if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_sr_event_trace)) {
     gpr_log(GPR_INFO, "send, mlen: %zu", mlen);
+  }
+
+  return 0;
+}
+
+int RDMASenderReceiverEvent::SendChunk(msghdr* msg, ssize_t* sz) {
+  ContentAssertion cass(write_content_counter_);
+  size_t remote_ringbuf_sz = remote_ringbuf_mr_.length();
+
+  if (sz != nullptr) {
+    *sz = -1;
+  }
+
+  if (status_ != Status::kConnected) {
+    return EPIPE;
+  }
+  auto ringbuf_head = get_remote_ringbuf_head();  // get head snapshot
+  auto get_avail_rr = [this]() {
+    size_t remote_rr_tail = reinterpret_cast<size_t*>(metadata_recvbuf_)[1];
+    return (remote_rr_tail - remote_rr_head_ + DEFAULT_MAX_POST_RECV) %
+           DEFAULT_MAX_POST_RECV;
+  };
+  auto get_avail_space = [this, remote_ringbuf_sz, ringbuf_head]() {
+    size_t used_space =
+        (remote_ringbuf_sz + remote_ringbuf_tail_ - ringbuf_head) %
+        remote_ringbuf_sz;
+    return remote_ringbuf_sz - 8 - used_space;
+  };
+
+  size_t total_size = 0;
+  size_t written_size = 0;
+  size_t offset = 0;
+
+  for (size_t iov_idx = 0; iov_idx < msg->msg_iovlen; iov_idx++) {
+    total_size += msg->msg_iov[iov_idx].iov_len;
+  }
+
+  size_t chunk_size = RDMAConfig::GetInstance().get_send_chunk_size();
+
+  for (size_t iov_idx = 0; iov_idx < msg->msg_iovlen; iov_idx++) {
+    void* iov_base = msg->msg_iov[iov_idx].iov_base;
+    size_t iov_len = msg->msg_iov[iov_idx].iov_len;
+    size_t writable_size = std::min(get_max_send_size() - written_size,
+                                    std::min(iov_len, get_avail_space()));
+    size_t rest_size = writable_size;
+
+    // reserve 5 recv requests
+    while (rest_size > 0 && get_avail_rr() > 5) {
+      size_t curr_writable_size = std::min(chunk_size, rest_size);
+
+      memcpy(sendbuf_ + offset, iov_base, curr_writable_size);
+      GPR_ASSERT(offset < get_max_send_size());
+
+      int n_posted = conn_data_->PostSendRequest(
+          remote_ringbuf_mr_, remote_ringbuf_tail_, sendbuf_mr_, offset,
+          curr_writable_size, IBV_WR_RDMA_WRITE_WITH_IMM);
+      n_outstanding_send_ += n_posted;
+      remote_rr_head_ = (remote_rr_head_ + n_posted) % DEFAULT_MAX_POST_RECV;
+      remote_ringbuf_tail_ =
+          (remote_ringbuf_tail_ + curr_writable_size) % remote_ringbuf_sz;
+      written_size += curr_writable_size;
+      offset += curr_writable_size;
+      rest_size -= curr_writable_size;
+    }
+
+    // rr drained
+    if (rest_size > 0) {
+      break;
+    }
+  }
+  last_failed_send_size_ = total_size - written_size;
+
+  if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_sr_event_debug_trace)) {
+    total_sent_ += written_size;
+  }
+
+  if (sz != nullptr) {
+    if (written_size == 0) {
+      return EAGAIN;
+    }
+    *sz = written_size;
   }
 
   return 0;

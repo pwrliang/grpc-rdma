@@ -39,12 +39,12 @@ size_t global_sendbuf_capacities[GS_CAP_GENRES] = {1024,
 //                                              16,  // 64MB
 //                                              4};  // 256MB
 
-size_t global_sendbuf_nums[GS_CAP_GENRES] = {1,  // 1KB
-                                             1,  // 32KB
-                                             1,  // 1MB
-                                             1,  // 4MB
-                                             1,  // 16MB
-                                             1,  // 64MB
+size_t global_sendbuf_nums[GS_CAP_GENRES] = {1,   // 1KB
+                                             1,   // 32KB
+                                             1,   // 1MB
+                                             1,   // 4MB
+                                             1,   // 16MB
+                                             1,   // 64MB
                                              1};  // 256MB
 
 uint8_t* global_sendbuf_alloc(size_t size) {
@@ -445,7 +445,7 @@ bool RingBufferEvent::Read(msghdr* msg, size_t& expected_read_size) {
     iov_rbase = static_cast<uint8_t*>(msg->msg_iov[i].iov_base) + iov_offset;
     rb_ptr = buf_ + head;
     n = MIN3(capacity_ - head, expected_read_size - lens, iov_rlen);
-    memcpy(iov_rbase, rb_ptr, n);
+    mt_memcpy(iov_rbase, rb_ptr, n);
 #ifndef NDEBUG
     if (GRPC_TRACE_FLAG_ENABLED(grpc_trace_ringbuffer)) {
       gpr_log(GPR_DEBUG, "read_to_msghdr, read %zu bytes from head %zu", n,
@@ -472,4 +472,9 @@ bool RingBufferEvent::Read(msghdr* msg, size_t& expected_read_size) {
   }
 
   return false;
+}
+
+size_t RingBufferEvent::Read(msghdr* msg, bool& recycle) {
+  gpr_log(GPR_ERROR, "Unimplemented");
+  abort();
 }
