@@ -408,7 +408,7 @@ static bool rdma_flush_chunk(grpc_rdma* rdma, grpc_error_handle* error) {
   // buffer as we write
   size_t outgoing_slice_idx = 0;
 
-  rdma->rdmasr->pollLastSendCompletion();
+
 
   while (true) {
     sending_length = 0;
@@ -434,6 +434,7 @@ static bool rdma_flush_chunk(grpc_rdma* rdma, grpc_error_handle* error) {
     msg.msg_iovlen = iov_size;
 
     int err = rdma->rdmasr->SendChunk(&msg, &sent_length);
+    rdma->rdmasr->pollLastSendCompletion();
 
     if (sent_length < 0) {
       if (err == EAGAIN) {
@@ -492,7 +493,7 @@ static void rdma_handle_write(void* arg /* grpc_tcp */,
     return;
   }
 
-  bool flush_result = rdma_flush(rdma, &error);
+  bool flush_result = rdma_flush_chunk(rdma, &error);
   if (!flush_result) {
     if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_trace)) {
       gpr_log(GPR_INFO, "write: delayed");
@@ -529,7 +530,7 @@ static void rdma_write(grpc_endpoint* ep, grpc_slice_buffer* buf,
   rdma->outgoing_buffer = buf;
   rdma->outgoing_byte_idx = 0;
 
-  bool flush_result = rdma_flush(rdma, &error);
+  bool flush_result = rdma_flush_chunk(rdma, &error);
   if (!flush_result) {
     RDMA_REF(rdma, "write");
     rdma->write_cb = cb;
