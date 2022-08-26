@@ -217,8 +217,9 @@ int RDMASenderReceiverEvent::SendChunk(msghdr* msg, ssize_t* sz) {
                                     std::min(iov_len, get_avail_space()));
     size_t rest_size = writable_size;
 
-    // reserve 5 recv requests
-    while (rest_size > 0 && get_avail_rr() > 5) {
+    // reserve 10 send/recv requests for safety
+    while (rest_size > 0 && get_avail_rr() > 10 &&
+           n_outstanding_send_ < DEFAULT_MAX_SEND_WR - 10) {
       size_t curr_writable_size = std::min(chunk_size, rest_size);
 
       memcpy(sendbuf_ + offset, iov_base, curr_writable_size);
@@ -236,7 +237,7 @@ int RDMASenderReceiverEvent::SendChunk(msghdr* msg, ssize_t* sz) {
       rest_size -= curr_writable_size;
     }
 
-    // rr drained
+    // send/recv requests drained
     if (rest_size > 0) {
       break;
     }
