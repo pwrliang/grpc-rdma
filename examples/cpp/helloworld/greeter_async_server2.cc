@@ -76,9 +76,6 @@ class ServerImpl final {
     for (auto& cq : cqs_) {
       cq->Shutdown();
     }
-    for (auto& cq : cqs_generic_) {
-      cq->Shutdown();
-    }
   }
 
   void StartService() {
@@ -100,7 +97,7 @@ class ServerImpl final {
   }
 
   void StartGenericService() {
-    std::string server_address("0.0.0.0:50052");
+    std::string server_address("0.0.0.0:50051");
 
     ServerBuilder builder;
     builder.SetOption(
@@ -109,9 +106,9 @@ class ServerImpl final {
     builder.RegisterAsyncGenericService(&generic_service_);
     builder.SetMaxReceiveMessageSize(-1);
     for (int i = 0; i < FLAGS_cqs; i++) {
-      cqs_generic_.emplace_back(builder.AddCompletionQueue());
+      cqs_.emplace_back(builder.AddCompletionQueue());
     }
-    server_generic_ = builder.BuildAndStart();
+    server_ = builder.BuildAndStart();
     std::cout << "Server listening on " << server_address
               << ", thread: " << FLAGS_threads << ", cq: " << FLAGS_cqs
               << std::endl;
@@ -193,7 +190,6 @@ class ServerImpl final {
         std::vector<grpc::Slice> slices;
 
         req_.Dump(&slices);
-        printf("Slices num: %zu\n", slices.size());
         // Server got a notification that we should start benchmark
         if (*slices[0].begin() == 0xab) {
           gpr_log(GPR_INFO, "Start benchmark\n");
@@ -227,7 +223,9 @@ class ServerImpl final {
     CallStatus status_;
   };
 
-  void HandleRpcs(std::vector<std::thread>& ths) {
+  void HandleRpcs() {
+    std::vector<std::thread> ths;
+
     for (int i = 0; i < FLAGS_threads; i++) {
       ths.emplace_back(
           [this](int idx) {
@@ -253,13 +251,19 @@ class ServerImpl final {
           },
           i);
     }
+
+    for (auto& th : ths) {
+      th.join();
+    }
   }
 
-  void HandleGenericRpcs(std::vector<std::thread>& ths) {
+  void HandleGenericRpcs() {
+    std::vector<std::thread> ths;
+
     for (int i = 0; i < FLAGS_threads; i++) {
       ths.emplace_back(
           [this](int idx) {
-            auto& cq = cqs_generic_[idx % cqs_generic_.size()];
+            auto& cq = cqs_[idx % cqs_.size()];
             new GenericCallData(&generic_service_, cq.get());
             void* tag;
             bool ok;
@@ -279,14 +283,16 @@ class ServerImpl final {
           },
           i);
     }
+
+    for (auto& th : ths) {
+      th.join();
+    }
   }
 
   std::vector<std::unique_ptr<ServerCompletionQueue>> cqs_;
-  std::vector<std::unique_ptr<ServerCompletionQueue>> cqs_generic_;
   Greeter::AsyncService service_;
   grpc::AsyncGenericService generic_service_;
   std::unique_ptr<Server> server_;
-  std::unique_ptr<Server> server_generic_;
 };
 
 void grpc_stats_time_print();
@@ -316,7 +322,7 @@ int main(int argc, char** argv) {
     setenv("GRPC_EXECUTOR", std::to_string(FLAGS_executor).c_str(), 1);
   }
   ServerImpl server;
-#if 0
+
   if (FLAGS_generic) {
     server.StartGenericService();
     server.HandleGenericRpcs();
@@ -324,17 +330,7 @@ int main(int argc, char** argv) {
     server.StartService();
     server.HandleRpcs();
   }
-#else
-  server.StartGenericService();
-  server.StartService();
-  std::vector<std::thread> ths;
 
-  server.HandleGenericRpcs(ths);
-  server.HandleRpcs(ths);
-  for (auto& th : ths) {
-    th.join();
-  }
-#endif
   gflags::ShutDownCommandLineFlags();
 
   return 0;

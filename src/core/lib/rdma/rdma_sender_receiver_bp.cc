@@ -293,7 +293,7 @@ int RDMASenderReceiverBP::Send(msghdr* msg, ssize_t* sz) {
     void* iov_base = msg->msg_iov[iov_idx].iov_base;
     size_t iov_len = msg->msg_iov[iov_idx].iov_len;
 
-    if (ZerocopySendbufContains(iov_base)) {
+    if (ZerocopySendbufContains(iov_base) && false) {
       zerocopy = true;
       init_sge(&sges[++sge_idx], iov_base, iov_len,
                zerocopy_sendbuf_mr_.lkey());

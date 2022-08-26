@@ -130,16 +130,7 @@ class ClientAsyncResponseReaderHelper {
             call, sizeof(SingleBufType))) SingleBufType;
     *single_buf_ptr = single_buf;
     // TODO(ctiller): don't assert
-    // GPR_CODEGEN_ASSERT(single_buf->SendMessage(request).ok());
-    switch (grpc_check_iomgr_platform()) {
-      case IOMGR_TCP:
-        GPR_CODEGEN_ASSERT(single_buf->SendMessage(request).ok());
-        break;
-      case IOMGR_RDMA_BP:
-      case IOMGR_RDMA_EVENT:
-      case IOMGR_RDMA_BPEV:
-        GPR_CODEGEN_ASSERT(single_buf->SendMessage(request, call).ok());
-    }
+    GPR_CODEGEN_ASSERT(single_buf->SendMessage(request).ok());
     single_buf->ClientSendClose();
 
     // The purpose of the following functions is to type-erase the actual
@@ -354,20 +345,8 @@ class ServerAsyncResponseWriter final
     }
     // The response is dropped if the status is not OK.
     if (status.ok()) {
-      // finish_buf_.ServerSendStatus(&ctx_->trailing_metadata_,
-      //                              finish_buf_.SendMessage(msg));
-      switch (grpc_check_iomgr_platform()) {
-        case IOMGR_TCP:
-          finish_buf_.ServerSendStatus(&ctx_->trailing_metadata_,
+      finish_buf_.ServerSendStatus(&ctx_->trailing_metadata_,
                                    finish_buf_.SendMessage(msg));
-          break;
-        case IOMGR_RDMA_BP:
-        case IOMGR_RDMA_EVENT:
-        case IOMGR_RDMA_BPEV:
-          finish_buf_.ServerSendStatus(&ctx_->trailing_metadata_,
-                                   finish_buf_.SendMessage(msg, call_.call()));
-          break;
-      }
     } else {
       finish_buf_.ServerSendStatus(&ctx_->trailing_metadata_, status);
     }
