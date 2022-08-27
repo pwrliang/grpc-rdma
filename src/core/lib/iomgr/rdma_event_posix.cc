@@ -408,8 +408,6 @@ static bool rdma_flush_chunk(grpc_rdma* rdma, grpc_error_handle* error) {
   // buffer as we write
   size_t outgoing_slice_idx = 0;
 
-  rdma->rdmasr->pollLastSendCompletion();
-
   while (true) {
     sending_length = 0;
     unwind_slice_idx = outgoing_slice_idx;
@@ -432,7 +430,7 @@ static bool rdma_flush_chunk(grpc_rdma* rdma, grpc_error_handle* error) {
 
     msg.msg_iov = iov;
     msg.msg_iovlen = iov_size;
-
+    rdma->rdmasr->PollLastSendCompletion();
     int err = rdma->rdmasr->SendChunk(&msg, &sent_length);
 
     if (sent_length < 0) {

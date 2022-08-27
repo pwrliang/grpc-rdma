@@ -15,6 +15,7 @@
 #include <thread>
 #include "grpc/impl/codegen/log.h"
 #include "src/core/lib/rdma/rdma_utils.h"
+#define DEFAULT_MIN_RESERVED_WR 10
 #define DEFAULT_MAX_SEND_WR 512
 #define DEFAULT_MAX_RECV_WR 512
 #define DEFAULT_MAX_SEND_SGE 20  // max is 30
@@ -29,12 +30,12 @@ class RDMASenderReceiverEvent;
 
 class RDMAConn {
  public:
-  explicit RDMAConn(int fd, RDMANode* node, bool event_mode = false);
+  explicit RDMAConn(int fd, RDMANode* node, const char* name = "",
+                    bool event_mode = false);
   virtual ~RDMAConn();
 
-  int PollSendCompletion(int expected_num_entries);
-
-  int PollSendCompletion(int expected_num_entries, const char* debug);
+  int PollSendCompletion(int expected_num_entries,
+                         size_t* sent_size_bytes = nullptr);
 
   int PostSendRequest(MemRegion& remote_mr, MemRegion& local_mr, size_t sz,
                       ibv_wr_opcode opcode);
@@ -59,7 +60,7 @@ class RDMAConn {
   // after qp was created, sync data with remote
   int SyncQP();
 
-  int SyncMR(MemRegion& local, MemRegion& remote);
+  int SyncMR(const MemRegion& local, MemRegion& remote);
 
   void Sync() { barrier(fd_); }
 
@@ -112,6 +113,7 @@ class RDMAConn {
   union ibv_gid gid_rt_;
 
   std::shared_ptr<ibv_comp_channel> recv_channel_;
+  const char* name_;
   // rr stands for receive request
   size_t rr_tail_ = 0, rr_garbage_ = 0;
   size_t unack_cqe_ = 0;

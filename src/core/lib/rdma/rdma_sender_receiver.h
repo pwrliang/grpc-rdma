@@ -50,7 +50,6 @@ class RDMASenderReceiver {
         metadata_recvbuf_sz_(DEFAULT_HEADBUF_SZ),
         metadata_sendbuf_sz_(DEFAULT_HEADBUF_SZ),
         n_outstanding_send_(0),
-        bytes_outstanding_send_(0),
         last_failed_send_size_(0),
         read_content_conter_(0),
         write_content_counter_(0),
@@ -64,7 +63,8 @@ class RDMASenderReceiver {
     auto pd = node.get_pd();
     size_t sendbuf_size = ringbuf->get_sendbuf_size();
 
-    send_chunk_size_ = MIN(RDMAConfig::GetInstance().get_send_chunk_size(), sendbuf_size - sizeof(size_t) - 1);
+    send_chunk_size_ = MIN(RDMAConfig::GetInstance().get_send_chunk_size(),
+                           sendbuf_size - sizeof(size_t) - 1);
 
     sendbuf_ = new uint8_t[sendbuf_size];
 
@@ -124,7 +124,9 @@ class RDMASenderReceiver {
         "total sent = %lld, total zerocopy sent = %lld, zerocopy ratio = %7.3f",
         total_sent_.load(), total_zerocopy_send_size,
         double(total_zerocopy_send_size) / total_sent_.load());
-    printf("total sent = %lld, total zerocopy sent = %lld, zerocopy ratio = %7.3f\n",
+    printf(
+        "total sent = %lld, total zerocopy sent = %lld, zerocopy ratio = "
+        "%7.3f\n",
         total_sent_.load(), total_zerocopy_send_size,
         double(total_zerocopy_send_size) / total_sent_.load());
     status_ = Status::kDisconnected;
@@ -148,25 +150,10 @@ class RDMASenderReceiver {
 
   virtual size_t MarkMessageLength() = 0;
 
-  void pollLastSendCompletion() {
-    uint32_t n_poll = n_outstanding_send_.exchange(0);
-    bytes_outstanding_send_.exchange(0);
-
-    if (n_poll > 0) {
-      GRPCProfiler profiler(GRPC_STATS_TIME_SEND_POLL, 0);
-      int ret = conn_data_->PollSendCompletion(n_poll, "data");
-
-      if (ret != 0) {
-        gpr_log(GPR_ERROR,
-                "rdmasr: %p pollLastSendCompletion failed, code: %d ", this,
-                ret);
-        abort();
-      }
-    }
-  }
+  virtual void PollLastSendCompletion() = 0;
 
   void* RequireZerocopySendSpace(size_t size) {
-    pollLastSendCompletion();
+    PollLastSendCompletion();
     if (!zerocopy_ || size >= ringbuf_->get_sendbuf_size() - 64) {
       return nullptr;
     }
@@ -199,8 +186,8 @@ class RDMASenderReceiver {
     size_t curr_head = static_cast<volatile size_t*>(metadata_recvbuf_)[0];
     MEM_BAR()
     if (curr_head != prev_remote_head_) {
-      gpr_log(GPR_INFO, "%c received new head, %zu->%zu",
-              is_server() ? 'S' : 'C', prev_remote_head_, curr_head);
+//      gpr_log(GPR_INFO, "%c received new head, %zu->%zu",
+//              is_server() ? 'S' : 'C', prev_remote_head_, curr_head);
       prev_remote_head_ = curr_head;
     }
     return curr_head;
@@ -222,7 +209,6 @@ class RDMASenderReceiver {
   uint8_t *sendbuf_, *zerocopy_sendbuf_;
   MemRegion sendbuf_mr_, zerocopy_sendbuf_mr_;
   std::atomic_uint32_t n_outstanding_send_;
-  std::atomic_uint32_t bytes_outstanding_send_;
   std::atomic_uint32_t last_failed_send_size_;
   size_t send_chunk_size_;
   size_t sendbuf_sz_;
@@ -299,7 +285,26 @@ class RDMASenderReceiverBP : public RDMASenderReceiver {
     return event;
   }
 
+  void PollLastSendCompletion() override {
+    uint32_t n_poll = n_outstanding_send_.exchange(0);
+
+    if (n_poll > 0) {
+      GRPCProfiler profiler(GRPC_STATS_TIME_SEND_POLL, 0);
+      int ret = conn_data_->PollSendCompletion(n_poll);
+
+      if (ret != 0) {
+        gpr_log(GPR_ERROR,
+                "rdmasr: %p PollLastSendCompletion failed, code: %d ", this,
+                ret);
+        abort();
+      }
+    }
+    bytes_outstanding_send_.exchange(0);
+  }
+
  private:
+  std::atomic_uint32_t bytes_outstanding_send_;
+
   bool isWritable(size_t mlen) override {
     size_t len = mlen + sizeof(size_t) + 1;
     size_t remote_ringbuf_sz = remote_ringbuf_mr_.length();
@@ -321,7 +326,7 @@ class RDMASenderReceiverBP : public RDMASenderReceiver {
         remote_metadata_recvbuf_mr_, metadata_sendbuf_mr_, metadata_sendbuf_sz_,
         IBV_WR_RDMA_WRITE);
     MEM_BAR();
-    int ret = conn_metadata_->PollSendCompletion(n_entries, "meta");
+    int ret = conn_metadata_->PollSendCompletion(n_entries);
     MEM_BAR();
     if (ret != 0) {
       gpr_log(GPR_ERROR,
@@ -380,6 +385,26 @@ class RDMASenderReceiverEvent : public RDMASenderReceiver {
 
   void SetMetadataReady() { metadata_ready_ = true; }
 
+  void PollLastSendCompletion() override {
+    uint32_t n_poll = n_outstanding_send_.exchange(0);
+
+    if (n_poll > 0) {
+      size_t sent_size = 0;
+      GRPCProfiler profiler(GRPC_STATS_TIME_SEND_POLL, 0);
+      int ret = conn_data_->PollSendCompletion(n_poll, &sent_size);
+
+      if (ret != 0) {
+        gpr_log(GPR_ERROR,
+                "rdmasr: %p PollLastSendCompletion failed, code: %d ", this,
+                ret);
+        abort();
+      }
+
+      total_send_ += n_poll;
+      send_buf_head_ = (send_buf_head_ + sent_size) % sendbuf_sz_;
+    }
+  }
+
  private:
   int updateRemoteMetadata() override {
     reinterpret_cast<size_t*>(metadata_sendbuf_)[0] = ringbuf_->get_head();
@@ -387,7 +412,7 @@ class RDMASenderReceiverEvent : public RDMASenderReceiver {
     int n_entries = conn_metadata_->PostSendRequest(
         remote_metadata_recvbuf_mr_, metadata_sendbuf_mr_, metadata_sendbuf_sz_,
         IBV_WR_RDMA_WRITE_WITH_IMM);
-    int ret = conn_metadata_->PollSendCompletion(n_entries, "meta");
+    int ret = conn_metadata_->PollSendCompletion(n_entries);
 
     if (ret != 0) {
       gpr_log(GPR_ERROR,
@@ -418,7 +443,9 @@ class RDMASenderReceiverEvent : public RDMASenderReceiver {
   }
 
   size_t remote_rr_head_ = 0;
+  size_t send_buf_head_, send_buf_tail_;
   std::atomic_bool data_ready_, metadata_ready_;
+  size_t total_send_ = 0;
 };
 
 #endif  // GRPC_CORE_LIB_RDMA_RDMA_SENDER_RECEIVER_H

@@ -7,15 +7,16 @@
 #include "src/core/lib/rdma/rdma_conn.h"
 grpc_core::TraceFlag grpc_rdma_conn_trace(false, "rdma_conn");
 
-RDMAConn::RDMAConn(int fd, RDMANode* node, bool event_mode)
-    : fd_(fd), node_(node) {
+RDMAConn::RDMAConn(int fd, RDMANode* node, const char* name, bool event_mode)
+    : fd_(fd), node_(node), name_(name) {
   ibv_context* ctx = node_->get_ctx().get();
   ibv_pd* pd = node_->get_pd().get();
 
   scq_ = std::shared_ptr<ibv_cq>(ibv_create_cq(ctx, DEFAULT_CQE, NULL, NULL, 0),
                                  [](ibv_cq* p) { ibv_destroy_cq(p); });
   if (!scq_) {
-    gpr_log(GPR_ERROR, "Failed to create CQ for a connection");
+    gpr_log(GPR_ERROR, "Channel: %s Failed to create CQ for a connection",
+            name_);
     abort();
   }
 
@@ -27,8 +28,7 @@ RDMAConn::RDMAConn(int fd, RDMANode* node, bool event_mode)
     int recv_flags = fcntl(recv_channel_->fd, F_GETFL);
     if (fcntl(recv_channel_->fd, F_SETFL, recv_flags | O_NONBLOCK) < 0) {
       gpr_log(GPR_ERROR,
-              "RDMAConnEvent::RDMAConnEvent, failed to change channel fd to "
-              "non-blocking");
+              "Channel: %s Failed to change channel fd to non-blocking", name_);
       abort();
     }
   }
@@ -49,7 +49,8 @@ RDMAConn::RDMAConn(int fd, RDMANode* node, bool event_mode)
   //  }
 
   if (!rcq_) {
-    gpr_log(GPR_ERROR, "Failed to create CQ for a connection");
+    gpr_log(GPR_ERROR, "Channel: %s, Failed to create CQ for a connection",
+            name_);
     abort();
   }
 
@@ -70,7 +71,8 @@ RDMAConn::RDMAConn(int fd, RDMANode* node, bool event_mode)
   qp_ = std::shared_ptr<ibv_qp>(ibv_create_qp(pd, &qp_attr_),
                                 [](ibv_qp* p) { ibv_destroy_qp(p); });
   if (qp_ == nullptr) {
-    gpr_log(GPR_ERROR, "Failed to create QP for a connection");
+    gpr_log(GPR_ERROR, "Channel: %s, Failed to create QP for a connection",
+            name_);
     abort();
   }
 }
@@ -84,7 +86,7 @@ RDMAConn::~RDMAConn() {
   }
 }
 
-int RDMAConn::SyncMR(MemRegion& local, MemRegion& remote) {
+int RDMAConn::SyncMR(const MemRegion& local, MemRegion& remote) {
   struct {
     void* addr;
     uint32_t rkey;
@@ -92,7 +94,9 @@ int RDMAConn::SyncMR(MemRegion& local, MemRegion& remote) {
   } lo = {local.addr(), local.rkey(), local.length()}, rt;
 
   if (sync_data(fd_, (char*)&lo, (char*)&rt, sizeof(lo))) {
-    gpr_log(GPR_ERROR, "RDMAConn::SyncMR, failed to exchange MR information");
+    gpr_log(GPR_ERROR,
+            "Channel: %s, RDMAConn::SyncMR, failed to exchange MR information",
+            name_);
     abort();
   }
 
@@ -116,7 +120,9 @@ int RDMAConn::SyncQP() {
   // exchange data for nodes
   if (sync_data(fd_, (char*)&local, (char*)&remote, sizeof(local))) {
     gpr_log(GPR_ERROR,
-            "RDMAConn::sync, failed to exchange QP data and the initial MR");
+            "Channel: %s, RDMAConn::sync, failed to exchange QP data and the "
+            "initial MR",
+            name_);
     abort();
   }
 
@@ -126,18 +132,24 @@ int RDMAConn::SyncQP() {
   memcpy(&gid_rt_, remote.gid, sizeof(gid_rt_));
 
   if (modify_qp_to_init(qp_.get())) {
-    gpr_log(GPR_ERROR, "RDMAConn::sync, failed to change to INIT state");
+    gpr_log(GPR_ERROR,
+            "Channel: %s, RDMAConn::sync, failed to change to INIT state",
+            name_);
     abort();
   }
 
   if (modify_qp_to_rtr(qp_.get(), qp_num_rt_, psn_rt_, lid_rt_, gid_rt_,
                        node_->get_port_attr().link_layer)) {
-    gpr_log(GPR_ERROR, "DMAConn::sync, failed to change to RTR state");
+    gpr_log(GPR_ERROR,
+            "Channel: %s, RDMAConn::sync, failed to change to RTR state",
+            name_);
     abort();
   }
 
   if (modify_qp_to_rts(qp_.get(), psn)) {
-    gpr_log(GPR_ERROR, "DMAConn::sync, failed to change to RTS state");
+    gpr_log(GPR_ERROR,
+            "Channel: %s, RDMAConn::sync, failed to change to RTS state",
+            name_);
     abort();
   }
 
@@ -160,7 +172,7 @@ int RDMAConn::PostSendRequest(MemRegion& remote_mr, MemRegion& local_mr,
           remote_mr.rkey(), 1, 0, 0, nullptr);
 
   if (ibv_post_send(qp_.get(), &sr, &bad_wr) != 0) {
-    gpr_log(GPR_ERROR, "Failed to post send");
+    gpr_log(GPR_ERROR, "Channel: %s, Failed to post send", name_);
     abort();
   }
   return 1;
@@ -183,11 +195,11 @@ int RDMAConn::PostSendRequest(MemRegion& remote_mr, size_t remote_tail,
              local_mr.lkey());
     init_sr(&sr, &sge, opcode,
             static_cast<uint8_t*>(remote_mr.addr()) + remote_tail,
-            remote_mr.rkey(), 1, sz, 0, nullptr);
-
+            remote_mr.rkey(), 1, sz, sz, nullptr);
     int err = ibv_post_send(qp_.get(), &sr, &bad_wr);
     if (err != 0) {
-      gpr_log(GPR_ERROR, "Failed to post send, err: %d", err);
+      gpr_log(GPR_ERROR, "Channel: %s, Failed to post send, err: %d", name_,
+              err);
       abort();
     }
     return 1;
@@ -201,13 +213,14 @@ int RDMAConn::PostSendRequest(MemRegion& remote_mr, size_t remote_tail,
            local_mr.lkey());
   init_sr(&sr1, &sge1, opcode,
           static_cast<uint8_t*>(remote_mr.addr()) + remote_tail,
-          remote_mr.rkey(), 1, r_len, 0, &sr2);
+          remote_mr.rkey(), 1, r_len, r_len, &sr2);
   init_sge(&sge2, static_cast<uint8_t*>(local_mr.addr()) + local_offset + r_len,
            sz - r_len, local_mr.lkey());
   init_sr(&sr2, &sge2, opcode, remote_mr.addr(), remote_mr.rkey(), 1,
-          sz - r_len, 0, nullptr);
-  if (ibv_post_send(qp_.get(), &sr1, &bad_wr) != 0) {
-    gpr_log(GPR_ERROR, "Failed to post send");
+          sz - r_len, sz - r_len, nullptr);
+  int err = ibv_post_send(qp_.get(), &sr1, &bad_wr);
+  if (err != 0) {
+    gpr_log(GPR_ERROR, "Channel: %s, Failed to post send, err: %d", name_, err);
     abort();
   }
 
@@ -274,7 +287,12 @@ int RDMAConn::PostSendRequests(MemRegion& remote_mr, size_t remote_tail,
                               next_num_sge, sz, opcode);
 }
 
-int RDMAConn::PollSendCompletion(int expected_num_entries) {
+int RDMAConn::PollSendCompletion(int expected_num_entries,
+                                 size_t* sent_size_bytes) {
+  int initial_expected_num_entries = expected_num_entries;
+  if (sent_size_bytes != nullptr) {
+    *sent_size_bytes = 0;
+  }
   while (expected_num_entries > 0) {
     ibv_wc wc[DEFAULT_MAX_POST_SEND];
     int r;
@@ -284,51 +302,29 @@ int RDMAConn::PollSendCompletion(int expected_num_entries) {
                             wc)) > 0) {
       for (int i = 0; i < r; i++) {
         if (wc[i].status != IBV_WC_SUCCESS) {
-          gpr_log(GPR_ERROR, "PollRecvCompletion, wc status = %d",
-                  wc[i].status);
+          gpr_log(GPR_ERROR, "Channel: %s, PollSendCompletion, wc status = %d",
+                  name_, wc[i].status);
           return wc[i].status;
         }
-      }
-      expected_num_entries -= r;
-      GPR_ASSERT(expected_num_entries >= 0);
-    }
 
-    if (r < 0) {
-      gpr_log(GPR_ERROR, "PollSendCompletion, ibv_poll_cq return %d", r);
-      return r;
-    }
-  }
-  return 0;
-}
-
-int RDMAConn::PollSendCompletion(int expected_num_entries, const char* debug) {
-  int initial_expected_num_entries = expected_num_entries;
-  while (expected_num_entries > 0) {
-    ibv_wc wc[DEFAULT_MAX_POST_SEND];
-    int r;
-
-    while ((r = ibv_poll_cq(scq_.get(),
-                            MIN(DEFAULT_MAX_POST_SEND, expected_num_entries),
-                            wc)) > 0) {
-      for (int i = 0; i < r; i++) {
-        if (wc[i].status != IBV_WC_SUCCESS) {
-          gpr_log(GPR_ERROR, "PollSendCompletion, wc status = %d",
-                  wc[i].status);
-          return wc[i].status;
+        if (sent_size_bytes != nullptr) {
+          *sent_size_bytes += wc[i].wr_id;
         }
       }
       expected_num_entries -= r;
       if (expected_num_entries < 0) {
         gpr_log(GPR_ERROR,
-                "channel: %s initial_expected_num_entries: %d "
+                "Channel: %s, initial_expected_num_entries: %d, "
                 "curr_expected_num_entries: %d",
-                debug, initial_expected_num_entries, expected_num_entries);
+                name_, initial_expected_num_entries, expected_num_entries);
       }
       GPR_ASSERT(expected_num_entries >= 0);
     }
 
     if (r < 0) {
-      gpr_log(GPR_ERROR, "PollSendCompletion, ibv_poll_cq return %d", r);
+      gpr_log(GPR_ERROR,
+              "Channel: %s, PollSendCompletion, ibv_poll_cq return %d", name_,
+              r);
       return r;
     }
   }
@@ -346,8 +342,10 @@ void RDMAConn::PostRecvRequests(size_t n) {
     init_rr(&wr, &sge, 1);
     int ret = ibv_post_recv(qp_.get(), &wr, &bad_wr);
     if (ret) {
-      gpr_log(GPR_ERROR, "Failed to post RR, errno = %d, wr_id = %lu, this: %p",
-              ret, bad_wr->wr_id, this);
+      gpr_log(
+          GPR_ERROR,
+          "Channel: %s, Failed to post RR, errno = %d, wr_id = %lu, this: %p",
+          name_, ret, bad_wr->wr_id, this);
       abort();
     }
     rr_tail_ = (rr_tail_ + 1) % DEFAULT_MAX_POST_RECV;
@@ -362,7 +360,8 @@ size_t RDMAConn::PollRecvCompletion() {
   while ((r = ibv_poll_cq(rcq_.get(), DEFAULT_MAX_POST_RECV, wc)) > 0) {
     for (int i = 0; i < r; i++) {
       if (wc[i].status != IBV_WC_SUCCESS) {
-        gpr_log(GPR_ERROR, "PollRecvCompletion, wc status = %d", wc[i].status);
+        gpr_log(GPR_ERROR, "Channel: %s, PollRecvCompletion, wc status = %d",
+                name_, wc[i].status);
       }
       recv_bytes += wc[i].byte_len;
       rr_garbage_++;
@@ -370,7 +369,8 @@ size_t RDMAConn::PollRecvCompletion() {
   }
 
   if (r < 0) {
-    gpr_log(GPR_ERROR, "PollRecvCompletion, ibv_poll_cq return %d", r);
+    gpr_log(GPR_ERROR, "Channel: %s, PollRecvCompletion, ibv_poll_cq return %d",
+            name_, r);
     abort();
   }
 
@@ -390,11 +390,15 @@ size_t RDMAConn::GetRecvEvents() {
     return 0;
   }
   if (cq != rcq_.get()) {
-    gpr_log(GPR_ERROR, "RDMAConnEvent::GetRecvEvents, unknown CQ got event");
+    gpr_log(GPR_ERROR,
+            "Channel: %s, RDMAConnEvent::GetRecvEvents, unknown CQ got event",
+            name_);
     abort();
   }
   if (ibv_req_notify_cq(cq, 0)) {
-    gpr_log(GPR_ERROR, "GetRecvEvents, require notification on failed");
+    gpr_log(GPR_ERROR,
+            "Channel: %s, GetRecvEvents, require notification on failed",
+            name_);
     abort();
   }
   if (++unack_cqe_ >= DEFAULT_EVENT_ACK_LIMIT) {

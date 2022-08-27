@@ -466,7 +466,7 @@ static bool rdma_flush_chunks(grpc_rdma* rdma, grpc_error_handle* error) {
 
   size_t outgoing_slice_idx = 0;
   size_t total_sent_length = 0;
-  rdma->rdmasr->pollLastSendCompletion();
+  rdma->rdmasr->PollLastSendCompletion();
 
   while (true) {
     sending_length = 0;

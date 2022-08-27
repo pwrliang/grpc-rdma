@@ -6,9 +6,10 @@ grpc_core::TraceFlag grpc_rdma_sr_bp_debug_trace(false, "rdma_sr_bp_debug");
 
 RDMASenderReceiverBP::RDMASenderReceiverBP(int fd, bool server)
     : RDMASenderReceiver(
-          new RDMAConn(fd, &RDMANode::GetInstance()),
+          new RDMAConn(fd, &RDMANode::GetInstance(), "data"),
           new RingBufferBP(RDMAConfig::GetInstance().get_ring_buffer_size()),
-          new RDMAConn(fd, &RDMANode::GetInstance()), server) {
+          new RDMAConn(fd, &RDMANode::GetInstance(), "metadata"), server),
+      bytes_outstanding_send_(0) {
   auto pd = RDMANode::GetInstance().get_pd();
 
   if (local_ringbuf_mr_.RegisterLocal(pd, ringbuf_->get_buf(),
@@ -233,7 +234,8 @@ int RDMASenderReceiverBP::SendChunk(msghdr* msg, ssize_t* sz) {
     *sz = nwritten;
   }
 
-  // printf("SendChunk, zerocopy = %d, len = %lld, sge_num = %d\n", zerocopy, len, sge_idx + 1);
+  // printf("SendChunk, zerocopy = %d, len = %lld, sge_num = %d\n", zerocopy,
+  // len, sge_idx + 1);
 
   return 0;
 }
@@ -265,7 +267,7 @@ int RDMASenderReceiverBP::Send(msghdr* msg, ssize_t* sz) {
     gpr_log(GPR_INFO, "rdmasr: %p send, mlen: %zu", this, mlen);
   }
 
-  pollLastSendCompletion();
+  PollLastSendCompletion();
 
   if (!isWritable(mlen)) {
     if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_sr_bp_trace)) {
@@ -347,8 +349,9 @@ int RDMASenderReceiverBP::Send(msghdr* msg, ssize_t* sz) {
 
   if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_sr_bp_debug_trace)) {
     total_sent_ += nwritten;
-    printf("zerocopy send = %lld, total send = %lld, ratio = %.4lf\n", 
-      total_zerocopy_send_size, total_sent_.load(), double(total_zerocopy_send_size) / total_sent_.load());
+    printf("zerocopy send = %lld, total send = %lld, ratio = %.4lf\n",
+           total_zerocopy_send_size, total_sent_.load(),
+           double(total_zerocopy_send_size) / total_sent_.load());
   }
   if (sz != nullptr) {
     *sz = nwritten;
