@@ -19,8 +19,6 @@
   asm volatile("" ::: "memory"); \
   asm volatile("mfence" ::: "memory");  // Compiler and Hardware barrier
 
-enum class RDMAPollerMode { kServer, kClient, kBoth, kNone };
-
 class RDMAConfig {
   RDMAConfig() { init(); }
 
@@ -29,8 +27,6 @@ class RDMAConfig {
     static RDMAConfig inst;
     return inst;
   }
-
-  RDMAPollerMode get_poller_mode() const { return poller_mode_; }
 
   int get_polling_timeout() const { return polling_timeout_; }
 
@@ -49,20 +45,7 @@ class RDMAConfig {
  private:
   void init() {
     // BPEV dedicated
-    char* s_val = getenv("GRPC_RDMA_BPEV_POLLER");
-
-    if (s_val == nullptr || strcmp(s_val, "server") == 0) {
-      poller_mode_ = RDMAPollerMode::kServer;
-    } else if (strcmp(s_val, "client") == 0) {
-      poller_mode_ = RDMAPollerMode::kClient;
-    } else if (strcmp(s_val, "both") == 0) {
-      poller_mode_ = RDMAPollerMode::kBoth;
-    } else if (strcmp(s_val, "none") == 0) {
-      poller_mode_ = RDMAPollerMode::kNone;
-    } else {
-      gpr_log(GPR_ERROR, "Invalid GRPC_RDMA_POLLER: %s", s_val);
-      abort();
-    }
+    char* s_val;
 
     s_val = getenv("GRPC_RDMA_BPEV_POLLING_THREAD");
 
@@ -113,7 +96,6 @@ class RDMAConfig {
     // zero_copy_ = false;
   }
 
-  RDMAPollerMode poller_mode_;
   int polling_timeout_;
   int polling_thread_num_;
   bool polling_yield_;
@@ -170,6 +152,7 @@ class MemRegion {
 
 class RDMANode {
   RDMANode() { open(IBV_DEV_NAME); }
+
  public:
   const static int ib_port = 1;
   ~RDMANode() { close(); }
@@ -185,9 +168,7 @@ class RDMANode {
 
   ibv_port_attr get_port_attr() const { return port_attr; }
 
-  union ibv_gid get_gid() const {
-    return gid;
-  }
+  union ibv_gid get_gid() const { return gid; }
 
   ibv_device_attr get_device_attr() const { return dev_attr; }
 
@@ -224,7 +205,6 @@ int sync_data(int fd, const char* local, char* remote, const size_t sz);
 
 void barrier(int fd);
 
-void print_async_event(struct ibv_context *ctx,
-                       struct ibv_async_event *event);
+void print_async_event(struct ibv_context* ctx, struct ibv_async_event* event);
 
 #endif  // GRPC_CORE_LIB_RDMA_RDMA_UTILS_H

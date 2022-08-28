@@ -67,7 +67,7 @@
 
 // debug aid: create workers on the heap (allows asan to spot
 // use-after-destruction)
-//#define GRPC_EPOLLEX_CREATE_WORKERS_ON_HEAP 1
+// #define GRPC_EPOLLEX_CREATE_WORKERS_ON_HEAP 1
 
 #define MAX_EPOLL_EVENTS 100
 #define MAX_FDS_IN_CACHE 32
@@ -1098,93 +1098,52 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
     GRPC_SCHEDULING_START_BLOCKING_REGION;
   }
   int r = 0;
-  gpr_mu_lock(&p->rdma_mu);
-  bool has_rdma_fds = !p->rdma_fds->empty();
-  gpr_mu_unlock(&p->rdma_mu);
+  auto& rdma_poller = RDMAPoller::GetInstance();
+  absl::Time begin_poll_time = absl::Now();
+  absl::Time last_epoll_time;
 
-  if (has_rdma_fds) {
-    auto& rdma_poller = RDMAPoller::GetInstance();
-    absl::Time begin_poll_time = absl::Now();
-    absl::Time last_epoll_time;
+  int polling_limit_us = p->bp_timeout;
+  int64_t t_elapsed_us;
 
-    if (rdma_poller.get_polling_thread_num() > 0) {
-      int polling_limit_us = p->bp_timeout;
-      int64_t t_elapsed_us;
+  if (timeout >= 0) {
+    polling_limit_us = std::min(timeout * 1000, polling_limit_us);
+  }
 
-      if (timeout >= 0) {
-        polling_limit_us = std::min(timeout * 1000, polling_limit_us);
-      }
-
-      do {
-        if ((absl::Now() - last_epoll_time) > absl::Microseconds(1000)) {
-          r = epoll_wait(p->epfd, p->events, MAX_EPOLL_EVENTS, 0);
-          last_epoll_time = absl::Now();
-        }
-
-        if (r <= 0) {
-          r = 0;
-          gpr_mu_lock(&p->rdma_mu);
-          auto& fds = *p->rdma_fds;
-
-          for (size_t i = 0; i < fds.size() && r < MAX_EPOLL_EVENTS; i++) {
-            auto* fd = fds[i];
-            auto* rdmasr = fd->rdmasr;
-            GPR_ASSERT(fd->rdmasr != nullptr);
-
-            uint32_t events = rdmasr->ToEpollEvent();
-
-            if (events > 0) {
-              p->events[r].events = events;
-              p->events[r].data.ptr = reinterpret_cast<void*>(fd);
-              r++;
-            }
-          }
-          gpr_mu_unlock(&p->rdma_mu);
-        }
-
-        if (r == 0 && p->bp_yield) {
-          std::this_thread::yield();
-        }
-        t_elapsed_us = ToInt64Microseconds((absl::Now() - begin_poll_time));
-      } while (r == 0 && t_elapsed_us < polling_limit_us);
-
-      if (timeout > 0) {
-        timeout = std::max(0l, timeout - t_elapsed_us / 1000);
-      }
-    } else {
-      do {
-        if ((absl::Now() - last_epoll_time) > absl::Microseconds(1000)) {
-          r = epoll_wait(p->epfd, p->events, MAX_EPOLL_EVENTS, 0);
-          last_epoll_time = absl::Now();
-        }
-
-        if (r <= 0) {
-          r = 0;
-          gpr_mu_lock(&p->rdma_mu);
-          auto& fds = *p->rdma_fds;
-          for (size_t i = 0; i < fds.size() && r < MAX_EPOLL_EVENTS; i++) {
-            auto* fd = fds[i];
-
-            GPR_ASSERT(fd->rdmasr != nullptr);
-
-            uint32_t events = fd->rdmasr->ToEpollEvent();
-
-            if (events > 0) {
-              p->events[r].events = events;
-              p->events[r].data.ptr = reinterpret_cast<void*>(fd);
-              r++;
-            }
-          }
-          gpr_mu_unlock(&p->rdma_mu);
-        }
-
-        if (r == 0 && p->bp_yield) {
-          std::this_thread::yield();
-        }
-      } while ((r < 0 && errno == EINTR) ||
-               (r == 0 && (timeout == -1 || (absl::Now() - begin_poll_time) <
-                                                absl::Milliseconds(timeout))));
+  do {
+    if ((absl::Now() - last_epoll_time) > absl::Microseconds(1000)) {
+      r = epoll_wait(p->epfd, p->events, MAX_EPOLL_EVENTS, 0);
+      last_epoll_time = absl::Now();
     }
+
+    if (r <= 0) {
+      r = 0;
+      gpr_mu_lock(&p->rdma_mu);
+      auto& fds = *p->rdma_fds;
+
+      for (size_t i = 0; i < fds.size() && r < MAX_EPOLL_EVENTS; i++) {
+        auto* fd = fds[i];
+        auto* rdmasr = fd->rdmasr;
+        GPR_ASSERT(fd->rdmasr != nullptr);
+
+        uint32_t events = rdmasr->ToEpollEvent();
+
+        if (events > 0) {
+          p->events[r].events = events;
+          p->events[r].data.ptr = reinterpret_cast<void*>(fd);
+          r++;
+        }
+      }
+      gpr_mu_unlock(&p->rdma_mu);
+    }
+
+    if (r == 0 && p->bp_yield) {
+      std::this_thread::yield();
+    }
+    t_elapsed_us = ToInt64Microseconds((absl::Now() - begin_poll_time));
+  } while (r == 0 && t_elapsed_us < polling_limit_us);
+
+  if (timeout > 0) {
+    timeout = std::max(0l, timeout - t_elapsed_us / 1000);
   }
 
   if (r <= 0) {

@@ -348,16 +348,6 @@ static void rdma_read_allocation_done(void* rdmap, grpc_error_handle error) {
   grpc_rdma* rdma = static_cast<grpc_rdma*>(rdmap);
 
   if (!rdma->preallocate_done) {
-    size_t total_space = 0;
-    for (size_t i = 0; i < rdma->incoming_buffer->count; i++) {
-      auto* ptr = GRPC_SLICE_START_PTR(rdma->incoming_buffer->slices[i]);
-      auto len = GRPC_SLICE_LENGTH(rdma->incoming_buffer->slices[i]);
-
-      // touch memory
-      memset(ptr, 0, len);
-      total_space += len;
-    }
-    printf("Memset: %zu\n", total_space);
     rdma->preallocate_done = true;
   }
 
@@ -384,7 +374,7 @@ static void rdma_continue_read(grpc_rdma* rdma) {
 
     if (!rdma->preallocate_done) {
       //      block_count =
-      //          std::max(block_count, 512ul * 1024 * 1024 / READ_BLOCK_SIZE);
+      //          std::max(block_count, 256ul * 1024 * 1024 / READ_BLOCK_SIZE);
     }
 
     if (GPR_UNLIKELY(!grpc_resource_user_alloc_slices(

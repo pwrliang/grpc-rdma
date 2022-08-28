@@ -7,9 +7,9 @@ grpc_core::TraceFlag grpc_rdma_sr_event_debug_trace(false,
 
 RDMASenderReceiverEvent::RDMASenderReceiverEvent(int fd, bool server)
     : RDMASenderReceiver(
-          new RDMAConn(fd, &RDMANode::GetInstance(), true),
+          new RDMAConn(fd, &RDMANode::GetInstance(), "data", true),
           new RingBufferEvent(RDMAConfig::GetInstance().get_ring_buffer_size()),
-          new RDMAConn(fd, &RDMANode::GetInstance(), true), server),
+          new RDMAConn(fd, &RDMANode::GetInstance(), "metadata", true), server),
       data_ready_(false),
       metadata_ready_(false) {
   auto pd = RDMANode::GetInstance().get_pd();
@@ -161,8 +161,9 @@ int RDMASenderReceiverEvent::Send(msghdr* msg, ssize_t* sz) {
   }
   if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_sr_event_debug_trace)) {
     total_sent_ += nwritten;
-    printf("zerocopy send = %lld, total send = %lld, ratio = %.4lf\n", 
-      total_zerocopy_send_size, total_sent_.load(), double(total_zerocopy_send_size) / total_sent_.load());
+    printf("zerocopy send = %lld, total send = %lld, ratio = %.4lf\n",
+           total_zerocopy_send_size, total_sent_.load(),
+           double(total_zerocopy_send_size) / total_sent_.load());
   }
   if (sz != nullptr) {
     *sz = nwritten;
