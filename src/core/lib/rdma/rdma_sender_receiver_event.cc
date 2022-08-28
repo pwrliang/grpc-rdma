@@ -94,7 +94,7 @@ int RDMASenderReceiverEvent::Send(msghdr* msg, ssize_t* sz) {
     return EINVAL;
   }
 
-  pollLastSendCompletion();
+  PollLastSendCompletion();
 
   if (!isWritable(mlen)) {
     if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_sr_event_trace)) {
