@@ -186,8 +186,8 @@ class RDMASenderReceiver {
     size_t curr_head = static_cast<volatile size_t*>(metadata_recvbuf_)[0];
     MEM_BAR()
     if (curr_head != prev_remote_head_) {
-//      gpr_log(GPR_INFO, "%c received new head, %zu->%zu",
-//              is_server() ? 'S' : 'C', prev_remote_head_, curr_head);
+      //      gpr_log(GPR_INFO, "%c received new head, %zu->%zu",
+      //              is_server() ? 'S' : 'C', prev_remote_head_, curr_head);
       prev_remote_head_ = curr_head;
     }
     return curr_head;
@@ -389,9 +389,8 @@ class RDMASenderReceiverEvent : public RDMASenderReceiver {
     uint32_t n_poll = n_outstanding_send_.exchange(0);
 
     if (n_poll > 0) {
-      size_t sent_size = 0;
       GRPCProfiler profiler(GRPC_STATS_TIME_SEND_POLL, 0);
-      int ret = conn_data_->PollSendCompletion(n_poll, &sent_size);
+      int ret = conn_data_->PollSendCompletion(n_poll);
 
       if (ret != 0) {
         gpr_log(GPR_ERROR,
@@ -401,7 +400,7 @@ class RDMASenderReceiverEvent : public RDMASenderReceiver {
       }
 
       total_send_ += n_poll;
-      send_buf_head_ = (send_buf_head_ + sent_size) % sendbuf_sz_;
+      send_buf_offset_ = 0;
     }
   }
 
@@ -443,7 +442,7 @@ class RDMASenderReceiverEvent : public RDMASenderReceiver {
   }
 
   size_t remote_rr_head_ = 0;
-  size_t send_buf_head_, send_buf_tail_;
+  size_t send_buf_offset_;
   std::atomic_bool data_ready_, metadata_ready_;
   size_t total_send_ = 0;
 };

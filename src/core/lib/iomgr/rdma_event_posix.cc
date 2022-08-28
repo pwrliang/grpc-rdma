@@ -73,6 +73,7 @@ struct grpc_rdma {
   grpc_resource_user* resource_user;
   grpc_resource_user_slice_allocator slice_allocator;
   grpc_timer check_conn_timer;
+  bool preallocate_done;
 };
 
 }  // namespace
@@ -224,6 +225,10 @@ static void rdma_do_read(grpc_rdma* rdma) {
 static void rdma_read_allocation_done(void* rdmap, grpc_error_handle error) {
   grpc_rdma* rdma = static_cast<grpc_rdma*>(rdmap);
 
+  if (!rdma->preallocate_done) {
+    rdma->preallocate_done = true;
+  }
+
   if (GPR_UNLIKELY(error != GRPC_ERROR_NONE)) {
     grpc_slice_buffer_reset_and_unref_internal(rdma->incoming_buffer);
     grpc_slice_buffer_reset_and_unref_internal(&rdma->last_read_buffer);
@@ -239,6 +244,10 @@ static void rdma_continue_read(grpc_rdma* rdma) {
   size_t target_read_size = rdma->rdmasr->MarkMessageLength();
   size_t block_count = std::max(target_read_size / READ_BLOCK_SIZE, 1ul);
 
+  if (!rdma->preallocate_done) {
+    block_count = std::max(block_count, 128ul * 1024 * 1024 / READ_BLOCK_SIZE);
+  }
+
   /* Wait for allocation only when there is no buffer left. */
   if (rdma->incoming_buffer->length < target_read_size) {
     if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_trace)) {
@@ -247,8 +256,7 @@ static void rdma_continue_read(grpc_rdma* rdma) {
     if (GPR_UNLIKELY(!grpc_resource_user_alloc_slices(
             &rdma->slice_allocator, READ_BLOCK_SIZE, block_count,
             rdma->incoming_buffer))) {
-      gpr_log(GPR_INFO, "Allocate %zu",
-              target_read_size - rdma->incoming_buffer->length);
+      gpr_log(GPR_INFO, "Allocate %zu", READ_BLOCK_SIZE * block_count);
       return;
     }
   }
@@ -667,6 +675,7 @@ grpc_endpoint* grpc_rdma_event_create(grpc_fd* em_fd,
                     grpc_schedule_on_exec_ctx);
   GRPC_CLOSURE_INIT(&rdma->check_conn_closure, rdma_check_conn, rdma,
                     grpc_schedule_on_exec_ctx);
+  rdma->preallocate_done = false;
 
   grpc_timer_init(
       &rdma->check_conn_timer,

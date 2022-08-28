@@ -34,8 +34,7 @@ class RDMAConn {
                     bool event_mode = false);
   virtual ~RDMAConn();
 
-  int PollSendCompletion(int expected_num_entries,
-                         size_t* sent_size_bytes = nullptr);
+  int PollSendCompletion(int expected_num_entries);
 
   int PostSendRequest(MemRegion& remote_mr, MemRegion& local_mr, size_t sz,
                       ibv_wr_opcode opcode);

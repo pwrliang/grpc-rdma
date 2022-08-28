@@ -10,8 +10,7 @@ RDMASenderReceiverEvent::RDMASenderReceiverEvent(int fd, bool server)
           new RDMAConn(fd, &RDMANode::GetInstance(), "data", true),
           new RingBufferEvent(RDMAConfig::GetInstance().get_ring_buffer_size()),
           new RDMAConn(fd, &RDMANode::GetInstance(), "metadata", true), server),
-      send_buf_head_(0),
-      send_buf_tail_(0),
+      send_buf_offset_(0),
       data_ready_(false),
       metadata_ready_(false) {
   auto pd = RDMANode::GetInstance().get_pd();
@@ -202,27 +201,6 @@ int RDMASenderReceiverEvent::SendChunk(msghdr* msg, ssize_t* sz) {
 
     return remote_ringbuf_sz - 8 - used_space;
   };
-  auto get_avail_send_space = [this]() {
-    auto pending_size =
-        (sendbuf_sz_ + send_buf_tail_ - send_buf_head_) % sendbuf_sz_;
-    // reserve 1 byte to represent full
-    return sendbuf_sz_ - 1 - pending_size;
-  };
-
-  auto send = [this, remote_ringbuf_sz](void* src, size_t len) {
-    if (len == 0) {
-      return;
-    }
-    memcpy(sendbuf_ + send_buf_tail_, src, len);
-
-    int n_posted = conn_data_->PostSendRequest(
-        remote_ringbuf_mr_, remote_ringbuf_tail_, sendbuf_mr_, send_buf_tail_,
-        len, IBV_WR_RDMA_WRITE_WITH_IMM);
-    n_outstanding_send_ += n_posted;
-    remote_rr_head_ = (remote_rr_head_ + n_posted) % DEFAULT_MAX_POST_RECV;
-    remote_ringbuf_tail_ = (remote_ringbuf_tail_ + len) % remote_ringbuf_sz;
-    send_buf_tail_ = (send_buf_tail_ + len) % sendbuf_sz_;
-  };
 
   size_t total_size = 0;
   size_t written_size = 0;
@@ -236,19 +214,28 @@ int RDMASenderReceiverEvent::SendChunk(msghdr* msg, ssize_t* sz) {
   for (size_t iov_idx = 0; iov_idx < msg->msg_iovlen; iov_idx++) {
     void* iov_base = msg->msg_iov[iov_idx].iov_base;
     size_t iov_len = msg->msg_iov[iov_idx].iov_len;
-    size_t writable_size = std::min(
-        iov_len, std::min(get_avail_send_space(), get_avail_recv_space()));
+    size_t iov_offset = 0;
+    size_t writable_size =
+        std::min(iov_len, std::min(get_max_send_size() - send_buf_offset_,
+                                   get_avail_recv_space()));
 
     // reserve 10 send/recv requests for safety
     while (writable_size > 0 && get_avail_rr() > DEFAULT_MIN_RESERVED_WR &&
            n_outstanding_send_ < DEFAULT_MAX_SEND_WR) {
       size_t len = std::min(chunk_size, writable_size);
-      size_t r_len = std::max(send_buf_tail_ + len, sendbuf_sz_) - sendbuf_sz_;
-      size_t l_len = len - r_len;
 
-      send(iov_base, l_len);
-      send(reinterpret_cast<uint8_t*>(iov_base) + l_len, r_len);
+      memcpy(sendbuf_ + send_buf_offset_,
+             reinterpret_cast<uint8_t*>(iov_base) + iov_offset, len);
 
+      int n_posted = conn_data_->PostSendRequest(
+          remote_ringbuf_mr_, remote_ringbuf_tail_, sendbuf_mr_,
+          send_buf_offset_, len, IBV_WR_RDMA_WRITE_WITH_IMM);
+
+      n_outstanding_send_ += n_posted;
+      remote_rr_head_ = (remote_rr_head_ + n_posted) % DEFAULT_MAX_POST_RECV;
+      remote_ringbuf_tail_ = (remote_ringbuf_tail_ + len) % remote_ringbuf_sz;
+      send_buf_offset_ += len;
+      iov_offset += len;
       written_size += len;
       writable_size -= len;
     }
@@ -258,6 +245,7 @@ int RDMASenderReceiverEvent::SendChunk(msghdr* msg, ssize_t* sz) {
       break;
     }
   }
+
   last_failed_send_size_ = total_size - written_size;
 
   if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_sr_event_debug_trace)) {

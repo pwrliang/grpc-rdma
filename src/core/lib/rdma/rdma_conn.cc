@@ -63,7 +63,7 @@ RDMAConn::RDMAConn(int fd, RDMANode* node, const char* name, bool event_mode)
   qp_attr_.send_cq = scq_.get();
   qp_attr_.qp_type = IBV_QPT_RC;
   qp_attr_.sq_sig_all =
-      1;  // send_flags should be IBV_SEND_SIGNALED if sq_sig_all=0;
+      0;  // send_flags should be IBV_SEND_SIGNALED if sq_sig_all=0;
   qp_attr_.cap.max_send_wr = DEFAULT_MAX_SEND_WR;
   qp_attr_.cap.max_recv_wr = DEFAULT_MAX_RECV_WR;
   qp_attr_.cap.max_send_sge = DEFAULT_MAX_SEND_SGE;
@@ -195,8 +195,9 @@ int RDMAConn::PostSendRequest(MemRegion& remote_mr, size_t remote_tail,
              local_mr.lkey());
     init_sr(&sr, &sge, opcode,
             static_cast<uint8_t*>(remote_mr.addr()) + remote_tail,
-            remote_mr.rkey(), 1, sz, sz, nullptr);
+            remote_mr.rkey(), 1, sz, 0, nullptr);
     int err = ibv_post_send(qp_.get(), &sr, &bad_wr);
+
     if (err != 0) {
       gpr_log(GPR_ERROR, "Channel: %s, Failed to post send, err: %d", name_,
               err);
@@ -213,11 +214,11 @@ int RDMAConn::PostSendRequest(MemRegion& remote_mr, size_t remote_tail,
            local_mr.lkey());
   init_sr(&sr1, &sge1, opcode,
           static_cast<uint8_t*>(remote_mr.addr()) + remote_tail,
-          remote_mr.rkey(), 1, r_len, r_len, &sr2);
+          remote_mr.rkey(), 1, r_len, 0, &sr2);
   init_sge(&sge2, static_cast<uint8_t*>(local_mr.addr()) + local_offset + r_len,
            sz - r_len, local_mr.lkey());
   init_sr(&sr2, &sge2, opcode, remote_mr.addr(), remote_mr.rkey(), 1,
-          sz - r_len, sz - r_len, nullptr);
+          sz - r_len, 0, nullptr);
   int err = ibv_post_send(qp_.get(), &sr1, &bad_wr);
   if (err != 0) {
     gpr_log(GPR_ERROR, "Channel: %s, Failed to post send, err: %d", name_, err);
@@ -287,12 +288,8 @@ int RDMAConn::PostSendRequests(MemRegion& remote_mr, size_t remote_tail,
                               next_num_sge, sz, opcode);
 }
 
-int RDMAConn::PollSendCompletion(int expected_num_entries,
-                                 size_t* sent_size_bytes) {
+int RDMAConn::PollSendCompletion(int expected_num_entries) {
   int initial_expected_num_entries = expected_num_entries;
-  if (sent_size_bytes != nullptr) {
-    *sent_size_bytes = 0;
-  }
   while (expected_num_entries > 0) {
     ibv_wc wc[DEFAULT_MAX_POST_SEND];
     int r;
@@ -305,10 +302,6 @@ int RDMAConn::PollSendCompletion(int expected_num_entries,
           gpr_log(GPR_ERROR, "Channel: %s, PollSendCompletion, wc status = %d",
                   name_, wc[i].status);
           return wc[i].status;
-        }
-
-        if (sent_size_bytes != nullptr) {
-          *sent_size_bytes += wc[i].wr_id;
         }
       }
       expected_num_entries -= r;
