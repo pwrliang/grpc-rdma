@@ -196,8 +196,6 @@ class ServerImpl final {
           grpc_stats_time_enable();
         }
 
-        gpr_log(GPR_INFO, "Got rpc %s,len: %zu\n", ctx_.method().c_str(),
-                req_.Length());
         grpc::WriteOptions options;
 
         // create response

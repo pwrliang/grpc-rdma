@@ -234,7 +234,6 @@ class GenericClient : public Client {
         GPR_ASSERT(ok);
         checkError(call->status);
         total_data_size_ += call->reply.Length();
-        gpr_log(GPR_INFO, "Got len: %zu\n", call->reply.Length());
         delete call;
       } else {
         rest_resp_++;
