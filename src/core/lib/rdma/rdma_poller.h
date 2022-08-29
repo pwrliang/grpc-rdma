@@ -53,7 +53,6 @@ class RDMAPoller {
             pthread_setname_np(
                 pthread_self(),
                 ("RDMAPoller" + std::to_string(thread_id)).c_str());
-            grpc_stats_time_init(200 + thread_id);
 
             while (polling_) {
               int n_threads = n_threads_;
