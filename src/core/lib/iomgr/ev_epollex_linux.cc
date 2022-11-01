@@ -47,6 +47,7 @@
 #include <grpc/support/alloc.h>
 
 #include "src/core/lib/debug/stats.h"
+#include "include/grpcpp/stats_time.h"
 #include "src/core/lib/gpr/spinlock.h"
 #include "src/core/lib/gpr/tls.h"
 #include "src/core/lib/gpr/useful.h"
@@ -934,6 +935,7 @@ static void pollset_destroy(grpc_pollset* pollset) {
 }
 
 static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
+  GRPCProfiler profiler(GRPC_STATS_TIME_POLLABLE_EPOLL);
   GPR_TIMER_SCOPE("pollable_epoll", 0);
   int timeout = poll_deadline_to_millis_timeout(deadline);
 
@@ -962,7 +964,6 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
 
   p->event_cursor = 0;
   p->event_count = r;
-
   return GRPC_ERROR_NONE;
 }
 
@@ -1107,6 +1108,7 @@ static long sys_gettid(void) { return syscall(__NR_gettid); }
 static grpc_error_handle pollset_work(grpc_pollset* pollset,
                                       grpc_pollset_worker** worker_hdl,
                                       grpc_millis deadline) {
+  GRPCProfiler profiler(GRPC_STATS_TIME_POLLSET_WORK);
   GPR_TIMER_SCOPE("pollset_work", 0);
 #ifdef GRPC_EPOLLEX_CREATE_WORKERS_ON_HEAP
   grpc_pollset_worker* worker =
@@ -1134,6 +1136,7 @@ static grpc_error_handle pollset_work(grpc_pollset* pollset,
     if (begin_worker(pollset, WORKER_PTR, worker_hdl, deadline)) {
       gpr_tls_set(&g_current_thread_pollset, (intptr_t)pollset);
       gpr_tls_set(&g_current_thread_worker, (intptr_t)WORKER_PTR);
+      GRPCProfiler profiler(GRPC_STATS_TIME_BEGIN_WORKER);
       if (WORKER_PTR->pollable_obj->event_cursor ==
           WORKER_PTR->pollable_obj->event_count) {
         append_error(&error, pollable_epoll(WORKER_PTR->pollable_obj, deadline),

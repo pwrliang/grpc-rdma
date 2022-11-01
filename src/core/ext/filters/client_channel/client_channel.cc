@@ -1100,7 +1100,7 @@ ClientChannel::ClientChannel(grpc_channel_element_args* args,
             this, owning_stack_);
   }
   // Start backup polling.
-  grpc_client_channel_start_backup_polling(interested_parties_);
+//  grpc_client_channel_start_backup_polling(interested_parties_);
   // Check client channel factory.
   if (client_channel_factory_ == nullptr) {
     *error = GRPC_ERROR_CREATE_FROM_STATIC_STRING(
@@ -1164,7 +1164,7 @@ ClientChannel::~ClientChannel() {
   grpc_channel_args_destroy(channel_args_);
   GRPC_ERROR_UNREF(resolver_transient_failure_error_);
   // Stop backup polling.
-  grpc_client_channel_stop_backup_polling(interested_parties_);
+//  grpc_client_channel_stop_backup_polling(interested_parties_);
   grpc_pollset_set_destroy(interested_parties_);
   GRPC_ERROR_UNREF(disconnect_error_.Load(MemoryOrder::RELAXED));
 }

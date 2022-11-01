@@ -413,6 +413,7 @@ class Server : public InternallyRefCounted<Server> {
   // If they are ever required to be nested, you must lock mu_global_
   // before mu_call_. This is currently used in shutdown processing
   // (ShutdownAndNotify() and MaybeFinishShutdown()).
+  // N.B. Global locks
   Mutex mu_global_;  // mutex for server and channel state
   Mutex mu_call_;    // mutex for call-specific state
 

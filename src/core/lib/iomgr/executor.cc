@@ -33,7 +33,7 @@
 #include "src/core/lib/gprpp/memory.h"
 #include "src/core/lib/iomgr/exec_ctx.h"
 #include "src/core/lib/iomgr/iomgr.h"
-
+#include "src/core/lib/iomgr/iomgr_internal.h"
 #define MAX_DEPTH 2
 
 #define EXECUTOR_TRACE(format, ...)                       \
@@ -92,7 +92,18 @@ TraceFlag executor_trace(false, "executor");
 Executor::Executor(const char* name) : name_(name) {
   adding_thread_lock_ = GPR_SPINLOCK_STATIC_INITIALIZER;
   gpr_atm_rel_store(&num_threads_, 0);
-  max_threads_ = GPR_MAX(1, 2 * gpr_cpu_num_cores());
+  char* executor = getenv("GRPC_EXECUTOR");
+  if (executor != nullptr) {
+    std::string s_executor(executor);
+    if (std::stoi(s_executor) > 0) {
+      max_threads_ = std::stoi(s_executor);
+      printf("Max Executor: %d\n", max_threads_);
+    } else {
+      max_threads_ = GPR_MAX(1, 2 * gpr_cpu_num_cores());
+    }
+  } else {
+    max_threads_ = GPR_MAX(1, 2 * gpr_cpu_num_cores());
+  }
 }
 
 void Executor::Init() { SetThreading(true); }
@@ -215,7 +226,7 @@ void Executor::Shutdown() { SetThreading(false); }
 void Executor::ThreadMain(void* arg) {
   ThreadState* ts = static_cast<ThreadState*>(arg);
   gpr_tls_set(&g_this_thread_state, reinterpret_cast<intptr_t>(ts));
-
+  // do not allow this thread contenting with polling threads
   grpc_core::ExecCtx exec_ctx(GRPC_EXEC_CTX_FLAG_IS_INTERNAL_THREAD);
 
   size_t subtract_depth = 0;

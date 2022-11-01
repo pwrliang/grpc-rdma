@@ -237,8 +237,8 @@ class Server::RealRequestMatcher : public RequestMatcherInterface {
       };
       auto pop_next_pending = [this, request_queue_index] {
         PendingCall pending_call;
-        {
-          MutexLock lock(&server_->mu_call_);
+
+        if (server_->mu_call_.TryLock()) {
           if (!pending_.empty()) {
             pending_call.rc = reinterpret_cast<RequestedCall*>(
                 requests_per_cq_[request_queue_index].Pop());
@@ -247,6 +247,7 @@ class Server::RealRequestMatcher : public RequestMatcherInterface {
               pending_.pop();
             }
           }
+          server_->mu_call_.Unlock();
         }
         return pending_call;
       };
@@ -295,6 +296,7 @@ class Server::RealRequestMatcher : public RequestMatcherInterface {
           break;
         }
       }
+
       if (rc == nullptr) {
         calld->SetState(CallData::CallState::PENDING);
         pending_.push(calld);

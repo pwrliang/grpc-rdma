@@ -25,7 +25,7 @@
 #include "src/core/lib/iomgr/resolve_address.h"
 #include "src/core/lib/iomgr/socket_utils_posix.h"
 #include "src/core/lib/iomgr/tcp_server.h"
-
+#include <set>
 /* one listening port */
 typedef struct grpc_tcp_listener {
   int fd;
@@ -46,6 +46,7 @@ typedef struct grpc_tcp_listener {
      identified while iterating through 'next'. */
   struct grpc_tcp_listener* sibling;
   int is_sibling;
+  int client_count;
 } grpc_tcp_listener;
 
 /* the overall server */

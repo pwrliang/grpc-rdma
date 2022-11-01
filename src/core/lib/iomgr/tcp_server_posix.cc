@@ -52,6 +52,7 @@
 #include "src/core/lib/gpr/string.h"
 #include "src/core/lib/gprpp/memory.h"
 #include "src/core/lib/iomgr/exec_ctx.h"
+#include "src/core/lib/iomgr/iomgr_internal.h"
 #include "src/core/lib/iomgr/resolve_address.h"
 #include "src/core/lib/iomgr/sockaddr.h"
 #include "src/core/lib/iomgr/socket_utils_posix.h"
@@ -65,7 +66,11 @@ static grpc_error_handle tcp_server_create(grpc_closure* shutdown_complete,
                                            grpc_tcp_server** server) {
   grpc_tcp_server* s =
       static_cast<grpc_tcp_server*>(gpr_zalloc(sizeof(grpc_tcp_server)));
+
+  // in rdma mode, set it false
   s->so_reuseport = grpc_is_socket_reuse_port_supported();
+  s->so_reuseport =
+      s->so_reuseport && (grpc_check_iomgr_platform() == IOMGR_TCP);
   s->expand_wildcard_addrs = false;
   for (size_t i = 0; i < (args == nullptr ? 0 : args->num_args); i++) {
     if (0 == strcmp(GRPC_ARG_ALLOW_REUSEPORT, args->args[i].key)) {
@@ -243,6 +248,10 @@ static void on_read(void* arg, grpc_error_handle err) {
       gpr_log(GPR_INFO, "SERVER_CONNECT: incoming connection: %s",
               addr_str.c_str());
     }
+    sp->client_count++;
+
+    gpr_log(GPR_INFO, "accept connection from %s, fd = %d, client count = %d",
+            addr_str.c_str(), fd, sp->client_count);
 
     std::string name = absl::StrCat("tcp-server-connection:", addr_str);
     grpc_fd* fdobj = grpc_fd_create(fd, name.c_str(), true);
@@ -251,8 +260,6 @@ static void on_read(void* arg, grpc_error_handle err) {
         [static_cast<size_t>(gpr_atm_no_barrier_fetch_add(
              &sp->server->next_pollset_to_assign, 1)) %
          sp->server->pollsets->size()];
-
-    grpc_pollset_add_fd(read_notifier_pollset, fdobj);
 
     // Create acceptor.
     grpc_tcp_server_acceptor* acceptor =
@@ -264,8 +271,10 @@ static void on_read(void* arg, grpc_error_handle err) {
 
     sp->server->on_accept_cb(
         sp->server->on_accept_cb_arg,
-        grpc_tcp_create(fdobj, sp->server->channel_args, addr_str.c_str()),
+        grpc_endpoint_create(fdobj, sp->server->channel_args, addr_str.c_str(),
+                             true),
         read_notifier_pollset, acceptor);
+    grpc_pollset_add_fd(read_notifier_pollset, fdobj);
   }
 
   GPR_UNREACHABLE_CODE(return );
@@ -387,6 +396,7 @@ static grpc_error_handle clone_port(grpc_tcp_listener* listener,
     sp->port = port;
     sp->port_index = listener->port_index;
     sp->fd_index = listener->fd_index + count - i;
+    sp->client_count = 0;
     GPR_ASSERT(sp->emfd);
     while (listener->server->tail->next != nullptr) {
       listener->server->tail = listener->server->tail->next;

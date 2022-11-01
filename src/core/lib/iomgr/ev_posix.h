@@ -29,6 +29,7 @@
 #include "src/core/lib/iomgr/pollset.h"
 #include "src/core/lib/iomgr/pollset_set.h"
 #include "src/core/lib/iomgr/wakeup_fd_posix.h"
+#include "src/core/lib/rdma/rdma_sender_receiver.h"
 
 GPR_GLOBAL_CONFIG_DECLARE_STRING(grpc_poll_strategy);
 
@@ -89,6 +90,7 @@ typedef struct grpc_event_engine_vtable {
   void (*shutdown_engine)(void);
   bool (*add_closure_to_background_poller)(grpc_closure* closure,
                                            grpc_error_handle error);
+  void (*fd_set_rdmasr)(grpc_fd* fd, RDMASenderReceiver* rdmasr);
 } grpc_event_engine_vtable;
 
 /* register a new event engine factory */
@@ -121,6 +123,8 @@ bool grpc_event_engine_run_in_background();
    using grpc_fd_notify_on_error. Currently, valid only for linux systems.
    This takes ownership of closing fd. */
 grpc_fd* grpc_fd_create(int fd, const char* name, bool track_err);
+
+void grpc_fd_set_rdmasr(grpc_fd* fd, RDMASenderReceiver* rdmasr);
 
 /* Return the wrapped fd, or -1 if it has been released or closed. */
 int grpc_fd_wrapped_fd(grpc_fd* fd);

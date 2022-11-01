@@ -17,10 +17,59 @@
  */
 
 #include <grpc/support/port_platform.h>
+#include <map>
+#include <mutex>
 
 #include "src/core/lib/iomgr/endpoint.h"
+#include "src/core/lib/iomgr/ev_posix.h"
+#include "src/core/lib/iomgr/iomgr_internal.h"
+#include "src/core/lib/iomgr/rdma_bp_posix.h"
+#include "src/core/lib/iomgr/rdma_bpev_posix.h"
+#include "src/core/lib/iomgr/rdma_event_posix.h"
+#include "src/core/lib/iomgr/tcp_posix.h"
 
 grpc_core::TraceFlag grpc_tcp_trace(false, "tcp");
+grpc_core::TraceFlag grpc_rdma_trace(false, "rdma");
+std::map<std::string, grpc_endpoint*> peer2endpoint;
+std::mutex peer2endpoint_mtx;
+std::atomic_size_t global_endpoint_count;
+
+std::string grpc_trim_peer(const std::string peer) {
+  std::string ret = peer;
+  int n = ret.find("ipv4:");
+  if (n != std::string::npos) {
+    ret = ret.substr(n + strlen("ipv4:"));
+  }
+  return ret;
+}
+
+grpc_endpoint* grpc_endpoint_create(grpc_fd* fd, const grpc_channel_args* args,
+                                    const char* peer_string, bool server) {
+  grpc_endpoint* ep = nullptr;
+  switch (grpc_check_iomgr_platform()) {
+    case IOMGR_RDMA_EVENT:
+      ep = grpc_rdma_event_create(fd, args, peer_string, server);
+      break;
+    case IOMGR_RDMA_BP:
+      ep = grpc_rdma_bp_create(fd, args, peer_string, server);
+      break;
+    case IOMGR_RDMA_BPEV:
+      ep = grpc_rdma_bpev_create(fd, args, peer_string, server);
+      break;
+    case IOMGR_TCP:
+      ep = grpc_tcp_create(fd, args, peer_string);
+      break;
+    default:
+      gpr_log(GPR_ERROR, "unknown platform type");
+      abort();
+  }
+  std::string peer = grpc_trim_peer(peer_string);
+  {
+    std::unique_lock<std::mutex> lck(peer2endpoint_mtx);
+    peer2endpoint.insert(std::pair<std::string, grpc_endpoint*>(peer, ep));
+  }
+  return ep;
+}
 
 void grpc_endpoint_read(grpc_endpoint* ep, grpc_slice_buffer* slices,
                         grpc_closure* cb, bool urgent) {
@@ -50,7 +99,20 @@ void grpc_endpoint_shutdown(grpc_endpoint* ep, grpc_error_handle why) {
   ep->vtable->shutdown(ep, why);
 }
 
-void grpc_endpoint_destroy(grpc_endpoint* ep) { ep->vtable->destroy(ep); }
+void grpc_endpoint_destroy(grpc_endpoint* ep) {
+  int fd = grpc_endpoint_get_fd(ep);
+  std::string peer = grpc_trim_peer((std::string)grpc_endpoint_get_peer(ep));
+  std::string local = (std::string)grpc_endpoint_get_local_address(ep);
+  {
+    std::unique_lock<std::mutex> lck(peer2endpoint_mtx);
+    peer2endpoint.erase(peer);
+  }
+  ep->vtable->destroy(ep);
+  //  printf("endpoint %p is destroyed, peer: %s, local: %s, attached fd: %d,
+  //  global endpoint count = %d\n",
+  //         ep, peer.c_str(), local.c_str(), fd,
+  //         global_endpoint_count.fetch_sub(1) - 1);
+}
 
 absl::string_view grpc_endpoint_get_peer(grpc_endpoint* ep) {
   return ep->vtable->get_peer(ep);

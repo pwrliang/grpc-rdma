@@ -114,6 +114,7 @@ static grpc_error_handle add_socket_to_server(grpc_tcp_server* s, int fd,
     sp->fd_index = fd_index;
     sp->is_sibling = 0;
     sp->sibling = nullptr;
+    sp->client_count = 0;
     GPR_ASSERT(sp->emfd);
     gpr_mu_unlock(&s->mu);
   }

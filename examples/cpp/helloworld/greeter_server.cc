@@ -70,6 +70,8 @@ void RunServer() {
 }
 
 int main(int argc, char** argv) {
+  setenv("GRPC_PLATFORM_TYPE", "RDMA_BP", 1);
+  // setenv("GRPC_PLATFORM_TYPE", "TCP", 1);
   RunServer();
 
   return 0;

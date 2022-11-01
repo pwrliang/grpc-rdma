@@ -26,6 +26,7 @@
 #include <grpc/slice.h>
 #include <grpc/slice_buffer.h>
 #include <grpc/support/time.h>
+#include "src/core/lib/iomgr/ev_posix.h"
 #include "src/core/lib/iomgr/pollset.h"
 #include "src/core/lib/iomgr/pollset_set.h"
 #include "src/core/lib/iomgr/resource_quota.h"
@@ -35,6 +36,8 @@
 
 typedef struct grpc_endpoint grpc_endpoint;
 typedef struct grpc_endpoint_vtable grpc_endpoint_vtable;
+
+std::string grpc_trim_peer(const std::string peer);
 
 struct grpc_endpoint_vtable {
   void (*read)(grpc_endpoint* ep, grpc_slice_buffer* slices, grpc_closure* cb,
@@ -52,6 +55,9 @@ struct grpc_endpoint_vtable {
   int (*get_fd)(grpc_endpoint* ep);
   bool (*can_track_err)(grpc_endpoint* ep);
 };
+
+grpc_endpoint* grpc_endpoint_create(grpc_fd* fd, const grpc_channel_args* args,
+                                    const char* peer_string, bool server);
 
 /* When data is available on the connection, calls the callback with slices.
    Callback success indicates that the endpoint can accept more reads, failure

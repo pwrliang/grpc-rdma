@@ -1366,6 +1366,8 @@ LIBGRPC_SRC = \
     src/core/lib/compression/stream_compression_identity.cc \
     src/core/lib/debug/stats.cc \
     src/core/lib/debug/stats_data.cc \
+    src/core/lib/debug/stats_time.cc \
+    src/core/lib/debug/get_clock.cc \
     src/core/lib/debug/trace.cc \
     src/core/lib/event_engine/slice_allocator.cc \
     src/core/lib/event_engine/sockaddr.cc \
@@ -1838,6 +1840,8 @@ LIBGRPC_UNSECURE_SRC = \
     src/core/lib/compression/stream_compression_identity.cc \
     src/core/lib/debug/stats.cc \
     src/core/lib/debug/stats_data.cc \
+    src/core/lib/debug/stats_time.cc \
+    src/core/lib/debug/get_clock.cc \
     src/core/lib/debug/trace.cc \
     src/core/lib/event_engine/slice_allocator.cc \
     src/core/lib/event_engine/sockaddr.cc \

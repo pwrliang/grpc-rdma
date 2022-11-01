@@ -90,6 +90,7 @@ class LockedMultiProducerSingleConsumerQueue {
 
  private:
   MultiProducerSingleConsumerQueue queue_;
+  // N.B. Global lock
   Mutex mu_;
 };
 
