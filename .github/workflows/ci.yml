@@ -50,7 +50,7 @@ jobs:
           make -j16 install
           popd
 
-      - name: Test Debug
+      - name: Build Test Debug
         run: |
           pushd examples/cpp/test
           rm -rf debug && mkdir debug
@@ -60,7 +60,7 @@ jobs:
           popd
           popd
 
-      - name: Test Release
+      - name: Build Test Release
         run: |
           pushd examples/cpp/test
           rm -rf release && mkdir release
@@ -68,4 +68,16 @@ jobs:
           PATH=$REL_PREFIX/bin:$PATH cmake .. -DCMAKE_PREFIX_PATH=$REL_PREFIX
           make
           popd
+          popd
+
+      - name: Test Debug
+        run: |
+          pushd examples/cpp/test
+          ./test.sh ./debug
+          popd
+
+      - name: Test Release
+        run: |
+          pushd examples/cpp/test
+          ./test.sh release
           popd

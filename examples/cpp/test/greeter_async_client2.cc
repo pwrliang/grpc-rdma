@@ -29,6 +29,7 @@
 #else
 #include "helloworld.grpc.pb.h"
 #endif
+#include "common.h"
 
 using grpc::Channel;
 using grpc::ClientAsyncResponseReader;
@@ -45,14 +46,17 @@ class GreeterClient {
       : stub_(Greeter::NewStub(channel)) {}
 
   // Assembles the client's payload and sends it to the server.
-  void SayHello(const std::string& user) {
+  void SayHello(int idx, const std::string& msg) {
     // Data we are sending to the server.
     HelloRequest request;
-    request.set_name(user);
+    request.set_name(msg);
 
     // Call object to store rpc data
     AsyncClientCall* call = new AsyncClientCall;
 
+    call->idx = idx;
+    call->msg = msg;
+    call->context.set_wait_for_ready(true);
     // stub_->PrepareAsyncSayHello() creates an RPC object, returning
     // an instance to store in "call" but does not actually start the RPC
     // Because we are using the asynchronous API, we need to hold on to
@@ -77,7 +81,7 @@ class GreeterClient {
     bool ok = false;
 
     // Block until the next result is available in the completion queue "cq".
-    while (cq_.Next(&got_tag, &ok)) {
+    while (total_req > 0 && cq_.Next(&got_tag, &ok)) {
       // The tag in this example is the memory location of the call object
       AsyncClientCall* call = static_cast<AsyncClientCall*>(got_tag);
 
@@ -85,17 +89,20 @@ class GreeterClient {
       // corresponds solely to the request for updates introduced by Finish().
       GPR_ASSERT(ok);
 
-      if (call->status.ok())
-        std::cout << "Greeter received: " << call->reply.message() << std::endl;
-      else
+      if (call->status.ok()) {
+        GPR_ASSERT(call->msg == call->reply.message());
+        std::cout << "Greeter " << call->idx << " received." << std::endl;
+        total_req--;
+      } else {
         std::cout << "RPC failed" << std::endl;
+        exit(1);
+      }
 
       // Once we're complete, deallocate the call object.
       delete call;
     }
   }
 
- private:
   // struct for keeping state and data information
   struct AsyncClientCall {
     // Container for the data we expect from the server.
@@ -109,6 +116,8 @@ class GreeterClient {
     Status status;
 
     std::unique_ptr<ClientAsyncResponseReader<HelloReply>> response_reader;
+    int idx;
+    std::string msg;
   };
 
   // Out of the passed in Channel comes the stub, stored here, our view of the
@@ -118,6 +127,7 @@ class GreeterClient {
   // The producer-consumer queue we use to communicate asynchronously with the
   // gRPC runtime.
   CompletionQueue cq_;
+  int total_req;
 };
 
 int main(int argc, char** argv) {
@@ -128,15 +138,20 @@ int main(int argc, char** argv) {
   GreeterClient greeter(grpc::CreateChannel(
       "localhost:50051", grpc::InsecureChannelCredentials()));
 
+  int total_req = 500;
+
+  greeter.total_req = total_req;
+
   // Spawn reader thread that loops indefinitely
   std::thread thread_ = std::thread(&GreeterClient::AsyncCompleteRpc, &greeter);
 
-  for (int i = 0; i < 100; i++) {
-    std::string user("world " + std::to_string(i));
-    greeter.SayHello(user);  // The actual RPC call!
+  for (int i = 0; i < total_req; i++) {
+    auto msg_size = get_msg_size(min_msg_size, max_msg_size);
+    auto msg = gen_random_msg(msg_size);
+
+    greeter.SayHello(i, msg);  // The actual RPC call!
   }
 
-  std::cout << "Press control-c to quit" << std::endl << std::endl;
   thread_.join();  // blocks forever
 
   return 0;
