@@ -1,0 +1,23 @@
+name: C++ CI
+
+on: [ push, pull_request ]
+
+jobs:
+  build:
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          submodules: true
+      - name: Build Debug
+        run: |
+          mkdir debug
+          cd debug
+          cmake .. -DCMAKE_PREFIX_PATH=/home/geng.161/.local -DCMAKE_INSTALL_PREFIX=/tmp/grpc_dbg -DCMAKE_BUILD_TYPE=Debug
+          make -j16 install
+      - name: Build Release
+        run: |
+          mkdir release
+          cd release
+          cmake .. -DCMAKE_PREFIX_PATH=/home/geng.161/.local -DCMAKE_INSTALL_PREFIX=/tmp/grpc_rel -DCMAKE_BUILD_TYPE=Release
+          make -j16 install
