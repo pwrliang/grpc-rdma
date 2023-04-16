@@ -15,17 +15,18 @@ jobs:
 
       - name: Prepare
         run: |  
-          rm -rf $DBG_PREFIX $REL_PREFIX
-          mkdir -p $DBG_PREFIX
+          rm -rf $DBG_PREFIX $REL_PREFIX && mkdir -p $DBG_PREFIX $REL_PREFIX
           pushd third_party/abseil-cpp 
           
           # Build absel in debug mode
-          mkdir debug && pushd debug
+          rm -rf debug && mkdir debug
+          pushd debug
           cmake .. -DCMAKE_INSTALL_PREFIX=$DBG_PREFIX -DCMAKE_BUILD_TYPE=Debug
           popd
           
           # Build absel in release mode
-          mkdir release && pushd release
+          rm -rf release && mkdir release
+          pushd release
           cmake .. -DCMAKE_INSTALL_PREFIX=$REL_PREFIX -DCMAKE_BUILD_TYPE=Release
           popd
           
@@ -33,7 +34,7 @@ jobs:
 
       - name: Build Debug
         run: |
-          mkdir debug
+          rm -rf debug && mkdir debug
           pushd debug
           cmake .. -DCMAKE_INSTALL_PREFIX=$DBG_PREFIX -DCMAKE_BUILD_TYPE=Debug
           make -j16 install
@@ -41,7 +42,7 @@ jobs:
 
       - name: Build Release
         run: |
-          mkdir release
+          rm -rf release && mkdir release
           pushd release
           cmake .. -DCMAKE_INSTALL_PREFIX=$REL_PREFIX -DCMAKE_BUILD_TYPE=Release
           make -j16 install
@@ -50,7 +51,7 @@ jobs:
       - name: Test Debug
         run: |
           pushd examples/cpp/test
-          mkdir debug
+          rm -rf debug && mkdir debug
           pushd debug
           PATH=$DBG_PREFIX/bin:$PATH cmake .. -DCMAKE_PREFIX_PATH=$DBG_PREFIX
           make
@@ -60,7 +61,7 @@ jobs:
       - name: Test Release
         run: |
           pushd examples/cpp/test
-          mkdir release
+          rm -rf release && mkdir release
           pushd release
           PATH=$REL_PREFIX/bin:$PATH cmake .. -DCMAKE_PREFIX_PATH=$REL_PREFIX
           make
