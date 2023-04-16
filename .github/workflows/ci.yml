@@ -6,25 +6,26 @@ jobs:
   build:
     runs-on: self-hosted
     env:
-      DBG_PREFIX: /tmp/$USER/grpc_dbg
-      REL_PREFIX: /tmp/$USER/grpc_rel
+      DBG_PREFIX: /tmp/geng.161/grpc_dbg
+      REL_PREFIX: /tmp/geng.161/grpc_rel
     steps:
       - uses: actions/checkout@v2
         with:
           submodules: true
+
       - name: Prepare
         run: |
-          mkdir -p /tmp/$USER
+          mkdir -p $DBG_PREFIX
           rm -rf $DBG_PREFIX $REL_PREFIX
           pushd third_party/abseil-cpp 
           
           # Build absel in debug mode
-          mkdir dbg && pushd dbg
+          mkdir debug && pushd debug
           cmake .. -DCMAKE_INSTALL_PREFIX=$DBG_PREFIX -DCMAKE_BUILD_TYPE=Debug
           popd
           
           # Build absel in release mode
-          mkdir rel && pushd rel
+          mkdir release && pushd release
           cmake .. -DCMAKE_INSTALL_PREFIX=$REL_PREFIX -DCMAKE_BUILD_TYPE=Release
           popd
           
@@ -45,9 +46,23 @@ jobs:
           cmake .. -DCMAKE_INSTALL_PREFIX=$REL_PREFIX -DCMAKE_BUILD_TYPE=Release
           make -j16 install
           popd
-#      - name: Test Debug
-#        run: |
-#          cd examples/cpp/test
-#          mkdir debug
-#          cd debug
-#          PATH=$DBG_PREFIX/bin:$PATH cmake ..
+
+      - name: Test Debug
+        run: |
+          pushd examples/cpp/test
+          mkdir debug
+          pushd debug
+          PATH=$DBG_PREFIX/bin:$PATH cmake ..
+          make
+          popd
+          popd
+
+      - name: Test Release
+        run: |
+          pushd examples/cpp/test
+          mkdir release
+          pushd release
+          PATH=$REL_PREFIX/bin:$PATH cmake ..
+          make
+          popd
+          popd
