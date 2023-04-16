@@ -25,6 +25,12 @@ src/python/grpcio_status/grpc_status/google/rpc/status.proto
 .pytype
 *.egg-info
 
+examples/cpp/test/release/
+examples/cpp/test/debug/
+cmake-build-debug/
+cmake-build-release/
+build/
+
 # Node installation output
 node_modules
 src/node/extension_binary/
