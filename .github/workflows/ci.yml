@@ -52,7 +52,7 @@ jobs:
           pushd examples/cpp/test
           mkdir debug
           pushd debug
-          PATH=$DBG_PREFIX/bin:$PATH cmake ..
+          PATH=$DBG_PREFIX/bin:$PATH cmake .. -DCMAKE_PREFIX_PATH=$DBG_PREFIX
           make
           popd
           popd
@@ -62,7 +62,7 @@ jobs:
           pushd examples/cpp/test
           mkdir release
           pushd release
-          PATH=$REL_PREFIX/bin:$PATH cmake ..
+          PATH=$REL_PREFIX/bin:$PATH cmake .. -DCMAKE_PREFIX_PATH=$REL_PREFIX
           make
           popd
           popd
