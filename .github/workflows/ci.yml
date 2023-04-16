@@ -79,5 +79,5 @@ jobs:
       - name: Test Release
         run: |
           pushd examples/cpp/test
-          ./test.sh release
+          ./test.sh ./release
           popd
