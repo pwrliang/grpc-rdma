@@ -29,6 +29,7 @@ jobs:
           rm -rf release && mkdir release
           pushd release
           cmake .. -DCMAKE_INSTALL_PREFIX=$REL_PREFIX -DCMAKE_BUILD_TYPE=Release
+          make -j16 install
           popd
           
           popd
