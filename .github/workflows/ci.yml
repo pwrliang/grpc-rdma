@@ -14,9 +14,9 @@ jobs:
           submodules: true
 
       - name: Prepare
-        run: |
-          mkdir -p $DBG_PREFIX
+        run: |  
           rm -rf $DBG_PREFIX $REL_PREFIX
+          mkdir -p $DBG_PREFIX
           pushd third_party/abseil-cpp 
           
           # Build absel in debug mode
