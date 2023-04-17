@@ -108,6 +108,7 @@ class RingBuffer {
         head_(0),
         garbage_(0) {
     memset(buf_, 0, capacity);
+    mhz_ = get_cpu_mhz(0);
   }
   virtual ~RingBuffer() { delete[] buf_; }
 
@@ -156,6 +157,7 @@ class RingBuffer {
   uint8_t* buf_;
   size_t head_;
   size_t garbage_;
+  double mhz_;
 };
 
 class RingBufferBP : public RingBuffer {

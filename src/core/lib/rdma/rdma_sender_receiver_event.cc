@@ -152,6 +152,7 @@ int RDMASenderReceiverEvent::Send(msghdr* msg, ssize_t* sz) {
           remote_ringbuf_mr_, remote_ringbuf_tail_, sges, sge_idx + 1, mlen,
           IBV_WR_RDMA_WRITE_WITH_IMM);
     }
+    n_outstanding_send_ += n_post_send;
   }
 
   remote_ringbuf_tail_ = (remote_ringbuf_tail_ + mlen) % remote_ringbuf_sz;
