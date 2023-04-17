@@ -279,8 +279,6 @@ bool RingBufferBP::Read(msghdr* msg, size_t& expected_mlens) {
     cycles_t begin_cycles = get_cycles();
     memcpy(iov_rbase, buf_ + buf_offset, n);
     cycles_t t_cycles = get_cycles() - begin_cycles;
-    size_t mb_s = n / (t_cycles / mhz_);
-    grpc_stats_time_add_custom(GRPC_STATS_TIME_ADHOC_4, mb_s);
 
 #ifndef NDEBUG
     if (GRPC_TRACE_FLAG_ENABLED(grpc_trace_ringbuffer)) {

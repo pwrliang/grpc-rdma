@@ -293,3 +293,8 @@ void grpc_stats_time_print(std::ostream& os) {
 }
 
 void grpc_stats_time_print() { grpc_stats_time_print(std::cout); }
+
+double grpc_stats_time_get_cpu_mhz() {
+  static double mhz = get_cpu_mhz(0);
+  return mhz;
+}
