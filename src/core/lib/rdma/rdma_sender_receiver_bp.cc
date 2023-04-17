@@ -225,6 +225,7 @@ int RDMASenderReceiverBP::SendChunk(msghdr* msg, ssize_t* sz) {
           remote_ringbuf_mr_, remote_ringbuf_tail_, sendbuf_mr_,
           bytes_outstanding_send_.load(), len, IBV_WR_RDMA_WRITE);
     }
+    n_outstanding_send_ += n_post_send;
   }
   bytes_outstanding_send_ += len;
   remote_ringbuf_tail_ = (remote_ringbuf_tail_ + len) % remote_ringbuf_sz;
@@ -339,6 +340,7 @@ int RDMASenderReceiverBP::Send(msghdr* msg, ssize_t* sz) {
           conn_data_->PostSendRequest(remote_ringbuf_mr_, remote_ringbuf_tail_,
                                       sendbuf_mr_, 0, len, IBV_WR_RDMA_WRITE);
     }
+    n_outstanding_send_ += n_post_send;
   }
 
   remote_ringbuf_tail_ = (remote_ringbuf_tail_ + len) % remote_ringbuf_sz;

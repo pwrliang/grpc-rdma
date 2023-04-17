@@ -49,6 +49,7 @@ class RDMASenderReceiver {
         unread_mlens_(0),
         metadata_recvbuf_sz_(DEFAULT_HEADBUF_SZ),
         metadata_sendbuf_sz_(DEFAULT_HEADBUF_SZ),
+        n_outstanding_send_(0),
         last_failed_send_size_(0),
         read_content_conter_(0),
         write_content_counter_(0),
@@ -204,6 +205,8 @@ class RDMASenderReceiver {
 
   uint8_t *sendbuf_, *zerocopy_sendbuf_;
   MemRegion sendbuf_mr_, zerocopy_sendbuf_mr_;
+
+  std::atomic_uint32_t n_outstanding_send_;
   std::atomic_uint32_t last_failed_send_size_;
   size_t send_chunk_size_;
   size_t sendbuf_sz_;
@@ -280,13 +283,18 @@ class RDMASenderReceiverBP : public RDMASenderReceiver {
   }
 
   int PollLastSendCompletion() override {
-    GRPCProfiler profiler(GRPC_STATS_TIME_SEND_POLL, 0);
-    int ret = conn_data_->PollSendCompletion();
+    uint32_t n_poll = n_outstanding_send_.exchange(0);
 
-    if (ret != 0) {
-      gpr_log(GPR_ERROR, "rdmasr: %p PollLastSendCompletion failed, code: %d ",
-              this, ret);
-      return ret;
+    if (n_poll > 0) {
+      GRPCProfiler profiler(GRPC_STATS_TIME_SEND_POLL, 0);
+      int ret = conn_data_->PollSendCompletion(n_poll);
+
+      if (ret != 0) {
+        gpr_log(GPR_ERROR,
+                "rdmasr: %p PollLastSendCompletion failed, code: %d ", this,
+                ret);
+        return ret;
+      }
     }
     bytes_outstanding_send_ = 0;
     return 0;
@@ -376,15 +384,19 @@ class RDMASenderReceiverEvent : public RDMASenderReceiver {
   void SetMetadataReady() { metadata_ready_ = true; }
 
   int PollLastSendCompletion() override {
-    GRPCProfiler profiler(GRPC_STATS_TIME_SEND_POLL, 0);
-    int ret = conn_data_->PollSendCompletion();
+    uint32_t n_poll = n_outstanding_send_.exchange(0);
 
-    if (ret != 0) {
-      gpr_log(GPR_ERROR, "rdmasr: %p PollLastSendCompletion failed, code: %d ",
-              this, ret);
-      return ret;
+    if (n_poll > 0) {
+      GRPCProfiler profiler(GRPC_STATS_TIME_SEND_POLL, 0);
+      int ret = conn_data_->PollSendCompletion(n_poll);
+
+      if (ret != 0) {
+        gpr_log(GPR_ERROR,
+                "rdmasr: %p PollLastSendCompletion failed, code: %d ", this,
+                ret);
+        return ret;
+      }
     }
-
     return 0;
   }
 

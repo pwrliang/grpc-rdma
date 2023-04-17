@@ -332,7 +332,7 @@ int RDMAConn::PollSendCompletion() {
     if (wc.status != IBV_WC_SUCCESS) {
       gpr_log(GPR_ERROR, "Channel: %s, PollSendCompletion, wc status = %d",
               name_, wc.status);
-      return wc.status;
+      return wc.status;  // > 0
     }
   }
 
@@ -340,7 +340,7 @@ int RDMAConn::PollSendCompletion() {
     gpr_log(GPR_ERROR, "Channel: %s, PollSendCompletion, ibv_poll_cq return %d",
             name_, r);
   }
-  return r;
+  return r;  // r is either 0 (success) or < 0
 }
 
 void RDMAConn::PostRecvRequests(size_t n) {
