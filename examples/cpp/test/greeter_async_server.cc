@@ -49,9 +49,7 @@ class ServerImpl final {
   }
 
   // There is no shutdown handling in this code.
-  void Run() {
-    std::string server_address("0.0.0.0:50051");
-
+  void Run(const std::string& server_address) {
     ServerBuilder builder;
     // Listen on the given address without any authentication mechanism.
     builder.AddListeningPort(server_address, grpc::InsecureServerCredentials());
@@ -163,8 +161,12 @@ class ServerImpl final {
 };
 
 int main(int argc, char** argv) {
+  std::string port = "50051";
+  if (argc > 1) {
+    port = std::string(argv[1]);
+  }
   ServerImpl server;
-  server.Run();
+  server.Run("0.0.0.0:" + port);
 
   return 0;
 }
