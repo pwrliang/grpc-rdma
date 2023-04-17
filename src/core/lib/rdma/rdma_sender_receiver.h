@@ -150,7 +150,7 @@ class RDMASenderReceiver {
 
   virtual size_t MarkMessageLength() = 0;
 
-  virtual void PollLastSendCompletion() = 0;
+  virtual int PollLastSendCompletion() = 0;
 
   void* RequireZerocopySendSpace(size_t size) {
     PollLastSendCompletion();
@@ -285,7 +285,7 @@ class RDMASenderReceiverBP : public RDMASenderReceiver {
     return event;
   }
 
-  void PollLastSendCompletion() override {
+  int PollLastSendCompletion() override {
     uint32_t n_poll = n_outstanding_send_.exchange(0);
 
     if (n_poll > 0) {
@@ -296,10 +296,11 @@ class RDMASenderReceiverBP : public RDMASenderReceiver {
         gpr_log(GPR_ERROR,
                 "rdmasr: %p PollLastSendCompletion failed, code: %d ", this,
                 ret);
-        abort();
+        return ret;
       }
     }
     bytes_outstanding_send_.exchange(0);
+    return 0;
   }
 
  private:
@@ -385,7 +386,7 @@ class RDMASenderReceiverEvent : public RDMASenderReceiver {
 
   void SetMetadataReady() { metadata_ready_ = true; }
 
-  void PollLastSendCompletion() override {
+  int PollLastSendCompletion() override {
     uint32_t n_poll = n_outstanding_send_.exchange(0);
 
     if (n_poll > 0) {
@@ -396,12 +397,13 @@ class RDMASenderReceiverEvent : public RDMASenderReceiver {
         gpr_log(GPR_ERROR,
                 "rdmasr: %p PollLastSendCompletion failed, code: %d ", this,
                 ret);
-        abort();
+        return ret;
       }
 
       total_send_ += n_poll;
       send_buf_offset_ = 0;
     }
+    return 0;
   }
 
  private:

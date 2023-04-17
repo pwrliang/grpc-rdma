@@ -267,7 +267,9 @@ int RDMASenderReceiverBP::Send(msghdr* msg, ssize_t* sz) {
     gpr_log(GPR_INFO, "rdmasr: %p send, mlen: %zu", this, mlen);
   }
 
-  PollLastSendCompletion();
+  if (PollLastSendCompletion() != 0) {
+    return EPIPE;
+  }
 
   if (!isWritable(mlen)) {
     if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_sr_bp_trace)) {
