@@ -96,6 +96,8 @@ void grpc_stats_time_add_custom(grpc_stats_time op, long long data);
 
 void grpc_stats_time_add(grpc_stats_time op, cycles_t cycles, int group = -1);
 
+double grpc_stats_time_get_cpu_mhz();
+
 class GRPCProfiler {
  public:
   explicit GRPCProfiler(grpc_stats_time op, int group = -1);

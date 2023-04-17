@@ -102,6 +102,7 @@ size_t RDMASenderReceiverBP::MarkMessageLength() {
 
 int RDMASenderReceiverBP::SendChunk(msghdr* msg, ssize_t* sz) {
   ContentAssertion cass(write_counter_);
+  auto mhz = grpc_stats_time_get_cpu_mhz();
   size_t remote_ringbuf_sz = remote_ringbuf_mr_.length();
   size_t mlen = 0;
 
@@ -178,7 +179,7 @@ int RDMASenderReceiverBP::SendChunk(msghdr* msg, ssize_t* sz) {
       cycles_t begin_cycles = get_cycles();
       memcpy(sendbuf_ptr, iov_base, iov_len);
       cycles_t t_cycles = get_cycles() - begin_cycles;
-      size_t mb_s = iov_len / (t_cycles / mhz_);
+      size_t mb_s = iov_len / (t_cycles / mhz);
       grpc_stats_time_add_custom(GRPC_STATS_TIME_ADHOC_2, mb_s);
       iov_base = sendbuf_ptr;
       sendbuf_ptr += iov_len;
@@ -198,7 +199,7 @@ int RDMASenderReceiverBP::SendChunk(msghdr* msg, ssize_t* sz) {
   cycles_t t_cycles = get_cycles() - begin_cycles;
   if (nwritten > 1024) {
     grpc_stats_time_add_custom(GRPC_STATS_TIME_SEND_COPY_BW,
-                               nwritten / (t_cycles / mhz_));
+                               nwritten / (t_cycles / mhz));
   }
   // gpr_log(GPR_INFO, "SendChunk memcpy: Size: %zu, Time: %.2lf us, Speed: %lf
   // MB/s",
@@ -224,7 +225,6 @@ int RDMASenderReceiverBP::SendChunk(msghdr* msg, ssize_t* sz) {
           remote_ringbuf_mr_, remote_ringbuf_tail_, sendbuf_mr_,
           bytes_outstanding_send_.load(), len, IBV_WR_RDMA_WRITE);
     }
-    n_outstanding_send_ += n_post_send;
   }
   bytes_outstanding_send_ += len;
   remote_ringbuf_tail_ = (remote_ringbuf_tail_ + len) % remote_ringbuf_sz;
@@ -339,7 +339,6 @@ int RDMASenderReceiverBP::Send(msghdr* msg, ssize_t* sz) {
           conn_data_->PostSendRequest(remote_ringbuf_mr_, remote_ringbuf_tail_,
                                       sendbuf_mr_, 0, len, IBV_WR_RDMA_WRITE);
     }
-    n_outstanding_send_ += n_post_send;
   }
 
   remote_ringbuf_tail_ = (remote_ringbuf_tail_ + len) % remote_ringbuf_sz;
@@ -430,6 +429,7 @@ int RDMASenderReceiverBP::Recv(msghdr* msg, ssize_t* sz) {
 
 int RDMASenderReceiverBP::RecvEx(msghdr* msg, ssize_t* sz) {
   ContentAssertion cass(read_content_conter_);
+  auto mhz = grpc_stats_time_get_cpu_mhz();
   size_t mlens =
       dynamic_cast<RingBufferBP*>(ringbuf_)->CheckFirstMessageLength();
 
@@ -459,12 +459,12 @@ int RDMASenderReceiverBP::RecvEx(msghdr* msg, ssize_t* sz) {
 
   gpr_log(GPR_INFO,
           "Size: %zu, msg_iovlen: %zu, Time: %.2lf us, Read Speed: %lf MB/s",
-          actual_read, msg->msg_iovlen, t_cycles / mhz_,
-          actual_read / (t_cycles / mhz_));
+          actual_read, msg->msg_iovlen, t_cycles / mhz,
+          actual_read / (t_cycles / mhz));
 
   if (actual_read > 1024) {
     grpc_stats_time_add_custom(GRPC_STATS_TIME_RECV_COPY_BW,
-                               actual_read / (t_cycles / mhz_));
+                               actual_read / (t_cycles / mhz));
   }
 
   if (sz != nullptr) {
