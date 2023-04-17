@@ -9,7 +9,7 @@ function start_async_server() {
 }
 
 function start_async_client2() {
-  $TEST_BUILD_ROOT/greeter_async_client2 $PORT
+  mpirun --bind-to none -n 4 $TEST_BUILD_ROOT/greeter_async_client2 $PORT
   echo "Killing $SERVER_PID"
   kill -9 $SERVER_PID
 }
