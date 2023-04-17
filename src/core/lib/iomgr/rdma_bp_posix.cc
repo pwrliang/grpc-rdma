@@ -217,9 +217,6 @@ static void rdma_do_read(grpc_rdma* rdma) {
     return;
   }
 
-  size_t mb_s = read_bytes / (t_cycles / rdma->rdmasr->get_mhz());
-  grpc_stats_time_add_custom(GRPC_STATS_TIME_ADHOC_3, mb_s);
-
   if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_trace)) {
     gpr_log(GPR_INFO, "rdma_do_read recv %zu bytes", read_bytes);
   }
@@ -456,7 +453,8 @@ static bool rdma_flush_chunks(grpc_rdma* rdma, grpc_error_handle* error) {
 
   size_t outgoing_slice_idx = 0;
   size_t total_sent_length = 0;
-  rdma->rdmasr->PollLastSendCompletion();
+
+  rdma->rdmasr->PollLastSendCompletion();  // FIXME: check return
 
   while (true) {
     sending_length = 0;
@@ -518,9 +516,6 @@ static bool rdma_flush_chunks(grpc_rdma* rdma, grpc_error_handle* error) {
         return true;
       }
     }
-
-    size_t mb_s = sent_length / (t_cycles / rdma->rdmasr->get_mhz());
-    grpc_stats_time_add_custom(GRPC_STATS_TIME_ADHOC_1, mb_s);
 
     total_sent_length += sent_length;
 
@@ -607,9 +602,6 @@ static bool rdma_flush(grpc_rdma* rdma, grpc_error_handle* error) {
       }
     }
 
-    size_t mb_s = sent_length / (t_cycles / rdma->rdmasr->get_mhz());
-    grpc_stats_time_add_custom(GRPC_STATS_TIME_ADHOC_1, mb_s);
-
     total_sent_length += sent_length;
 
     grpc_stats_time_add_custom(GRPC_STATS_TIME_SEND_SIZE, sent_length);
@@ -636,8 +628,8 @@ static void rdma_handle_write(void* arg /* grpc_rdma */,
     return;
   }
 
-    bool flush_result = rdma_flush(rdma, &error);
-//  bool flush_result = rdma_flush_chunks(rdma, &error);
+  bool flush_result = rdma_flush(rdma, &error);
+  //  bool flush_result = rdma_flush_chunks(rdma, &error);
   if (!flush_result) {
     if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_trace)) {
       gpr_log(GPR_INFO, "write: delayed");
@@ -674,8 +666,8 @@ static void rdma_write(grpc_endpoint* ep, grpc_slice_buffer* buf,
   rdma->outgoing_buffer = buf;
   rdma->outgoing_byte_idx = 0;
 
-    bool flush_result = rdma_flush(rdma, &error);
-//  bool flush_result = rdma_flush_chunks(rdma, &error);
+  bool flush_result = rdma_flush(rdma, &error);
+  //  bool flush_result = rdma_flush_chunks(rdma, &error);
   if (!flush_result) {
     RDMA_REF(rdma, "write");
     rdma->write_cb = cb;

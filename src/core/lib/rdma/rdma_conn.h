@@ -36,6 +36,8 @@ class RDMAConn {
 
   int PollSendCompletion(int expected_num_entries);
 
+  int PollSendCompletion();
+
   int PostSendRequest(MemRegion& remote_mr, MemRegion& local_mr, size_t sz,
                       ibv_wr_opcode opcode);
 

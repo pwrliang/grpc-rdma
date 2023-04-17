@@ -1,0 +1,87 @@
+name: C++ CI
+
+on: [ push, pull_request ]
+
+jobs:
+  build:
+    runs-on: self-hosted
+    env:
+      DBG_PREFIX: /tmp/geng.161/grpc_dbg
+      REL_PREFIX: /tmp/geng.161/grpc_rel
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          submodules: true
+
+      - name: Prepare
+        run: |  
+          rm -rf $DBG_PREFIX $REL_PREFIX && mkdir -p $DBG_PREFIX $REL_PREFIX
+          pushd third_party/abseil-cpp 
+          
+          # Build absel in debug mode
+          rm -rf debug && mkdir debug
+          pushd debug
+          cmake .. -DCMAKE_INSTALL_PREFIX=$DBG_PREFIX -DCMAKE_BUILD_TYPE=Debug
+          make -j16 install
+          popd
+          
+          # Build absel in release mode
+          rm -rf release && mkdir release
+          pushd release
+          cmake .. -DCMAKE_INSTALL_PREFIX=$REL_PREFIX -DCMAKE_BUILD_TYPE=Release
+          make -j16 install
+          popd
+          
+          popd
+
+      - name: Build Debug
+        run: |
+          rm -rf debug && mkdir debug
+          pushd debug
+          cmake .. -DCMAKE_INSTALL_PREFIX=$DBG_PREFIX -DCMAKE_BUILD_TYPE=Debug
+          make -j16 install
+          popd
+
+      - name: Build Release
+        run: |
+          rm -rf release && mkdir release
+          pushd release
+          cmake .. -DCMAKE_INSTALL_PREFIX=$REL_PREFIX -DCMAKE_BUILD_TYPE=Release
+          make -j16 install
+          popd
+
+      - name: Build Test Debug
+        run: |
+          pushd examples/cpp/test
+          rm -rf debug && mkdir debug
+          pushd debug
+          PATH=$DBG_PREFIX/bin:$PATH cmake .. -DCMAKE_PREFIX_PATH=$DBG_PREFIX
+          make
+          popd
+          popd
+
+      - name: Build Test Release
+        run: |
+          pushd examples/cpp/test
+          rm -rf release && mkdir release
+          pushd release
+          PATH=$REL_PREFIX/bin:$PATH cmake .. -DCMAKE_PREFIX_PATH=$REL_PREFIX
+          make
+          popd
+          popd
+
+      - name: Test Debug
+        run: |
+          pushd examples/cpp/test
+          GRPC_PLATFORM_TYPE="RDMA_BP" ./test.sh ./debug
+          GRPC_PLATFORM_TYPE="RDMA_EVENT" ./test.sh ./debug
+          GRPC_PLATFORM_TYPE="RDMA_BPEV" ./test.sh ./debug
+          popd
+
+      - name: Test Release
+        run: |
+          pushd examples/cpp/test
+          GRPC_PLATFORM_TYPE="RDMA_BP" ./test.sh ./release
+          GRPC_PLATFORM_TYPE="RDMA_EVENT" ./test.sh ./release
+          GRPC_PLATFORM_TYPE="RDMA_BPEV" ./test.sh ./release
+          popd

@@ -70,7 +70,7 @@
 
 // debug aid: create workers on the heap (allows asan to spot
 // use-after-destruction)
-//#define GRPC_EPOLLEX_CREATE_WORKERS_ON_HEAP 1
+// #define GRPC_EPOLLEX_CREATE_WORKERS_ON_HEAP 1
 
 #define MAX_EPOLL_EVENTS 100
 #define MAX_FDS_IN_CACHE 32
@@ -676,6 +676,8 @@ static grpc_error_handle pollable_create(pollable_type type, pollable** p) {
   return GRPC_ERROR_NONE;
 }
 
+static grpc_error_handle kick_one_worker(grpc_pollset_worker* specific_worker);
+
 static grpc_error_handle pollable_add_fd(pollable* p, grpc_fd* fd) {
   grpc_error_handle error = GRPC_ERROR_NONE;
   static const char* err_desc = "pollable_add_fd";
@@ -717,6 +719,10 @@ static grpc_error_handle pollable_add_fd(pollable* p, grpc_fd* fd) {
       fd->polling_by->push_back(p);
     }
     gpr_mu_unlock(&fd->rdma_mu);
+    if (p->root_worker != nullptr) {  // Kick a worker so pollable epoll can
+                                      // notice a new connection
+      kick_one_worker(p->root_worker);
+    }
   }
 
   return error;

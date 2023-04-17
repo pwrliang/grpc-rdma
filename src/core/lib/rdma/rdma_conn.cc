@@ -324,6 +324,25 @@ int RDMAConn::PollSendCompletion(int expected_num_entries) {
   return 0;
 }
 
+int RDMAConn::PollSendCompletion() {
+  ibv_wc wc;
+  int r;
+
+  while ((r = ibv_poll_cq(scq_.get(), 1, &wc)) > 0) {
+    if (wc.status != IBV_WC_SUCCESS) {
+      gpr_log(GPR_ERROR, "Channel: %s, PollSendCompletion, wc status = %d",
+              name_, wc.status);
+      return wc.status;  // > 0
+    }
+  }
+
+  if (r < 0) {
+    gpr_log(GPR_ERROR, "Channel: %s, PollSendCompletion, ibv_poll_cq return %d",
+            name_, r);
+  }
+  return r;  // r is either 0 (success) or < 0
+}
+
 void RDMAConn::PostRecvRequests(size_t n) {
   if (n == 0) return;
   struct ibv_recv_wr* bad_wr = nullptr;

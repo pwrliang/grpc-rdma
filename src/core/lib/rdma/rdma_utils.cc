@@ -103,63 +103,9 @@ void RDMANode::open(const char* name) {
     gpr_log(GPR_ERROR, "RDMANode::open, ibv_alloc_pd failed");
     abort();
   }
-  monitor_ev_ = true;
-  async_ev_thread_ = std::thread([this]() {
-    int flags;
-    int ret;
-
-    /* change the blocking mode of the async event queue */
-    flags = fcntl(ib_ctx->async_fd, F_GETFL);
-    ret = fcntl(ib_ctx->async_fd, F_SETFL, flags | O_NONBLOCK);
-    if (ret < 0) {
-      fprintf(stderr,
-              "Error, failed to change file descriptor of async event queue\n");
-      abort();
-    }
-
-    while (monitor_ev_) {
-      struct pollfd my_pollfd;
-      int ms_timeout = 100;
-
-      /*
-       * poll the queue until it has an event and sleep ms_timeout
-       * milliseconds between any iteration
-       */
-      my_pollfd.fd = ib_ctx->async_fd;
-      my_pollfd.events = POLLIN;
-      my_pollfd.revents = 0;
-      do {
-        ret = poll(&my_pollfd, 1, ms_timeout);
-        if (!monitor_ev_) {
-          return;
-        }
-      } while (ret == 0);
-      if (ret < 0) {
-        fprintf(stderr, "poll failed\n");
-        abort();
-      }
-      ibv_async_event event;
-
-      /* we know that there is an event, so we just need to read it */
-      ret = ibv_get_async_event(ib_ctx.get(), &event);
-      if (ret) {
-        fprintf(stderr, "Error, ibv_get_async_event() failed, %s\n",
-                strerror(errno));
-        abort();
-      }
-
-      /* print the event */
-      print_async_event(ib_ctx.get(), &event);
-
-      /* ack the event */
-      ibv_ack_async_event(&event);
-    }
-  });
 }
 
 void RDMANode::close() {
-  monitor_ev_ = false;
-  async_ev_thread_.join();
   memset(&port_attr, 0, sizeof(port_attr));
 }
 
