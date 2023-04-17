@@ -178,8 +178,6 @@ class RDMANode {
   ibv_port_attr port_attr;
   union ibv_gid gid;
   ibv_device_attr dev_attr;
-  std::thread async_ev_thread_;
-  bool monitor_ev_;
 
   void open(const char* name);
   void close();
