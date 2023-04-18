@@ -73,6 +73,7 @@ jobs:
       - name: Test Debug
         run: |
           pushd examples/cpp/test
+          GRPC_PLATFORM_TYPE="RDMA" ./test.sh ./debug
           GRPC_PLATFORM_TYPE="RDMA_BP" ./test.sh ./debug
           GRPC_PLATFORM_TYPE="RDMA_EVENT" ./test.sh ./debug
           GRPC_PLATFORM_TYPE="RDMA_BPEV" ./test.sh ./debug
@@ -81,6 +82,7 @@ jobs:
       - name: Test Release
         run: |
           pushd examples/cpp/test
+          GRPC_PLATFORM_TYPE="RDMA" ./test.sh ./release
           GRPC_PLATFORM_TYPE="RDMA_BP" ./test.sh ./release
           GRPC_PLATFORM_TYPE="RDMA_EVENT" ./test.sh ./release
           GRPC_PLATFORM_TYPE="RDMA_BPEV" ./test.sh ./release

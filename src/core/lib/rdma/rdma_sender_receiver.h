@@ -123,11 +123,6 @@ class RDMASenderReceiver {
         "total sent = %lld, total zerocopy sent = %lld, zerocopy ratio = %7.3f",
         total_sent_.load(), total_zerocopy_send_size,
         double(total_zerocopy_send_size) / total_sent_.load());
-    printf(
-        "total sent = %lld, total zerocopy sent = %lld, zerocopy ratio = "
-        "%7.3f\n",
-        total_sent_.load(), total_zerocopy_send_size,
-        double(total_zerocopy_send_size) / total_sent_.load());
     status_ = Status::kDisconnected;
     delete[] sendbuf_;
     delete[] zerocopy_sendbuf_;

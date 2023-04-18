@@ -159,7 +159,9 @@ int main(int argc, char** argv) {
     greeter.SayHello(i, msg);  // The actual RPC call!
   }
 
-  thread_.join();  // blocks forever
+  thread_.join();
+
+  printf("PID: %d, Client Exit\n", getpid());
 
   return 0;
 }

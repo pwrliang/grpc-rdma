@@ -1,5 +1,9 @@
+#include <sys/syscall.h>
+#include <sys/types.h>
 #include "include/grpcpp/stats_time.h"
 #include "src/core/lib/rdma/rdma_sender_receiver.h"
+
+#define gettid() syscall(SYS_gettid)
 
 grpc_core::TraceFlag grpc_rdma_sr_bp_trace(false, "rdma_sr_bp");
 grpc_core::TraceFlag grpc_rdma_sr_bp_debug_trace(false, "rdma_sr_bp_debug");
@@ -17,6 +21,7 @@ RDMASenderReceiverBP::RDMASenderReceiverBP(int fd, bool server)
     gpr_log(GPR_ERROR, "failed to RegisterLocal local_ringbuf_mr");
     abort();
   }
+  gpr_log(GPR_INFO, "%c Create rdmasr %p", is_server() ? 'S' : 'C', this);
 }
 
 RDMASenderReceiverBP::~RDMASenderReceiverBP() {
@@ -27,6 +32,7 @@ RDMASenderReceiverBP::~RDMASenderReceiverBP() {
   delete conn_data_;
   delete conn_metadata_;
   delete ringbuf_;
+  gpr_log(GPR_INFO, "%c Destroy rdmasr %p", is_server() ? 'S' : 'C', this);
 }
 
 void RDMASenderReceiverBP::Init() {
@@ -64,12 +70,13 @@ void RDMASenderReceiverBP::Init() {
                       remote_ringbuf_sz;
         std::sprintf(
             buffer,
-            "%c rdmasr: %p head: %zu avail mlens: "
+            "P[T]ID: %d %c rdmasr: %p head: %zu avail mlens: "
             "%zu garbage: %zu remote head: %zu remote tail: %zu pending "
             "send: "
             "%u used: %zu remain: %zu, tx: %zu rx: %zu tx_cnt: %d rx_cnt: "
             "%d",
-            is_server() ? 'S' : 'C', this, ringbuf_->get_head(),
+            is_server() ? gettid() : getpid(), is_server() ? 'S' : 'C', this,
+            ringbuf_->get_head(),
             dynamic_cast<RingBufferBP*>(ringbuf_)->CheckMessageLength(),
             ringbuf_->get_garbage(), get_remote_ringbuf_head(),
             remote_ringbuf_tail_, last_failed_send_size_.load(), used,
@@ -350,11 +357,11 @@ int RDMASenderReceiverBP::Send(msghdr* msg, ssize_t* sz) {
   }
   total_sent_ += mlen;
 
-  if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_sr_bp_debug_trace)) {
+  if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_sr_bp_trace)) {
     total_sent_ += nwritten;
-    printf("zerocopy send = %lld, total send = %lld, ratio = %.4lf\n",
-           total_zerocopy_send_size, total_sent_.load(),
-           double(total_zerocopy_send_size) / total_sent_.load());
+    //    printf("zerocopy send = %lld, total send = %lld, ratio = %.4lf\n",
+    //           total_zerocopy_send_size, total_sent_.load(),
+    //           double(total_zerocopy_send_size) / total_sent_.load());
   }
   if (sz != nullptr) {
     *sz = nwritten;
