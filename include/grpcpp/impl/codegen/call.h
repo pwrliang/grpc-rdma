@@ -21,7 +21,13 @@
 #include <grpc/impl/codegen/grpc_types.h>
 #include <grpcpp/impl/codegen/call_hook.h>
 
-enum platform_t {IOMGR_TCP, IOMGR_RDMA_BP, IOMGR_RDMA_EVENT, IOMGR_RDMA_BPEV};
+enum platform_t {
+  IOMGR_TCP,
+  IOMGR_RDMA,
+  IOMGR_RDMA_BP,
+  IOMGR_RDMA_EVENT,
+  IOMGR_RDMA_BPEV
+};
 
 platform_t grpc_check_iomgr_platform();
 

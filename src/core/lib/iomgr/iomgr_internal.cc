@@ -54,6 +54,9 @@ void grpc_determine_iomgr_platform() {
     } else if (strcmp(type, "TCP") == 0) {
       pt = IOMGR_TCP;
       gpr_log(GPR_INFO, "Select TCP mode");
+    } else if (strcmp(type, "RDMA") == 0) {
+      pt = IOMGR_RDMA;
+      gpr_log(GPR_INFO, "Select RDMA mode");
     } else {
       gpr_log(GPR_ERROR, "Unknown grpc platform: %s", type);
       exit(1);
