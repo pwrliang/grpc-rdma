@@ -17,8 +17,14 @@ function start_async_client2() {
   echo "Killing $SERVER_PID"
   kill -9 $SERVER_PID
 }
-if ps aux | pgrep greeter; then
-  ps aux | pgrep greeter | xargs kill -9
-fi
+
+function cleanup() {
+  if ps aux | pgrep greeter; then
+    ps aux | pgrep greeter | xargs kill -9
+  fi
+}
+
+cleanup
 start_async_server
 start_async_client2
+cleanup
