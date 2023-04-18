@@ -581,12 +581,13 @@ static void rdma_check_conn(void* arg /* grpc_rdma */,
     grpc_rdma* rdma = static_cast<grpc_rdma*>(arg);
     uint8_t buf;
     int ret;
-    return;  // fixme: check conn
+
     do {
       ret = recv(rdma->fd, &buf, 0, 0);
     } while (ret < 0 && errno == EINTR);
 
     if (ret == 0) {
+      printf("Call shutdown\n");
       if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_trace)) {
         gpr_log(GPR_INFO, "rdmasr %p shutdown", rdma);
       }
