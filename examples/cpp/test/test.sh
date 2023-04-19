@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
 set -e
-TEST_BUILD_ROOT=$1
+
 PORT=$(shuf -i 2000-65000 -n 1)
 
 function start_async_server() {
+  TEST_BUILD_ROOT=$1
   $TEST_BUILD_ROOT/greeter_async_server $PORT &
   SERVER_PID=$!
 }
 
 function start_async_client2() {
+  TEST_BUILD_ROOT=$1
   if [[ $GRPC_PLATFORM_TYPE == "RDMA" ]]; then
     mpirun --bind-to none -n 4 -output-filename client_log $TEST_BUILD_ROOT/greeter_async_client2 $PORT
   else
@@ -23,8 +25,22 @@ function cleanup() {
     ps aux | pgrep greeter | xargs kill -9
   fi
 }
-
-cleanup
-start_async_server
-start_async_client2
-cleanup
+for i in "$@"; do
+  case $i in
+  --clean)
+    cleanup
+    shift
+    ;;
+  --test=*)
+    prefix="${i#*=}"
+    start_async_server "$prefix"
+    start_async_client2 "$prefix"
+    shift
+    ;;
+  --* | -*)
+    echo "Unknown option $i"
+    exit 1
+    ;;
+  *) ;;
+  esac
+done

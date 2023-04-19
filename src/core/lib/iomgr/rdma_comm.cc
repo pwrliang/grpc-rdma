@@ -587,11 +587,11 @@ static void rdma_check_conn(void* arg /* grpc_rdma */,
     } while (ret < 0 && errno == EINTR);
 
     if (ret == 0) {
-      printf("Call shutdown\n");
+      printf("Detected peer shutdown\n");
       if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_trace)) {
         gpr_log(GPR_INFO, "rdmasr %p shutdown", rdma);
       }
-      rdma->rdmasr->Shutdown();
+//      rdma->rdmasr->Shutdown();
     } else {
       grpc_timer_init(
           &rdma->check_conn_timer,
