@@ -708,7 +708,7 @@ static grpc_error_handle pollable_add_fd(pollable* p, grpc_fd* fd) {
     gpr_mu_lock(&fd->rdma_mu);
     size_t pollable_size = fd->polling_by->size();
 
-    if (!fd->rdmasr->is_server() || pollable_size == 0 || true) {
+    if (!fd->rdmasr->is_server() || pollable_size == 0) {
       gpr_mu_lock(&p->rdma_mu);
       auto& fds = *p->rdma_fds;
 
