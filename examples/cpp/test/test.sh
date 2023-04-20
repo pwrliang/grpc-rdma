@@ -5,7 +5,7 @@ PORT=$(shuf -i 2000-65000 -n 1)
 
 function start_async_server() {
   TEST_BUILD_ROOT=$1
-  $TEST_BUILD_ROOT/greeter_async_server $PORT &
+  $TEST_BUILD_ROOT/greeter_async_server $PORT |& tee server.log &
   SERVER_PID=$!
 }
 
