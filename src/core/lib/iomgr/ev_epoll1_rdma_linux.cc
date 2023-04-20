@@ -147,8 +147,6 @@ struct grpc_fork_fd_list {
   grpc_fd* prev;
 };
 
-struct grpc_pollset_list;
-
 struct grpc_fd {
   gpr_mu mu;
   int fd;
@@ -216,12 +214,6 @@ typedef struct pollset_neighborhood {
     };
   };
 } pollset_neighborhood;
-
-struct grpc_pollset_list {
-  grpc_pollset* pollset;
-  grpc_pollset_list* next;
-  grpc_pollset_list* prev;
-};
 
 struct grpc_pollset {
   gpr_mu mu;
@@ -464,6 +456,7 @@ static void fd_orphan(grpc_fd* fd, grpc_closure* on_done, int* release_fd,
   fd->write_closure->DestroyEvent();
   fd->error_closure->DestroyEvent();
 
+  gpr_mu_lock(&fd->mu);
   for (void* p : *fd->pollsets) {
     grpc_pollset* pollset = static_cast<grpc_pollset*>(p);
 
@@ -475,6 +468,7 @@ static void fd_orphan(grpc_fd* fd, grpc_closure* on_done, int* release_fd,
       }
     }
   }
+  gpr_mu_unlock(&fd->mu);
 
   fd->pollsets->clear();
 
@@ -646,6 +640,14 @@ static void pollset_destroy(grpc_pollset* pollset) {
     }
     gpr_mu_unlock(&pollset->neighborhood->mu);
   }
+
+  for(auto *p:*pollset->fds) {
+    grpc_fd *fd = static_cast<grpc_fd*>(p);
+    gpr_mu_lock(&fd->mu);
+    fd->pollsets->erase(pollset);
+    gpr_mu_unlock(&fd->mu);
+  }
+
   delete pollset->fds;
   gpr_mu_unlock(&pollset->mu);
   gpr_mu_destroy(&pollset->mu);
