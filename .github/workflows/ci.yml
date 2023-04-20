@@ -22,14 +22,14 @@ jobs:
           rm -rf debug && mkdir debug
           pushd debug
           cmake .. -DCMAKE_INSTALL_PREFIX=$DBG_PREFIX -DCMAKE_BUILD_TYPE=Debug
-          make -j16 install
+          make -j8 install
           popd
           
           # Build absel in release mode
           rm -rf release && mkdir release
           pushd release
           cmake .. -DCMAKE_INSTALL_PREFIX=$REL_PREFIX -DCMAKE_BUILD_TYPE=Release
-          make -j16 install
+          make -j8 install
           popd
           
           popd
@@ -39,7 +39,7 @@ jobs:
           rm -rf debug && mkdir debug
           pushd debug
           cmake .. -DCMAKE_INSTALL_PREFIX=$DBG_PREFIX -DCMAKE_BUILD_TYPE=Debug
-          make -j16 install
+          make -j8 install
           popd
 
       - name: Build Release
@@ -47,7 +47,7 @@ jobs:
           rm -rf release && mkdir release
           pushd release
           cmake .. -DCMAKE_INSTALL_PREFIX=$REL_PREFIX -DCMAKE_BUILD_TYPE=Release
-          make -j16 install
+          make -j8 install
           popd
 
       - name: Build Test Debug
@@ -73,17 +73,23 @@ jobs:
       - name: Test Debug
         run: |
           pushd examples/cpp/test
-          GRPC_PLATFORM_TYPE="RDMA" ./test.sh ./debug
-          GRPC_PLATFORM_TYPE="RDMA_BP" ./test.sh ./debug
-          GRPC_PLATFORM_TYPE="RDMA_EVENT" ./test.sh ./debug
-          GRPC_PLATFORM_TYPE="RDMA_BPEV" ./test.sh ./debug
+          GRPC_PLATFORM_TYPE="RDMA" ./test.sh --test=./debug
+          GRPC_PLATFORM_TYPE="RDMA_BP" ./test.sh --test=./debug
+          GRPC_PLATFORM_TYPE="RDMA_EVENT" ./test.sh --test=./debug
+          GRPC_PLATFORM_TYPE="RDMA_BPEV" ./test.sh --test=./debug
           popd
 
       - name: Test Release
         run: |
           pushd examples/cpp/test
-          GRPC_PLATFORM_TYPE="RDMA" ./test.sh ./release
-          GRPC_PLATFORM_TYPE="RDMA_BP" ./test.sh ./release
-          GRPC_PLATFORM_TYPE="RDMA_EVENT" ./test.sh ./release
-          GRPC_PLATFORM_TYPE="RDMA_BPEV" ./test.sh ./release
+          GRPC_PLATFORM_TYPE="RDMA" ./test.sh --test=./release
+          GRPC_PLATFORM_TYPE="RDMA_BP" ./test.sh --test=./release
+          GRPC_PLATFORM_TYPE="RDMA_EVENT" ./test.sh --test=./release
+          GRPC_PLATFORM_TYPE="RDMA_BPEV" ./test.sh --test=./release
+          popd
+
+      - name: Cleanup
+        run: |
+          pushd examples/cpp/test
+          ./test.sh --clean
           popd

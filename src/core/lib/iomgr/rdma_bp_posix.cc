@@ -357,7 +357,7 @@ static void rdma_read_allocation_done(void* rdmap, grpc_error_handle error) {
     rdma_do_readex(rdma);
   }
 }
-
+/*
 static void rdma_continue_read(grpc_rdma* rdma) {
   GRPCProfiler profiler(GRPC_STATS_TIME_TRANSPORT_CONTINUE_READ);
   size_t target_read_size = rdma->rdmasr->MarkMessageLength();
@@ -388,7 +388,30 @@ static void rdma_continue_read(grpc_rdma* rdma) {
   }
 
   rdma_do_readex(rdma);
+}*/
+
+static void rdma_continue_read(grpc_rdma* rdma) {
+  GRPCProfiler profiler(GRPC_STATS_TIME_TRANSPORT_CONTINUE_READ);
+  size_t target_read_size = rdma->rdmasr->MarkMessageLength();
+
+  if (rdma->incoming_buffer->length < target_read_size &&
+      rdma->incoming_buffer->count < MAX_READ_IOVEC) {
+    if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_trace)) {
+      gpr_log(GPR_INFO, "rdma allocate slice: %zu", target_read_size);
+    }
+    if (GPR_UNLIKELY(!grpc_resource_user_alloc_slices(&rdma->slice_allocator,
+                                                      target_read_size, 1,
+                                                      rdma->incoming_buffer))) {
+      return;
+    }
+  }
+  if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_trace)) {
+    gpr_log(GPR_INFO, "RDMA:%p do_read, len: %zu", rdma, target_read_size);
+  }
+
+  rdma_do_read(rdma);
 }
+
 
 static void rdma_handle_read(void* arg /* grpc_rdma */,
                              grpc_error_handle error) {

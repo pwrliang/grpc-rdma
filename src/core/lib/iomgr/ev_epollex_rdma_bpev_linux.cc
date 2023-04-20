@@ -1098,7 +1098,6 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
     GRPC_SCHEDULING_START_BLOCKING_REGION;
   }
   int r = 0;
-  auto& rdma_poller = RDMAPoller::GetInstance();
   absl::Time begin_poll_time = absl::Now();
   absl::Time last_epoll_time;
 

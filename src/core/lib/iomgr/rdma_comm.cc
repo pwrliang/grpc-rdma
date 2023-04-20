@@ -578,19 +578,21 @@ static void rdma_write(grpc_endpoint* ep, grpc_slice_buffer* buf,
 static void rdma_check_conn(void* arg /* grpc_rdma */,
                             grpc_error_handle error) {
   if (error == GRPC_ERROR_NONE) {
+    return; // fixme: check conn
     grpc_rdma* rdma = static_cast<grpc_rdma*>(arg);
     uint8_t buf;
     int ret;
-    return;  // fixme: check conn
+
     do {
       ret = recv(rdma->fd, &buf, 0, 0);
     } while (ret < 0 && errno == EINTR);
 
     if (ret == 0) {
+      printf("Detected peer shutdown\n");
       if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_trace)) {
         gpr_log(GPR_INFO, "rdmasr %p shutdown", rdma);
       }
-      rdma->rdmasr->Shutdown();
+//      rdma->rdmasr->Shutdown();
     } else {
       grpc_timer_init(
           &rdma->check_conn_timer,

@@ -25,8 +25,6 @@
 /* This polling engine is only relevant on linux kernels supporting epoll
    epoll_create() or epoll_create1() */
 #ifdef GRPC_LINUX_EPOLL
-#include "src/core/lib/iomgr/ev_epoll1_rdma_linux.h"
-
 #include <assert.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -37,6 +35,8 @@
 #include <sys/epoll.h>
 #include <sys/socket.h>
 #include <unistd.h>
+#include <unordered_set>
+#include "src/core/lib/iomgr/ev_epoll1_rdma_linux.h"
 
 #include <string>
 #include <vector>
@@ -57,6 +57,7 @@
 #include "src/core/lib/iomgr/ev_posix.h"
 #include "src/core/lib/iomgr/iomgr_internal.h"
 #include "src/core/lib/iomgr/lockfree_event.h"
+#include "src/core/lib/iomgr/sys_epoll_wrapper.h"
 #include "src/core/lib/iomgr/wakeup_fd_posix.h"
 #include "src/core/lib/profiling/timers.h"
 #include "src/core/lib/rdma/rdma_sender_receiver.h"
@@ -69,7 +70,8 @@ static grpc_wakeup_fd global_wakeup_fd;
 
 #define MAX_EPOLL_EVENTS 100
 #define MAX_EPOLL_EVENTS_HANDLED_PER_ITERATION 1
-
+#define MAX_FDS_CAP 100
+#define MAX_POLLSET_CAP 100
 /* NOTE ON SYNCHRONIZATION:
  * - Fields in this struct are only modified by the designated poller. Hence
  *   there is no need for any locks to protect the struct.
@@ -146,6 +148,7 @@ struct grpc_fork_fd_list {
 };
 
 struct grpc_fd {
+  gpr_mu mu;
   int fd;
 
   grpc_core::ManualConstructor<grpc_core::LockfreeEvent> read_closure;
@@ -160,6 +163,7 @@ struct grpc_fd {
   grpc_fork_fd_list* fork_fd_list;
 
   RDMASenderReceiverBPEV* rdmasr;
+  std::unordered_set<void*>* pollsets;
 };
 
 static void fd_global_init(void);
@@ -230,6 +234,8 @@ struct grpc_pollset {
 
   grpc_pollset* next;
   grpc_pollset* prev;
+
+  std::unordered_set<void*>* fds;
 };
 
 /*******************************************************************************
@@ -348,6 +354,7 @@ static grpc_fd* fd_create(int fd, const char* name, bool track_err) {
     new_fd->write_closure.Init();
     new_fd->error_closure.Init();
   }
+  gpr_mu_init(&new_fd->mu);
   new_fd->fd = fd;
   new_fd->read_closure->InitEvent();
   new_fd->write_closure->InitEvent();
@@ -355,6 +362,7 @@ static grpc_fd* fd_create(int fd, const char* name, bool track_err) {
 
   new_fd->freelist_next = nullptr;
   new_fd->rdmasr = nullptr;
+  new_fd->pollsets = new std::unordered_set<void*>();
 
   std::string fd_name = absl::StrCat(name, " fd=", fd);
   grpc_iomgr_register_object(&new_fd->iomgr_object, fd_name.c_str());
@@ -447,6 +455,22 @@ static void fd_orphan(grpc_fd* fd, grpc_closure* on_done, int* release_fd,
   fd->read_closure->DestroyEvent();
   fd->write_closure->DestroyEvent();
   fd->error_closure->DestroyEvent();
+
+  gpr_mu_lock(&fd->mu);
+  for (void* p : *fd->pollsets) {
+    grpc_pollset* pollset = static_cast<grpc_pollset*>(p);
+
+    while (true) {
+      if (gpr_mu_trylock(&pollset->mu)) {
+        pollset->fds->erase(fd);
+        gpr_mu_unlock(&pollset->mu);
+        break;
+      }
+    }
+  }
+  gpr_mu_unlock(&fd->mu);
+
+  fd->pollsets->clear();
 
   gpr_mu_lock(&fd_freelist_mu);
   fd->freelist_next = fd_freelist;
@@ -589,6 +613,7 @@ static void pollset_init(grpc_pollset* pollset, gpr_mu** mu) {
   pollset->shutdown_closure = nullptr;
   pollset->begin_refs = 0;
   pollset->next = pollset->prev = nullptr;
+  pollset->fds = new std::unordered_set<void*>();
 }
 
 static void pollset_destroy(grpc_pollset* pollset) {
@@ -615,6 +640,15 @@ static void pollset_destroy(grpc_pollset* pollset) {
     }
     gpr_mu_unlock(&pollset->neighborhood->mu);
   }
+
+  for(auto *p:*pollset->fds) {
+    grpc_fd *fd = static_cast<grpc_fd*>(p);
+    gpr_mu_lock(&fd->mu);
+    fd->pollsets->erase(pollset);
+    gpr_mu_unlock(&fd->mu);
+  }
+
+  delete pollset->fds;
   gpr_mu_unlock(&pollset->mu);
   gpr_mu_destroy(&pollset->mu);
 }
@@ -714,27 +748,24 @@ static grpc_error_handle process_epoll_events(grpc_pollset* /*pollset*/) {
       grpc_fd* fd = reinterpret_cast<grpc_fd*>(
           ~static_cast<intptr_t>(2) & reinterpret_cast<intptr_t>(ev->data.ptr));
       GPR_ASSERT(fd->rdmasr);
-      if ((ev->events & EPOLLIN) != 0) {
-        // consume wakeup
-        ssize_t sz;
-        uint64_t val;
-        do {
-          sz = read(fd->rdmasr->get_wakeup_fd(), &val, sizeof(val));
-        } while (sz < 0 && errno == EAGAIN);
+      int events = fd->rdmasr->ToEpollEvent();
+      bool cancel = (events & EPOLLHUP) != 0;
+      bool read_ev = (events & EPOLLIN) != 0;
+      bool write_ev = (events & EPOLLOUT) != 0;
 
-        int events = fd->rdmasr->ToEpollEvent();
-        bool cancel = (events & EPOLLHUP) != 0;
-        bool read_ev = (events & EPOLLIN) != 0;
-        bool write_ev = (events & EPOLLOUT) != 0;
-
-        if (read_ev || cancel) {
-          fd_become_readable(fd);
-        }
-
-        if (write_ev || cancel) {
-          fd_become_writable(fd);
-        }
+      if (read_ev || cancel) {
+        fd_become_readable(fd);
       }
+
+      if (write_ev || cancel) {
+        fd_become_writable(fd);
+      }
+      // consume wakeup
+      ssize_t sz;
+      uint64_t val;
+//      do {
+        sz = read(fd->rdmasr->get_wakeup_fd(), &val, sizeof(val));
+//      } while (sz < 0 && errno == EAGAIN);
     } else {
       grpc_fd* fd = reinterpret_cast<grpc_fd*>(
           reinterpret_cast<intptr_t>(data_ptr) & ~static_cast<intptr_t>(1));
@@ -778,17 +809,61 @@ static grpc_error_handle do_epoll_wait(grpc_pollset* ps, grpc_millis deadline) {
   if (timeout != 0) {
     GRPC_SCHEDULING_START_BLOCKING_REGION;
   }
-  do {
-    GRPC_STATS_INC_SYSCALL_POLL();
-    r = epoll_wait(g_epoll_set.epfd, g_epoll_set.events, MAX_EPOLL_EVENTS,
-                   timeout);
-  } while (r < 0 && errno == EINTR);
-  if (timeout != 0) {
-    GRPC_SCHEDULING_END_BLOCKING_REGION;
+  int polling_limit_us = 500;
+
+  if (timeout >= 0) {
+    polling_limit_us = std::min(timeout * 1000, polling_limit_us);
   }
 
-  if (r < 0) return GRPC_OS_ERROR(errno, "epoll_wait");
+  absl::Time begin_poll_time = absl::Now();
+  int64_t t_elapsed_us;
 
+  do {
+    r = epoll_wait(g_epoll_set.epfd, g_epoll_set.events, MAX_EPOLL_EVENTS, 0);
+
+    if (r <= 0) {
+      r = 0;
+      if (gpr_mu_trylock(&ps->mu)) {
+        for (auto* p : *ps->fds) {
+          grpc_fd* fd = static_cast<grpc_fd*>(p);
+          auto* rdmasr = fd->rdmasr;
+          GPR_ASSERT(rdmasr != nullptr);
+
+          uint32_t events = rdmasr->ToEpollEvent();
+
+          if (events > 0) {
+            g_epoll_set.events[r].events = events;
+            g_epoll_set.events[r].data.ptr =
+                reinterpret_cast<void*>(reinterpret_cast<intptr_t>(fd) | 2);
+            r++;
+            if (r >= MAX_EPOLL_EVENTS) {  // collected enough events
+              break;
+            }
+          }
+        }
+
+        gpr_mu_unlock(&ps->mu);
+      }
+    }
+
+    t_elapsed_us = ToInt64Microseconds((absl::Now() - begin_poll_time));
+  } while (r == 0 && t_elapsed_us < polling_limit_us);
+
+  if (r <= 0) {
+    if (timeout > 0) {  // adjust timeout
+      timeout = std::max(0l, timeout - t_elapsed_us / 1000);
+    }
+    do {
+      GRPC_STATS_INC_SYSCALL_POLL();
+      r = epoll_wait(g_epoll_set.epfd, g_epoll_set.events, MAX_EPOLL_EVENTS,
+                     timeout);
+    } while (r < 0 && errno == EINTR);
+    if (timeout != 0) {
+      GRPC_SCHEDULING_END_BLOCKING_REGION;
+    }
+
+    if (r < 0) return GRPC_OS_ERROR(errno, "epoll_wait");
+  }
   GRPC_STATS_INC_POLL_EVENTS_RETURNED(r);
 
   if (GRPC_TRACE_FLAG_ENABLED(grpc_polling_trace)) {
@@ -1278,7 +1353,17 @@ done:
   return ret_err;
 }
 
-static void pollset_add_fd(grpc_pollset* /*pollset*/, grpc_fd* /*fd*/) {}
+static void pollset_add_fd(grpc_pollset* pollset, grpc_fd* fd) {
+  if (fd->rdmasr != nullptr) {
+    gpr_mu_lock(&pollset->mu);
+    pollset->fds->insert(fd);
+    gpr_mu_unlock(&pollset->mu);
+
+    gpr_mu_lock(&fd->mu);
+    fd->pollsets->insert(pollset);
+    gpr_mu_unlock(&fd->mu);
+  }
+}
 
 /*******************************************************************************
  * Pollset-set Definitions
