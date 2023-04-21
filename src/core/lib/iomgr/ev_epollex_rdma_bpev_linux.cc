@@ -725,6 +725,7 @@ static grpc_error_handle pollable_add_fd(pollable* p, grpc_fd* fd) {
     gpr_mu_lock(&p->rdma_mu);
     auto& fds = *p->rdma_fds;
     bool added = false;
+
     for (auto* p_fd : fds) {
       if (p_fd->fd == fd->fd) {
         added = true;
@@ -735,27 +736,27 @@ static grpc_error_handle pollable_add_fd(pollable* p, grpc_fd* fd) {
     if (!added) {
       fds.push_back(fd);
       fd->polling_by->push_back(p);
-    }
-    gpr_mu_unlock(&p->rdma_mu);
-    gpr_mu_unlock(&fd->rdma_mu);
 
-    struct epoll_event wakeup_ep_ev;
-    wakeup_ep_ev.events =
-        static_cast<uint32_t>(EPOLLIN | EPOLLET | EPOLLEXCLUSIVE);
-    wakeup_ep_ev.data.ptr = reinterpret_cast<void*>(
-        reinterpret_cast<intptr_t>(reinterpret_cast<intptr_t>(fd) | 2));
-    int wakeup_fd = fd->rdmasr->get_wakeup_fd();
+      struct epoll_event wakeup_ep_ev;
+      wakeup_ep_ev.events =
+          static_cast<uint32_t>(EPOLLIN | EPOLLET | EPOLLEXCLUSIVE);
+      wakeup_ep_ev.data.ptr = reinterpret_cast<void*>(
+          reinterpret_cast<intptr_t>(reinterpret_cast<intptr_t>(fd) | 2));
+      int wakeup_fd = fd->rdmasr->get_wakeup_fd();
 
-    if (epoll_ctl(epfd, EPOLL_CTL_ADD, wakeup_fd, &wakeup_ep_ev) != 0) {
-      switch (errno) {
-        case EEXIST:
-          break;
-        default: {
-          append_error(&error, GRPC_OS_ERROR(errno, "epoll_ctl"), err_desc);
-          abort();
+      if (epoll_ctl(epfd, EPOLL_CTL_ADD, wakeup_fd, &wakeup_ep_ev) != 0) {
+        switch (errno) {
+          case EEXIST:
+            break;
+          default: {
+            append_error(&error, GRPC_OS_ERROR(errno, "epoll_ctl"), err_desc);
+            abort();
+          }
         }
       }
     }
+    gpr_mu_unlock(&p->rdma_mu);
+    gpr_mu_unlock(&fd->rdma_mu);
   }
 
   return error;
