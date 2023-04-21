@@ -11,11 +11,7 @@ function start_async_server() {
 
 function start_async_client2() {
   TEST_BUILD_ROOT=$1
-  if [[ $GRPC_PLATFORM_TYPE == "RDMA" ]]; then
-    mpirun --bind-to none -n 4 -output-filename client_log $TEST_BUILD_ROOT/greeter_async_client2 $PORT
-  else
-    mpirun --bind-to none -n 1 -output-filename client_log $TEST_BUILD_ROOT/greeter_async_client2 $PORT
-  fi
+  mpirun --bind-to none -n 4 -output-filename client_log $TEST_BUILD_ROOT/greeter_async_client2 $PORT
   echo "Killing $SERVER_PID"
   kill -9 $SERVER_PID
 }
