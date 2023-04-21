@@ -706,24 +706,22 @@ static grpc_error_handle pollable_add_fd(pollable* p, grpc_fd* fd) {
 
   if (fd->rdmasr != nullptr) {
     gpr_mu_lock(&fd->rdma_mu);
-    size_t pollable_size = fd->polling_by->size();
+    gpr_mu_lock(&p->rdma_mu);
+    auto& fds = *p->rdma_fds;
 
-    if (!fd->rdmasr->is_server() || pollable_size == 0) {
-      gpr_mu_lock(&p->rdma_mu);
-      auto& fds = *p->rdma_fds;
-
-      for (auto* p_fd : fds) {
-        if (p_fd->fd != fd->fd) {
-          fds.push_back(fd);
-        }
+    bool added = false;
+    for (auto* p_fd : fds) {
+      if (p_fd->fd == fd->fd) {
+        added = true;
+        break;
       }
-      //      if (std::find(fds.begin(), fds.end(), fd) == fds.end()) {
-      //        fds.push_back(fd);
-      //      }
-      gpr_mu_unlock(&p->rdma_mu);
+    }
 
+    if (!added) {
+      fds.push_back(fd);
       fd->polling_by->push_back(p);
     }
+    gpr_mu_unlock(&p->rdma_mu);
     gpr_mu_unlock(&fd->rdma_mu);
     if (p->root_worker != nullptr) {  // Kick a worker so pollable epoll can
                                       // notice a new connection
