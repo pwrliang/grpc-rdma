@@ -708,8 +708,8 @@ static grpc_error_handle pollable_add_fd(pollable* p, grpc_fd* fd) {
     gpr_mu_lock(&fd->rdma_mu);
     gpr_mu_lock(&p->rdma_mu);
     auto& fds = *p->rdma_fds;
-
     bool added = false;
+
     for (auto* p_fd : fds) {
       if (p_fd->fd == fd->fd) {
         added = true;

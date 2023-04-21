@@ -743,11 +743,10 @@ static grpc_error_handle pollable_add_fd(pollable* p, grpc_fd* fd) {
 
   if (fd->rdmasr != nullptr) {
     gpr_mu_lock(&fd->rdma_mu);
-    size_t pollable_size = fd->polling_by->size();
-
     gpr_mu_lock(&p->rdma_mu);
     auto& fds = *p->rdma_fds;
     bool added = false;
+
     for (auto* p_fd : fds) {
       if (p_fd->fd == fd->fd) {
         added = true;
@@ -759,8 +758,9 @@ static grpc_error_handle pollable_add_fd(pollable* p, grpc_fd* fd) {
       fds.push_back(fd);
       fd->polling_by->push_back(p);
     }
-    GPR_ASSERT(pollable_add_rdma_channel_fd(p, fd) == GRPC_ERROR_NONE);
+    gpr_mu_unlock(&p->rdma_mu);
     gpr_mu_unlock(&fd->rdma_mu);
+    GPR_ASSERT(pollable_add_rdma_channel_fd(p, fd) == GRPC_ERROR_NONE);
   }
 
   return error;
