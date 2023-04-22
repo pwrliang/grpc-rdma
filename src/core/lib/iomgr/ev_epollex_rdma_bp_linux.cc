@@ -37,10 +37,7 @@
 #include <sys/socket.h>
 #include <sys/syscall.h>
 #include <unistd.h>
-#include <map>
-#include <mutex>
 #include <set>
-#include <shared_mutex>
 #include <vector>
 
 #include <string>
@@ -287,7 +284,7 @@ static void pollable_unref(pollable* p, const grpc_core::DebugLocation& dbg_loc,
           fd->polling_by->end());
       gpr_mu_unlock(&fd->rdma_mu);
     }
-
+    delete p->rdma_fds;
     gpr_mu_destroy(&p->rdma_mu);
     gpr_free(p);
   }
@@ -706,24 +703,22 @@ static grpc_error_handle pollable_add_fd(pollable* p, grpc_fd* fd) {
 
   if (fd->rdmasr != nullptr) {
     gpr_mu_lock(&fd->rdma_mu);
-    size_t pollable_size = fd->polling_by->size();
+    gpr_mu_lock(&p->rdma_mu);
+    auto& fds = *p->rdma_fds;
+    bool added = false;
 
-    if (!fd->rdmasr->is_server() || pollable_size == 0) {
-      gpr_mu_lock(&p->rdma_mu);
-      auto& fds = *p->rdma_fds;
-
-      for (auto* p_fd : fds) {
-        if (p_fd->fd != fd->fd) {
-          fds.push_back(fd);
-        }
+    for (auto* p_fd : fds) {
+      if (p_fd->fd == fd->fd) {
+        added = true;
+        break;
       }
-      //      if (std::find(fds.begin(), fds.end(), fd) == fds.end()) {
-      //        fds.push_back(fd);
-      //      }
-      gpr_mu_unlock(&p->rdma_mu);
+    }
 
+    if (!added) {
+      fds.push_back(fd);
       fd->polling_by->push_back(p);
     }
+    gpr_mu_unlock(&p->rdma_mu);
     gpr_mu_unlock(&fd->rdma_mu);
     if (p->root_worker != nullptr) {  // Kick a worker so pollable epoll can
                                       // notice a new connection
@@ -1037,7 +1032,7 @@ static void pollset_destroy(grpc_pollset* pollset) {
   pollset->active_pollable = nullptr;
   gpr_mu_destroy(&pollset->mu);
 }
-// p不同, grpc_fd相同
+
 static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
   GRPCProfiler profiler(GRPC_STATS_TIME_POLLABLE_EPOLL);
   GPR_TIMER_SCOPE("pollable_epoll", 0);
@@ -1805,11 +1800,10 @@ const grpc_event_engine_vtable* grpc_init_epollex_rdma_bp_linux(
 
 #else /* defined(GRPC_LINUX_EPOLL_CREATE1) */
 #if defined(GRPC_POSIX_SOCKET_EV_EPOLLEX)
-// #include "src/core/lib/iomgr/ev_epollex_linux.h"
 #include "src/core/lib/iomgr/ev_epollex_rdma_bp_linux.h"
 /* If GRPC_LINUX_EPOLL_CREATE1 is not defined, it means
    epoll_create1 is not available. Return NULL */
-const grpc_event_engine_vtable* grpc_init_epollex_linux(
+const grpc_event_engine_vtable* grpc_init_epollex_rdma_bp_linux(
     bool /*explicitly_requested*/) {
   return nullptr;
 }

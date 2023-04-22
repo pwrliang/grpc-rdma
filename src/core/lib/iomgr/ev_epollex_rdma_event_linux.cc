@@ -65,7 +65,7 @@
 #include "src/core/lib/rdma/rdma_sender_receiver.h"
 // debug aid: create workers on the heap (allows asan to spot
 // use-after-destruction)
-//#define GRPC_EPOLLEX_CREATE_WORKERS_ON_HEAP 1
+// #define GRPC_EPOLLEX_CREATE_WORKERS_ON_HEAP 1
 
 #define MAX_EPOLL_EVENTS 100
 #define MAX_FDS_IN_CACHE 32
@@ -743,20 +743,24 @@ static grpc_error_handle pollable_add_fd(pollable* p, grpc_fd* fd) {
 
   if (fd->rdmasr != nullptr) {
     gpr_mu_lock(&fd->rdma_mu);
-    size_t pollable_size = fd->polling_by->size();
+    gpr_mu_lock(&p->rdma_mu);
+    auto& fds = *p->rdma_fds;
+    bool added = false;
 
-    if (!fd->rdmasr->is_server() || pollable_size == 0) {
-      gpr_mu_lock(&p->rdma_mu);
-      auto& fds = *p->rdma_fds;
-      if (std::find(fds.begin(), fds.end(), fd) == fds.end()) {
-        fds.push_back(fd);
+    for (auto* p_fd : fds) {
+      if (p_fd->fd == fd->fd) {
+        added = true;
+        break;
       }
-      gpr_mu_unlock(&p->rdma_mu);
-
-      fd->polling_by->push_back(p);
-      GPR_ASSERT(pollable_add_rdma_channel_fd(p, fd) == GRPC_ERROR_NONE);
     }
+
+    if (!added) {
+      fds.push_back(fd);
+      fd->polling_by->push_back(p);
+    }
+    gpr_mu_unlock(&p->rdma_mu);
     gpr_mu_unlock(&fd->rdma_mu);
+    GPR_ASSERT(pollable_add_rdma_channel_fd(p, fd) == GRPC_ERROR_NONE);
   }
 
   return error;

@@ -22,7 +22,7 @@
 
 #include <grpc/support/log.h>
 #include <grpcpp/grpcpp.h>
-
+#include "common.h"
 #ifdef BAZEL_BUILD
 #include "examples/protos/helloworld.grpc.pb.h"
 #else
@@ -45,10 +45,10 @@ class GreeterClient {
 
   // Assembles the client's payload, sends it and presents the response back
   // from the server.
-  std::string SayHello(const std::string& user) {
+  void SayHello(int idx, const std::string& msg) {
     // Data we are sending to the server.
     HelloRequest request;
-    request.set_name(user);
+    request.set_name(msg);
 
     // Container for the data we expect from the server.
     HelloReply reply;
@@ -94,9 +94,11 @@ class GreeterClient {
 
     // Act upon the status of the actual RPC.
     if (status.ok()) {
-      return reply.message();
+      GPR_ASSERT(msg == reply.message());
+      std::cout << "Greeter " << idx << " received." << std::endl;
     } else {
-      return "RPC failed";
+      std::cout << "RPC failed" << std::endl;
+      exit(1);
     }
   }
 
@@ -111,11 +113,25 @@ int main(int argc, char** argv) {
   // are created. This channel models a connection to an endpoint (in this case,
   // localhost at port 50051). We indicate that the channel isn't authenticated
   // (use of InsecureChannelCredentials()).
-  GreeterClient greeter(grpc::CreateChannel(
-      "localhost:50051", grpc::InsecureChannelCredentials()));
-  std::string user("world");
-  std::string reply = greeter.SayHello(user);  // The actual RPC call!
-  std::cout << "Greeter received: " << reply << std::endl;
+
+  std::string port = "50051";
+  if (argc > 1) {
+    port = std::string(argv[1]);
+  }
+  auto server_address = "localhost:" + port;
+  printf("Connecting to %s\n", server_address.c_str());
+
+  GreeterClient greeter(
+      grpc::CreateChannel(server_address, grpc::InsecureChannelCredentials()));
+
+  for (int i = 0; i < TOTAL_N_REQS; i++) {
+    auto msg_size = get_msg_size(min_msg_size, max_msg_size);
+    auto msg = gen_random_msg(msg_size);
+
+    greeter.SayHello(i, msg);  // The actual RPC call!
+  }
+
+  printf("PID: %d, Client Exit\n", getpid());
 
   return 0;
 }

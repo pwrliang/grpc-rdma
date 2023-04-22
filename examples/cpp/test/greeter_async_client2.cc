@@ -145,7 +145,7 @@ int main(int argc, char** argv) {
   GreeterClient greeter(
       grpc::CreateChannel(server_address, grpc::InsecureChannelCredentials()));
 
-  int total_req = 500;
+  int total_req = TOTAL_N_REQS;
 
   greeter.total_req = total_req;
 
