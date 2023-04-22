@@ -30,6 +30,11 @@ function cleanup() {
   fi
 }
 
+if [[ $# -eq 0 ]] ; then
+    echo 'No args'
+    exit 1
+fi
+
 for i in "$@"; do
   case $i in
   --clean)
@@ -50,11 +55,9 @@ for i in "$@"; do
     cleanup
     shift
     ;;
-
-  --* | -*)
+  *)
     echo "Unknown option $i"
     exit 1
     ;;
-  *) ;;
   esac
 done
