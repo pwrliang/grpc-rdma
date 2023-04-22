@@ -75,13 +75,13 @@ jobs:
       - name: Test Debug
         run: |
           pushd examples/cpp/test
-          for mode in $RDMA_MODES; do GRPC_PLATFORM_TYPE="$mode" ./test.sh --test=./debug; done
+          for mode in $RDMA_MODES; do GRPC_PLATFORM_TYPE="$mode" ./test.sh --test-client2=./debug; done
           popd
 
       - name: Test Release
         run: |
           pushd examples/cpp/test
-          for mode in $RDMA_MODES; do GRPC_PLATFORM_TYPE="$mode" ./test.sh --test=./release; done
+          for mode in $RDMA_MODES; do GRPC_PLATFORM_TYPE="$mode" ./test.sh --test-client2=./release; done
           popd
 
       - name: Cleanup
