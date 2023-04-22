@@ -91,13 +91,12 @@ typedef struct pollable pollable;
 ///  - PO_FD - a pollable containing only one FD - used to optimize single-fd
 ///            pollsets (which are common with synchronous api usage)
 ///  - PO_MULTI - a pollable containing many fds
-#pragma pack(8)
 struct pollable {
   pollable_type type;  // immutable
   grpc_core::RefCount refs;
 
-  grpc_wakeup_fd wakeup;  // make sure address of wakeup is a multiple of 8
   int epfd;
+  grpc_wakeup_fd wakeup;
 
   // The following are relevant only for type PO_FD
   grpc_fd* owner_fd;       // Set to the owner_fd if the type is PO_FD
@@ -206,10 +205,10 @@ struct grpc_fd {
     read_closure.DestroyEvent();
     write_closure.DestroyEvent();
     error_closure.DestroyEvent();
-
     rdmasr = nullptr;
     delete polling_by;
     gpr_mu_destroy(&rdma_mu);
+
     invalidate();
   }
 
@@ -270,7 +269,10 @@ static void pollable_unref(pollable* p, const grpc_core::DebugLocation& dbg_loc,
   if (p == nullptr) return;
   if (GPR_UNLIKELY(p != nullptr && p->refs.Unref(dbg_loc, reason))) {
     GRPC_FD_TRACE("pollable_unref: Closing epfd: %d", p->epfd);
-    // printf("pollable %d unref\n", p->epfd);
+    close(p->epfd);
+    grpc_wakeup_fd_destroy(&p->wakeup);
+    gpr_mu_destroy(&p->owner_orphan_mu);
+    gpr_mu_destroy(&p->mu);
 
     gpr_mu_lock(&p->rdma_mu);
     auto fds = *p->rdma_fds;  // need a copy
@@ -285,12 +287,6 @@ static void pollable_unref(pollable* p, const grpc_core::DebugLocation& dbg_loc,
     }
     delete p->rdma_fds;
     gpr_mu_destroy(&p->rdma_mu);
-
-    close(p->epfd);
-    grpc_wakeup_fd_destroy(&p->wakeup);
-    gpr_mu_destroy(&p->owner_orphan_mu);
-    gpr_mu_destroy(&p->mu);
-
     gpr_free(p);
   }
 }
@@ -416,6 +412,7 @@ static void ref_by(grpc_fd* fd, int n) {
 /* Uninitialize and add to the freelist */
 static void fd_destroy(void* arg, grpc_error_handle /*error*/) {
   grpc_fd* fd = static_cast<grpc_fd*>(arg);
+
   fd->destroy();
 
   /* Add the fd to the freelist */
@@ -528,7 +525,6 @@ static void fd_orphan(grpc_fd* fd, grpc_closure* on_done, int* release_fd,
                   fd->rdmasr->get_wakeup_fd(), &ev_fd);
       }
     }
-
     for (size_t i = 0; i < fd->pollset_fds.size(); ++i) {  // For PO_MULTI.
       const int epfd = fd->pollset_fds[i];
       epoll_ctl(epfd, EPOLL_CTL_DEL, fd->fd, &ev_fd);
@@ -683,16 +679,17 @@ static grpc_error_handle pollable_create(pollable_type type, pollable** p) {
   (*p)->event_cursor = 0;
   (*p)->event_count = 0;
   (*p)->rdma_fds = new std::vector<grpc_fd*>();
-  (*p)->rdma_fds->reserve(4096);
+  gpr_mu_init(&(*p)->rdma_mu);
 
   auto& config = RDMAConfig::GetInstance();
 
   (*p)->bp_timeout = config.get_polling_timeout();
   (*p)->bp_yield = config.is_polling_yield();
   (*p)->affinity = config.is_affinity();
-  gpr_mu_init(&(*p)->rdma_mu);
   return GRPC_ERROR_NONE;
 }
+
+static grpc_error_handle kick_one_worker(grpc_pollset_worker* specific_worker);
 
 static grpc_error_handle pollable_add_fd(pollable* p, grpc_fd* fd) {
   grpc_error_handle error = GRPC_ERROR_NONE;
@@ -757,6 +754,10 @@ static grpc_error_handle pollable_add_fd(pollable* p, grpc_fd* fd) {
     }
     gpr_mu_unlock(&p->rdma_mu);
     gpr_mu_unlock(&fd->rdma_mu);
+    if (p->root_worker != nullptr) {  // Kick a worker so pollable epoll can
+                                      // notice a new connection
+      kick_one_worker(p->root_worker);
+    }
   }
 
   return error;
@@ -1008,7 +1009,6 @@ static grpc_error_handle pollable_process_events(grpc_pollset* pollset,
     int n = pollable_obj->event_cursor++;
     struct epoll_event* ev = &pollable_obj->events[n];
     void* data_ptr = ev->data.ptr;
-
     if (1 & reinterpret_cast<intptr_t>(data_ptr)) {
       if (GRPC_TRACE_FLAG_ENABLED(grpc_polling_trace)) {
         gpr_log(GPR_INFO, "PS:%p got pollset_wakeup %p", pollset, data_ptr);
@@ -1023,27 +1023,24 @@ static grpc_error_handle pollable_process_events(grpc_pollset* pollset,
       grpc_fd* fd = reinterpret_cast<grpc_fd*>(
           ~static_cast<intptr_t>(2) & reinterpret_cast<intptr_t>(ev->data.ptr));
       GPR_ASSERT(fd->rdmasr);
-      if ((ev->events & EPOLLIN) != 0) {
-        // consume wakeup
-        ssize_t sz;
-        uint64_t val;
-        do {
-          sz = read(fd->rdmasr->get_wakeup_fd(), &val, sizeof(val));
-        } while (sz < 0 && errno == EAGAIN);
+      int events = fd->rdmasr->ToEpollEvent();
+      bool cancel = (events & EPOLLHUP) != 0;
+      bool read_ev = (events & EPOLLIN) != 0;
+      bool write_ev = (events & EPOLLOUT) != 0;
 
-        int events = fd->rdmasr->ToEpollEvent();
-        bool cancel = (events & EPOLLHUP) != 0;
-        bool read_ev = (events & EPOLLIN) != 0;
-        bool write_ev = (events & EPOLLOUT) != 0;
-
-        if (read_ev || cancel) {
-          fd_become_readable(fd);
-        }
-
-        if (write_ev || cancel) {
-          fd_become_writable(fd);
-        }
+      if (read_ev || cancel) {
+        fd_become_readable(fd);
       }
+
+      if (write_ev || cancel) {
+        fd_become_writable(fd);
+      }
+      // consume wakeup
+      ssize_t sz;
+      uint64_t val;
+      //      do {
+      sz = read(fd->rdmasr->get_wakeup_fd(), &val, sizeof(val));
+      //      } while (sz < 0 && errno == EAGAIN);
     } else {
       grpc_fd* fd = reinterpret_cast<grpc_fd*>(data_ptr);
       bool cancel = (ev->events & EPOLLHUP) != 0;
@@ -1096,10 +1093,10 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
     gpr_log(GPR_INFO, "POLLABLE:%p[%s] poll for %dms", p,
             pollable_desc(p).c_str(), timeout);
   }
-
   if (timeout != 0) {
     GRPC_SCHEDULING_START_BLOCKING_REGION;
   }
+
   int r = 0;
   absl::Time begin_poll_time = absl::Now();
   absl::Time last_epoll_time;
@@ -1124,10 +1121,10 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
 
       for (size_t i = 0; i < fds.size() && r < MAX_EPOLL_EVENTS; i++) {
         auto* fd = fds[i];
-        auto* rdmasr = fd->rdmasr;
+
         GPR_ASSERT(fd->rdmasr != nullptr);
 
-        uint32_t events = rdmasr->ToEpollEvent();
+        uint32_t events = fd->rdmasr->ToEpollEvent();
 
         if (events > 0) {
           p->events[r].events = events;
@@ -1336,7 +1333,6 @@ static grpc_error_handle pollset_work(grpc_pollset* pollset,
   }
   static const char* err_desc = "pollset_work";
   grpc_error_handle error = GRPC_ERROR_NONE;
-
   if (pollset->kicked_without_poller) {
     pollset->kicked_without_poller = false;
   } else {
@@ -1901,10 +1897,10 @@ const grpc_event_engine_vtable* grpc_init_epollex_rdma_bpev_linux(
 
 #else /* defined(GRPC_LINUX_EPOLL_CREATE1) */
 #if defined(GRPC_POSIX_SOCKET_EV_EPOLLEX)
-#include "src/core/lib/iomgr/ev_epollex_linux.h"
+#include "src/core/lib/iomgr/ev_epollex_rdma_bpev_linux.h"
 /* If GRPC_LINUX_EPOLL_CREATE1 is not defined, it means
    epoll_create1 is not available. Return NULL */
-const grpc_event_engine_vtable* grpc_init_epollex_linux(
+const grpc_event_engine_vtable* grpc_init_epollex_rdma_bpev_linux(
     bool /*explicitly_requested*/) {
   return nullptr;
 }
