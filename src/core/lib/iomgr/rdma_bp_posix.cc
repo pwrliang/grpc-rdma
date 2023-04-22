@@ -352,7 +352,7 @@ static void rdma_read_allocation_done(void* rdmap, grpc_error_handle error) {
     call_read_cb(rdma, GRPC_ERROR_REF(error));
     RDMA_UNREF(rdma, "read");
   } else {
-    rdma_do_readex(rdma);
+    rdma_do_read(rdma);
   }
 }
 /*
