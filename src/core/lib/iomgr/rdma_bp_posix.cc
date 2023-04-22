@@ -191,9 +191,7 @@ static void rdma_do_read(grpc_rdma* rdma) {
   msg.msg_iovlen = iov_len;
 
   ssize_t read_bytes;
-  cycles_t begin_cycles = get_cycles();
   int err = rdma->rdmasr->Recv(&msg, &read_bytes);
-  cycles_t t_cycles = get_cycles() - begin_cycles;
 
   if (read_bytes < 0) {
     if (err == EAGAIN) {
