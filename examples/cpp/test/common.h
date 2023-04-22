@@ -1,6 +1,7 @@
 #ifndef HELLOWORLD_COMMON_H
 #define HELLOWORLD_COMMON_H
 #include <string>
+#define TOTAL_N_REQS (500)
 const int min_msg_size = 1;
 const int max_msg_size = 4 * 1024 * 1024;
 

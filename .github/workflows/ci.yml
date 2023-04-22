@@ -10,11 +10,13 @@ jobs:
       REL_PREFIX: /tmp/geng.161/grpc_rel
     steps:
       - uses: actions/checkout@v2
+        env:
+          RDMA_MODES: RDMA RDMA_BP RDMA_EVENT RDMA_BPEV
         with:
           submodules: true
 
       - name: Prepare
-        run: |  
+        run: |
           rm -rf $DBG_PREFIX $REL_PREFIX && mkdir -p $DBG_PREFIX $REL_PREFIX
           pushd third_party/abseil-cpp 
           
@@ -73,19 +75,13 @@ jobs:
       - name: Test Debug
         run: |
           pushd examples/cpp/test
-          GRPC_PLATFORM_TYPE="RDMA" ./test.sh --test=./debug
-          GRPC_PLATFORM_TYPE="RDMA_BP" ./test.sh --test=./debug
-          GRPC_PLATFORM_TYPE="RDMA_EVENT" ./test.sh --test=./debug
-          GRPC_PLATFORM_TYPE="RDMA_BPEV" ./test.sh --test=./debug
+          for mode in $RDMA_MODES; do GRPC_PLATFORM_TYPE="$mode" ./test.sh --test=./debug; done
           popd
 
       - name: Test Release
         run: |
           pushd examples/cpp/test
-          GRPC_PLATFORM_TYPE="RDMA" ./test.sh --test=./release
-          GRPC_PLATFORM_TYPE="RDMA_BP" ./test.sh --test=./release
-          GRPC_PLATFORM_TYPE="RDMA_EVENT" ./test.sh --test=./release
-          GRPC_PLATFORM_TYPE="RDMA_BPEV" ./test.sh --test=./release
+          for mode in $RDMA_MODES; do GRPC_PLATFORM_TYPE="$mode" ./test.sh --test=./release; done
           popd
 
       - name: Cleanup
