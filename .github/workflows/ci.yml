@@ -73,6 +73,11 @@ jobs:
       - name: Test Debug
         run: |
           pushd examples/cpp/test
+          GRPC_PLATFORM_TYPE="RDMA" ./test.sh --test-client=./debug
+          GRPC_PLATFORM_TYPE="RDMA_BP" ./test.sh --test-client=./debug
+          GRPC_PLATFORM_TYPE="RDMA_EVENT" ./test.sh --test-client=./debug
+          GRPC_PLATFORM_TYPE="RDMA_BPEV" ./test.sh --test-client=./debug
+          
           GRPC_PLATFORM_TYPE="RDMA" ./test.sh --test-client2=./debug
           GRPC_PLATFORM_TYPE="RDMA_BP" ./test.sh --test-client2=./debug
           GRPC_PLATFORM_TYPE="RDMA_EVENT" ./test.sh --test-client2=./debug
@@ -82,6 +87,11 @@ jobs:
       - name: Test Release
         run: |
           pushd examples/cpp/test
+          GRPC_PLATFORM_TYPE="RDMA" ./test.sh --test-client=./release
+          GRPC_PLATFORM_TYPE="RDMA_BP" ./test.sh --test-client=./release
+          GRPC_PLATFORM_TYPE="RDMA_EVENT" ./test.sh --test-client=./release
+          GRPC_PLATFORM_TYPE="RDMA_BPEV" ./test.sh --test-client=./release
+          
           GRPC_PLATFORM_TYPE="RDMA" ./test.sh --test-client2=./release
           GRPC_PLATFORM_TYPE="RDMA_BP" ./test.sh --test-client2=./release
           GRPC_PLATFORM_TYPE="RDMA_EVENT" ./test.sh --test-client2=./release
