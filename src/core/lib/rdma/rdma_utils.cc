@@ -211,7 +211,7 @@ int modify_qp_to_rts(struct ibv_qp* qp, uint32_t sq_psn) {
   int rc;
   memset(&attr, 0, sizeof(attr));
   attr.qp_state = IBV_QPS_RTS;
-  attr.timeout = 0x12;  // previous is 0x12
+  attr.timeout = 0x14;  // previous is 0x12
   attr.retry_cnt = 6;
   attr.rnr_retry = 0;  // previous is 0
   attr.sq_psn = sq_psn;

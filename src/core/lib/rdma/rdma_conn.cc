@@ -372,8 +372,8 @@ size_t RDMAConn::PollRecvCompletion() {
   while ((r = ibv_poll_cq(rcq_.get(), DEFAULT_MAX_POST_RECV, wc)) > 0) {
     for (int i = 0; i < r; i++) {
       if (wc[i].status != IBV_WC_SUCCESS) {
-        gpr_log(GPR_ERROR, "Channel: %s, PollRecvCompletion, wc status = %d",
-                name_, wc[i].status);
+        gpr_log(GPR_ERROR, "Channel: %s, PollRecvCompletion, wc status = %d, i = %d, r = %d",
+                name_, wc[i].status, i, r);
       }
       recv_bytes += wc[i].byte_len;
       rr_garbage_++;
