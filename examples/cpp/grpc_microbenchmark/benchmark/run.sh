@@ -1,78 +1,91 @@
 #!/usr/bin/env bash
+#set -e
 SCRIPT_DIR=$(realpath "$(dirname "$0")")
 
 if [[ -z "$HOSTS_PATH" ]]; then
   echo "Using default $HOSTS_PATH"
   HOSTS_PATH="$SCRIPT_DIR/hosts"
 fi
+SERVER=$(head -n 1 "$HOSTS_PATH")
 NP=$(awk '{ sum += $1 } END { print sum }' <(tail -n +2 "$HOSTS_PATH" | cut -d"=" -f2,2))
-POLLING_THREADS=$(nproc)
-MB_PATH="$MB_HOME"/mb
-COMPUTING_THREAD=0
+SERVER_THREADS=$(nproc)
+CLIENT_THREADS=1
+SERVER_PROGRAM="greeter_async_server2"
 BATCH_SIZE=10000
-MODE=""
-DIR=""
-AFFINITY=false
-SERVER_TIMEOUT=0
-CLIENT_TIMEOUT=0
+REQ_SIZE=64
+RESP_SIZE=4096
+N_REPEAT=1
 SEND_INTERVAL=0
+PROFILING=""
+AFFINITY="false"
+GENERIC="false"
 OVERWRITE=0
-CPU_LIMIT=-1
-WORK_THREAD=-1
+N_WARMUP=100000
 
-if [[ ! -f "$MB_PATH" ]]; then
-  echo "Invalid MB_HOME"
+if [[ ! -f "$HELLOWORLD_HOME/$SERVER_PROGRAM" ]]; then
+  echo "Invalid HELLOWORLD_HOME"
   exit 1
 fi
 
 for i in "$@"; do
   case $i in
+  --server_thread=*)
+    SERVER_THREADS="${i#*=}"
+    shift
+    ;;
+  --client_thread=*)
+    CLIENT_THREADS="${i#*=}"
+    shift
+    ;;
   --batch=*)
     BATCH_SIZE="${i#*=}"
     shift
     ;;
-  --polling-thread=*)
-    POLLING_THREADS="${i#*=}"
+  --req=*)
+    REQ_SIZE="${i#*=}"
     shift
     ;;
-  --computing-thread=*)
-    COMPUTING_THREAD="${i#*=}"
-    shift
-    ;;
-  --mode=*)
-    MODE="${i#*=}"
-    shift
-    ;;
-  --direction=*)
-    DIR="${i#*=}"
-    shift
-    ;;
-  --affinity)
-    AFFINITY=true
-    shift
-    ;;
-  --cpu-limit=*)
-    CPU_LIMIT="${i#*=}"
-    shift
-    ;;
-  --overwrite)
-    OVERWRITE=1
-    shift
-    ;;
-  --server-timeout=*)
-    SERVER_TIMEOUT="${i#*=}"
-    shift
-    ;;
-  --client-timeout=*)
-    CLIENT_TIMEOUT="${i#*=}"
+  --resp=*)
+    RESP_SIZE="${i#*=}"
     shift
     ;;
   --send-interval=*)
     SEND_INTERVAL="${i#*=}"
     shift
     ;;
-  --work-thread=*)
-    WORK_THREAD="${i#*=}"
+  --profiling=*)
+    PROFILING="${i#*=}"
+    N_REPEAT=1
+    export GRPC_PROFILING=$PROFILING
+    shift
+    ;;
+  --executor=*)
+    EXECUTOR="${i#*=}"
+    export GRPC_EXECUTOR=$EXECUTOR
+    shift
+    ;;
+  --bp-timeout=*)
+    export GRPC_BP_TIMEOUT="${i#*=}"
+    shift
+    ;;
+  --max-poller=*)
+    export GRPC_RDMA_MAX_POLLER="${i#*=}"
+    shift
+    ;;
+  --affinity=*)
+    AFFINITY="${i#*=}"
+    shift
+    ;;
+  --generic)
+    GENERIC="true"
+    shift
+    ;;
+  --warmup=*)
+    N_WARMUP="${i#*=}"
+    shift
+    ;;
+  --overwrite)
+    OVERWRITE=1
     shift
     ;;
   --* | -*)
@@ -86,50 +99,85 @@ done
 
 LOG_PATH=$(realpath "$SCRIPT_DIR/logs/")
 
+if [[ -n $PROFILING ]]; then
+  LOG_PATH="$LOG_PATH/profile_cli_$NP"
+else
+  LOG_PATH="$LOG_PATH/bench_cli_$NP"
+fi
+
+if [[ $GENERIC == "true" ]]; then
+  LOG_PATH="${LOG_PATH}_generic"
+fi
+
 if [[ -n "$LOG_SUFFIX" ]]; then
   LOG_PATH="${LOG_PATH}_${LOG_SUFFIX}"
 fi
-
-if [[ "$WORK_THREAD" -ne -1 ]]; then
-  LOG_PATH="${LOG_PATH}_work_thread_${WORK_THREAD}"
-fi
-
 mkdir -p "$LOG_PATH"
 
-curr_log_path="$LOG_PATH/${MODE}_client_${NP}_poll_${POLLING_THREADS}_interval_${SEND_INTERVAL}_dir_${DIR}_affinity_${AFFINITY}.log"
-if [[ $OVERWRITE -eq 1 ]]; then
-  rm -f "$curr_log_path"
-fi
+function kill_server() {
+  ssh "$SERVER" 'ps aux | pgrep greeter | xargs kill 2>/dev/null && while [[ $(ps aux | pgrep greeter) ]]; do sleep 1; done || true'
+}
 
-if [[ -f "$curr_log_path" ]]; then
-  echo "$curr_log_path exists, skip"
-else
-  rm -f "${curr_log_path}.tmp"
-  echo "Running $MODE with $NP clients, max polling threads: ${POLLING_THREADS}, computing thread: ${COMPUTING_THREAD}, batch size: $BATCH_SIZE Direction: ${DIR}"
-  # Evaluate
-  while true; do
-    mpirun --bind-to none \
-      --oversubscribe -quiet \
-      -mca btl_tcp_if_include ib0 \
-      -hostfile "$HOSTS_PATH" \
-      "$MB_PATH" \
-      -mode="$MODE" \
-      -dir="$DIR" \
-      -polling_thread="$POLLING_THREADS" \
-      -computing_thread="$COMPUTING_THREAD" \
-      -batch="$BATCH_SIZE" \
-      -affinity="$AFFINITY" \
-      -server_timeout="$SERVER_TIMEOUT" \
-      -client_timeout="$CLIENT_TIMEOUT" \
-      -send_interval="$SEND_INTERVAL" \
-      -cpu_limit="$CPU_LIMIT" \
-      -work_thread="$WORK_THREAD" |& tee -a "${curr_log_path}.tmp"
-    row_count=$(grep -c "Rank:" <"${curr_log_path}.tmp")
-    if [[ $row_count -eq "$NP" ]]; then
-      mv "${curr_log_path}.tmp" "${curr_log_path}"
-      break
-    fi
-    sleep 5
-  done
+function start_server() {
+  kill_server
+  mpirun --bind-to none -q -x GRPC_PLATFORM_TYPE -x GRPC_PROFILING -x GRPC_EXECUTOR -x GRPC_BP_TIMEOUT -x GRPC_RDMA_MAX_POLLER -x GRPC_BP_YIELD -x GRPC_RDMA_ZEROCOPY_ENABLE \
+    -n 1 -host "$SERVER" \
+    "$HELLOWORLD_HOME"/$SERVER_PROGRAM \
+    -threads="$SERVER_THREADS" \
+    -cqs="$SERVER_THREADS" \
+    -resp "$RESP_SIZE" \
+    -affinity="$AFFINITY" \
+    -generic="$GENERIC" |& tee "$1" &
+}
 
-fi
+WORKLOADS="greeter_async_client2"
+for workload in ${WORKLOADS}; do
+  curr_log_path="$LOG_PATH/${workload}.log"
+  if [[ $OVERWRITE -eq 1 ]]; then
+    rm -f "$curr_log_path"
+  fi
+  if [[ -f "$curr_log_path" ]]; then
+    echo "$curr_log_path exists, skip"
+  else
+    rm -f "${curr_log_path}.tmp"
+    while true; do
+      tmp_host="/tmp/clients.$RANDOM"
+      tail -n +2 "$HOSTS_PATH" >"$tmp_host"
+      echo "============================= Running $workload with $NP clients, server threads: $SERVER_THREADS, req: $REQ_SIZE, resp: $RESP_SIZE batch: $BATCH_SIZE interval: $SEND_INTERVAL"
+      start_server "$LOG_PATH/server_${workload}.log"
+      # Evaluate
+      mpirun --bind-to none -x GRPC_PLATFORM_TYPE -x GRPC_PROFILING -x GRPC_BP_TIMEOUT -x GRPC_BP_YIELD -x GRPC_RDMA_ZEROCOPY_ENABLE \
+        --oversubscribe \
+        -mca btl_tcp_if_include ib0 \
+        -np "$NP" -hostfile "$tmp_host" \
+        "$HELLOWORLD_HOME/$workload" \
+        -host "$SERVER" \
+        -warmup "$N_WARMUP" \
+        -threads "$CLIENT_THREADS" \
+        -cqs "$CLIENT_THREADS" \
+        -batch "$BATCH_SIZE" \
+        -req "$REQ_SIZE" \
+        -send_interval "$SEND_INTERVAL" \
+        -generic="$GENERIC" | tee -a "${curr_log_path}.tmp" 2>&1
+      sleep 1 # Wait for server print out
+      kill_server
+
+      if [[ $PROFILING != "" ]]; then
+        ssh "$SERVER" "ps aux | pgrep greeter | xargs kill -SIGUSR1 2>/dev/null || true"
+        sleep 1
+      fi
+
+      row_count=$(grep -c "Throughput" <"${curr_log_path}.tmp")
+      if [[ $row_count == "$N_REPEAT" ]]; then
+        mv "${curr_log_path}.tmp" "${curr_log_path}"
+        break
+      fi
+    done
+  fi
+done
+
+unset GRPC_PLATFORM_TYPE
+unset GRPC_PROFILING
+unset GRPC_BP_TIMEOUT
+unset GRPC_BP_YIELD
+unset GRPC_RDMA_ZEROCOPY_ENABLE

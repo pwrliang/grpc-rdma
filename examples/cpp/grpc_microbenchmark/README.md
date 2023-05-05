@@ -6,3 +6,8 @@
 
 ## Client
 `mpirun -n 8 ./greeter_async_client2 -mode=RDMA_BP -host=mi100-01 -threads=1 -batch=10000 -req=1024`
+
+
+## Run Experiments
+- Edit `benchmark/hosts`, use IP instead of hostname. Otherwise, gRPC runs on ethernet instead of IPoIB.
+- `cd benchmark && ./run-all.sh --client-scalability`

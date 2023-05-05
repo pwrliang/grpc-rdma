@@ -27,6 +27,7 @@
 #include <string>
 #include <thread>
 #include "bytebuffer_util.h"
+#include "proc_parser.h"
 
 #ifdef BAZEL_BUILD
 #include "examples/protos/helloworld.grpc.pb.h"
@@ -50,6 +51,8 @@ using helloworld::HelloRequest;
 using helloworld::RecvBufRequest;
 using helloworld::RecvBufRespExtra;
 using helloworld::RecvBufResponse;
+
+std::map<std::string, cpu_time_t> cpu_time1;
 
 void* tag(int i) { return reinterpret_cast<void*>(i); }
 
@@ -122,7 +125,33 @@ class ServerImpl final {
         new CallData(reply_, service_, cq_);
 
         if (request_.has_start_benchmark() && request_.start_benchmark()) {
+          cpu_time1 = get_cpu_time_per_core();
           grpc_stats_time_enable();
+        }
+
+        if (request_.name() == "fin") {
+          auto cpu_time2 = get_cpu_time_per_core();
+
+          int num_cores = sysconf(_SC_NPROCESSORS_ONLN);
+          auto time_diff = cpu_time2["cpu"] - cpu_time1["cpu"];
+          printf(
+              "[S] CPU-TIME (s) user: %lf idle: %lf nice: %lf sys: %lf "
+              "iowait: %lf "
+              "irq: %lf softirq: %lf sum: %lf\n",
+              time_diff.t_user, time_diff.t_idle, time_diff.t_nice,
+              time_diff.t_system, time_diff.t_iowait, time_diff.t_irq,
+              time_diff.t_softirq, time_diff.t_sum);
+          for (int i = 0; i < num_cores; i++) {
+            auto cpu_name = "cpu" + std::to_string(i);
+            time_diff = cpu_time2[cpu_name] - cpu_time1[cpu_name];
+            printf(
+                "[S] CPU%d-TIME (s) user: %lf idle: %lf nice: %lf sys: %lf "
+                "iowait: %lf "
+                "irq: %lf softirq: %lf sum: %lf\n",
+                i, time_diff.t_user, time_diff.t_idle, time_diff.t_nice,
+                time_diff.t_system, time_diff.t_iowait, time_diff.t_irq,
+                time_diff.t_softirq, time_diff.t_sum);
+          }
         }
 
         status_ = FINISH;

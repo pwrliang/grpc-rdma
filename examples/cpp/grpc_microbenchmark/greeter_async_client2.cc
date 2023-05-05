@@ -376,6 +376,7 @@ int main(int argc, char** argv) {
       printf("Throughput: %lf req/s, avg latency: %f us, [%f, %f]\n",
              total_throughput, avg_lat_ms * 1000, min_lat_ms * 1000,
              max_lat_ms * 1000);
+      cli->NotifyFinish();
     }
 
     delete cli;
