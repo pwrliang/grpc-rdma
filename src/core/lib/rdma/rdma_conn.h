@@ -18,12 +18,12 @@
 #define DEFAULT_MIN_RESERVED_WR 10
 #define DEFAULT_MAX_SEND_WR 512
 #define DEFAULT_MAX_RECV_WR 512
-#define DEFAULT_MAX_SEND_SGE 20  // max is 30
-#define DEFAULT_MAX_RECV_SGE 20  // max is 30
-#define DEFAULT_CQE 1024
-#define DEFAULT_MAX_POST_RECV 512
-#define DEFAULT_MAX_POST_SEND 512
-#define DEFAULT_EVENT_ACK_LIMIT 512
+#define DEFAULT_MAX_SEND_SGE 30  // max is 30
+#define DEFAULT_MAX_RECV_SGE 30  // max is 30
+#define DEFAULT_CQE 1024 // default is 1024
+#define DEFAULT_MAX_POST_RECV 512 // default is 512
+#define DEFAULT_MAX_POST_SEND 512 // default is 512
+#define DEFAULT_EVENT_ACK_LIMIT 512 // default is 512
 
 class RDMASenderReceiver;
 class RDMASenderReceiverEvent;
