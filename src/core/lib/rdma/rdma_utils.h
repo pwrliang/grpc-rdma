@@ -70,7 +70,7 @@ class RDMAConfig {
     }
 
     s_val = getenv("GRPC_RDMA_AFFINITY");
-    affinity_ = s_val == nullptr || strcmp(s_val, "true") == 0;
+    affinity_ = s_val != nullptr && strcmp(s_val, "true") != 0;
 
     // BP, BPEV
     s_val = getenv("GRPC_RDMA_POLLING_YIELD");

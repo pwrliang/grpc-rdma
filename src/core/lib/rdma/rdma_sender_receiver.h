@@ -262,7 +262,7 @@ class RDMASenderReceiverBP : public RDMASenderReceiver {
   int ToEpollEvent() {
     uint32_t event = 0;
 
-    if (dynamic_cast<RingBufferBP*>(ringbuf_)->CheckFirstMessageLength() > 0) {
+    if (((RingBufferBP*)ringbuf_)->CheckFirstMessageLength() > 0) {
       event |= EPOLLIN;
     }
 

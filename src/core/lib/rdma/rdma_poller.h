@@ -2,6 +2,7 @@
 #define GRPC_CORE_LIB_RDMA_RDMA_POLLER_H
 #include <sys/resource.h>
 #include <algorithm>
+#include <atomic>
 #include <unordered_map>
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
@@ -11,6 +12,7 @@
 #include "include/grpc/support/sync.h"
 #include "include/grpcpp/stats_time.h"
 #include "src/core/lib/rdma/rdma_sender_receiver.h"
+#define MAX_CONNECTIONS (4096)
 
 class RDMAPoller {
  public:
@@ -18,10 +20,6 @@ class RDMAPoller {
     polling_ = false;
     for (auto& th : monitor_ths_) {
       th.join();
-    }
-
-    for (auto& mu : rdmasr_locks_) {
-      gpr_mu_destroy(&mu);
     }
   }
 
@@ -32,71 +30,27 @@ class RDMAPoller {
 
   void Register(RDMASenderReceiverBPEV* rdmasr) {
     int reg_id = reg_id_++;
-    int slot_id = reg_id % rdmasr_slots_.size();
 
-    // ease the contentions
-    pause_ = true;
-    gpr_mu_lock(&rdmasr_locks_[slot_id]);
     rdmasr->set_index(reg_id);
-    rdmasr_slots_[slot_id].push_back(rdmasr);
-    gpr_mu_unlock(&rdmasr_locks_[slot_id]);
-
-    gpr_mu_lock(&rdmasr_locks_[0]);
-    while (monitor_ths_.size() < polling_thread_num_) {
-      monitor_ths_.emplace_back(
-          [&, this](int thread_id) {
-            size_t n_slots = rdmasr_slots_.size();
-            int num_cores = sysconf(_SC_NPROCESSORS_ONLN);
-
-            bindThreadToCore(thread_id % num_cores);
-
-            pthread_setname_np(
-                pthread_self(),
-                ("RDMAPoller" + std::to_string(thread_id)).c_str());
-
-            while (polling_) {
-              int n_threads = n_threads_;
-
-              if (n_threads > 0) {
-                size_t avg_n_slots = (n_slots + n_threads - 1) / n_threads;
-                size_t begin_slot = std::min(n_slots, thread_id * avg_n_slots);
-                size_t end_slot =
-                    std::min(n_slots, (thread_id + 1) * avg_n_slots);
-
-                for (int i = begin_slot; i < end_slot; i++) {
-                  notifyWaiter(i);
-                }
-              }
-
-              while (pause_) {
-                std::this_thread::yield();
-              }
-            }
-          },
-          n_threads_++);
-    }
-    gpr_mu_unlock(&rdmasr_locks_[0]);
-    pause_ = false;
 
     gpr_log(GPR_INFO,
-            "Register rdmasr %d to RDMAPoller, curr size: %zu, is_server: %d "
+            "Register rdmasr %d to RDMAPoller, curr size: %d, is_server: %d "
             "fd: %d",
-            rdmasr->get_index(), rdmasr_slots_[slot_id].size(),
-            rdmasr->is_server(), rdmasr->get_wakeup_fd());
+            rdmasr->get_index(), tail_.load(), rdmasr->is_server(),
+            rdmasr->get_wakeup_fd());
+    int tail = tail_++;
+    rdma_conns_[tail] = rdmasr;
   }
 
   void Unregister(RDMASenderReceiverBPEV* rdmasr) {
-    int reg_id = rdmasr->get_index();
-    int slot_id = reg_id % rdmasr_slots_.size();
+    int tail = tail_;
 
-    gpr_mu_lock(&rdmasr_locks_[slot_id]);
-    auto& rdmasr_vec = rdmasr_slots_[slot_id];
-    auto it = std::find(rdmasr_slots_[slot_id].begin(),
-                        rdmasr_slots_[slot_id].end(), rdmasr);
-    if (it != rdmasr_vec.end()) {
-      rdmasr_vec.erase(it);
+    for (int i = 0; i < tail; i++) {
+      if (rdma_conns_[i] == rdmasr) {
+        rdma_conns_[i] = nullptr;
+        break;
+      }
     }
-    gpr_mu_unlock(&rdmasr_locks_[slot_id]);
 
     gpr_log(GPR_INFO, "Unregister rdmasr %d to RDMAPoller is_server: %d fd: %d",
             rdmasr->get_index(), rdmasr->is_server(), rdmasr->get_wakeup_fd());
@@ -115,60 +69,88 @@ class RDMAPoller {
 
     gpr_log(GPR_INFO, "max_thread: %d", polling_thread_num_);
 
-    int n_slots = polling_thread_num_;
-
-    n_threads_ = 0;
-    monitor_ths_.reserve(1024);
-    rdmasr_slots_.resize(n_slots);
-    rdmasr_locks_.resize(n_slots);
+    rdma_conns_.resize(MAX_CONNECTIONS);
+    staging_.resize(MAX_CONNECTIONS);
+    tail_ = 0;
     polling_ = true;
-    pause_ = false;
 
-    for (int i = 0; i < n_slots; i++) {
-      rdmasr_slots_[i].reserve(4096);
-      gpr_mu_init(&rdmasr_locks_[i]);
+    while (monitor_ths_.size() < polling_thread_num_) {
+      monitor_ths_.emplace_back(
+          [&, this](int thread_id) {
+            pthread_setname_np(
+                pthread_self(),
+                ("RDMAPoller" + std::to_string(thread_id)).c_str());
+            produceEvents(thread_id);
+          },
+          n_threads_++);
     }
   }
 
-  void notifyWaiter(int slot_id) {
-    ssize_t sz;
-    uint64_t val = 1;
+  void produceEvents(int thread_id) {
+    while (polling_) {
+      if (compacting_) {
+        continue;
+      }
 
-    gpr_mu_lock(&rdmasr_locks_[slot_id]);
-    for (int i = 0; i < rdmasr_slots_[slot_id].size(); i++) {
-      auto* rdmasr = rdmasr_slots_[slot_id][i];
+      int tail = tail_;
+      bool need_compact = false;
 
-      if (rdmasr->ToEpollEvent() != 0) {
-        do {
-          sz = write(rdmasr->get_wakeup_fd(), &val, sizeof(val));
-        } while (sz < 0 && errno == EAGAIN);
+      if (tail == 0) {
+        std::this_thread::yield();
+        continue;
+      }
+
+      for (int i = thread_id; i < tail; i += polling_thread_num_) {
+        RDMASenderReceiverBPEV* rdmasr = rdma_conns_[i];
+
+        if (rdmasr != nullptr) {
+          if (rdmasr->ToEpollEvent() != 0) {
+            ssize_t sz;
+            uint64_t val = 1;
+
+            do {
+              sz = write(rdmasr->get_wakeup_fd(), &val, sizeof(val));
+            } while (sz < 0 && errno == EAGAIN);
+            //            printf("write\n");
+          }
+        } else {
+          need_compact = true;
+          break;
+        }
+      }
+
+      if (need_compact && thread_id == 0) {
+        compacting_ = true;
+        size_t n_conns = 0;
+
+        for (int i = 0; i < tail; i++) {
+          if (rdma_conns_[i] != nullptr) {
+            staging_[i] = rdma_conns_[i];
+            n_conns++;
+          }
+        }
+
+        for (int i = 0; i < n_conns; i++) {
+          rdma_conns_[i] = staging_[i];
+        }
+
+        tail_ = n_conns;
+        compacting_ = false;
       }
     }
-    gpr_mu_unlock(&rdmasr_locks_[slot_id]);
-  }
-
-  int bindThreadToCore(int core_id) {
-    int num_cores = sysconf(_SC_NPROCESSORS_ONLN);
-    if (core_id < 0 || core_id >= num_cores) {
-      return EINVAL;
-    }
-
-    cpu_set_t cpuset;
-    CPU_ZERO(&cpuset);
-    CPU_SET(core_id, &cpuset);
-
-    pthread_t current_thread = pthread_self();
-    return pthread_setaffinity_np(current_thread, sizeof(cpu_set_t), &cpuset);
   }
 
   int polling_thread_num_;
-  std::vector<gpr_mu> rdmasr_locks_;
-  std::vector<std::vector<RDMASenderReceiverBPEV*>> rdmasr_slots_;
+
+  std::vector<RDMASenderReceiverBPEV*> rdma_conns_;
+  std::vector<RDMASenderReceiverBPEV*> staging_;
+  std::atomic_int tail_;
+  std::atomic_bool compacting_;
+
   std::atomic_int32_t reg_id_;
   std::atomic_uint32_t n_threads_;
   std::vector<std::thread> monitor_ths_;
   bool polling_;
-  std::atomic_bool pause_;
 };
 
 #endif  // GRPC_CORE_LIB_RDMA_RDMA_POLLER_H
