@@ -39,15 +39,15 @@ class RDMAPoller {
             rdmasr->get_index(), tail_.load(), rdmasr->is_server(),
             rdmasr->get_wakeup_fd());
     int tail = tail_++;
-    rdma_conns_[tail] = rdmasr;
+    rdma_conns_[tail] = reinterpret_cast<int64_t>(rdmasr);
   }
 
   void Unregister(RDMASenderReceiverBPEV* rdmasr) {
     int tail = tail_;
 
     for (int i = 0; i < tail; i++) {
-      if (rdma_conns_[i] == rdmasr) {
-        rdma_conns_[i] = nullptr;
+      if (reinterpret_cast<RDMASenderReceiverBPEV*>(rdma_conns_[i].load()) == rdmasr) {
+        rdma_conns_[i] = 0;
         break;
       }
     }
@@ -69,8 +69,6 @@ class RDMAPoller {
 
     gpr_log(GPR_INFO, "max_thread: %d", polling_thread_num_);
 
-    rdma_conns_.resize(MAX_CONNECTIONS);
-    staging_.resize(MAX_CONNECTIONS);
     tail_ = 0;
     polling_ = true;
 
@@ -101,7 +99,8 @@ class RDMAPoller {
       }
 
       for (int i = thread_id; i < tail; i += polling_thread_num_) {
-        RDMASenderReceiverBPEV* rdmasr = rdma_conns_[i];
+        auto* rdmasr =
+            reinterpret_cast<RDMASenderReceiverBPEV*>(rdma_conns_[i].load());
 
         if (rdmasr != nullptr) {
           if (rdmasr->ToEpollEvent() != 0) {
@@ -124,14 +123,14 @@ class RDMAPoller {
         size_t n_conns = 0;
 
         for (int i = 0; i < tail; i++) {
-          if (rdma_conns_[i] != nullptr) {
-            staging_[i] = rdma_conns_[i];
+          if (rdma_conns_[i] != 0) {
+            staging_[i] = rdma_conns_[i].load();
             n_conns++;
           }
         }
 
         for (int i = 0; i < n_conns; i++) {
-          rdma_conns_[i] = staging_[i];
+          rdma_conns_[i] = staging_[i].load();
         }
 
         tail_ = n_conns;
@@ -142,8 +141,8 @@ class RDMAPoller {
 
   int polling_thread_num_;
 
-  std::vector<RDMASenderReceiverBPEV*> rdma_conns_;
-  std::vector<RDMASenderReceiverBPEV*> staging_;
+  std::array<std::atomic_int64_t, MAX_CONNECTIONS> rdma_conns_;
+  std::array<std::atomic_int64_t, MAX_CONNECTIONS> staging_;
   std::atomic_int tail_;
   std::atomic_bool compacting_;
 
