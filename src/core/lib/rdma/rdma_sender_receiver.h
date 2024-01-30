@@ -248,8 +248,6 @@ class RDMASenderReceiverBP : public RDMASenderReceiver {
 
   int Send(msghdr* msg, ssize_t* sz) override;
 
-  int SendChunk(msghdr* msg, ssize_t* sz);
-
   int Recv(msghdr* msg, ssize_t* sz) override;
 
   int RecvEx(msghdr* msg, ssize_t* sz);
