@@ -97,7 +97,9 @@ class GreeterClient {
       GPR_ASSERT(msg == reply.message());
       std::cout << "Greeter " << idx << " received." << std::endl;
     } else {
-      std::cout << "RPC failed" << std::endl;
+      std::cout << "RPC failed, error code " << status.error_code()
+                << ", details " << status.error_details() << " msg, "
+                << status.error_message() << std::endl;
       exit(1);
     }
   }
