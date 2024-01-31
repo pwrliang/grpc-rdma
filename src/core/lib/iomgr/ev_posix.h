@@ -91,6 +91,7 @@ typedef struct grpc_event_engine_vtable {
   bool (*add_closure_to_background_poller)(grpc_closure* closure,
                                            grpc_error_handle error);
   void (*fd_set_rdmasr)(grpc_fd* fd, RDMASenderReceiver* rdmasr);
+  void (*fd_set_arg)(grpc_fd* fd, void* arg);
 } grpc_event_engine_vtable;
 
 /* register a new event engine factory */
@@ -125,6 +126,7 @@ bool grpc_event_engine_run_in_background();
 grpc_fd* grpc_fd_create(int fd, const char* name, bool track_err);
 
 void grpc_fd_set_rdmasr(grpc_fd* fd, RDMASenderReceiver* rdmasr);
+
 
 /* Return the wrapped fd, or -1 if it has been released or closed. */
 int grpc_fd_wrapped_fd(grpc_fd* fd);
@@ -200,6 +202,10 @@ bool grpc_is_any_background_poller_thread();
  * closure should not be blocking or long-running. */
 bool grpc_add_closure_to_background_poller(grpc_closure* closure,
                                            grpc_error_handle error);
+
+
+// Set the arg of fd
+void grpc_fd_set_arg(grpc_fd* fd, void *arg);
 
 /* Shut down all the closures registered in the background poller. */
 void grpc_shutdown_background_closure();

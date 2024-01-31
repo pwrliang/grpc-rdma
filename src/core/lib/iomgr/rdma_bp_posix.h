@@ -43,11 +43,6 @@
 grpc_endpoint* grpc_rdma_bp_create(grpc_fd* fd, const grpc_channel_args* args,
                                    const char* peer_string, bool server);
 
-/* Return the rdma endpoint's fd, or -1 if this is not available. Does not
-   release the fd.
-   Requires: ep must be a rdma endpoint.
- */
-int grpc_rdma_bp_fd(grpc_endpoint* ep);
 
 /* Destroy the rdma endpoint without closing its fd. *fd will be set and done
  * will be called when the endpoint is destroyed.

@@ -48,7 +48,7 @@ option(gRPC_BUILD_TESTS "Build tests" OFF)
 option(gRPC_BUILD_CODEGEN "Build codegen" ON)
 option(gRPC_BUILD_CSHARP_EXT "Build C# extensions" ON)
 option(gRPC_BACKWARDS_COMPATIBILITY_MODE "Build libraries that are binary compatible across a larger number of OS and libc versions" OFF)
-option(gRPC_BUILD_RDMA "" OFF)
+option(gRPC_BUILD_IBVERBS "Enable ibverbs support" ON)
 
 if(gRPC_BUILD_RDMA)
   add_definitions(-DRDMA_ENABLE)
@@ -258,6 +258,7 @@ include(cmake/abseil-cpp.cmake)
 include(cmake/address_sorting.cmake)
 include(cmake/benchmark.cmake)
 include(cmake/cares.cmake)
+include(cmake/ibverbs.cmake)
 include(cmake/protobuf.cmake)
 include(cmake/re2.cmake)
 include(cmake/ssl.cmake)
@@ -1492,6 +1493,99 @@ if(gRPC_INSTALL)
   )
 endif()
 
+if(IBVERBS_FOUND)
+  add_library(grpc_ibverbs
+    src/core/lib/ibverbs/address.cc
+    src/core/lib/ibverbs/buffer.cc
+    src/core/lib/ibverbs/device.cc
+    src/core/lib/ibverbs/memory_region.cc
+    src/core/lib/ibverbs/pair.cc
+    src/core/lib/ibverbs/poller.cc
+    src/core/lib/ibverbs/ring_buffer.cc
+    )
+
+  add_definitions(-DGRPC_USE_IBVERBS)
+
+  target_compile_features(grpc_ibverbs PUBLIC cxx_std_14)
+
+  set_target_properties(grpc_ibverbs PROPERTIES
+    VERSION ${gRPC_CORE_VERSION}
+    SOVERSION ${gRPC_CORE_SOVERSION}
+  )
+
+  target_include_directories(grpc_ibverbs
+    PUBLIC $<INSTALL_INTERFACE:${gRPC_INSTALL_INCLUDEDIR}> $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    PRIVATE
+      ${CMAKE_CURRENT_SOURCE_DIR}
+      ${_gRPC_ADDRESS_SORTING_INCLUDE_DIR}
+      ${_gRPC_IBVERBS_INCLUDE_DIR}
+  )
+  target_link_libraries(grpc_ibverbs
+    ${_gRPC_ALLTARGETS_LIBRARIES}
+    ${_gRPC_IBVERBS_LIBRARIES}
+    gpr
+  )
+    
+  if(gRPC_INSTALL)
+    install(TARGETS grpc_ibverbs EXPORT gRPCTargets
+      RUNTIME DESTINATION ${gRPC_INSTALL_BINDIR}
+      BUNDLE DESTINATION  ${gRPC_INSTALL_BINDIR}
+      LIBRARY DESTINATION ${gRPC_INSTALL_LIBDIR}
+      ARCHIVE DESTINATION ${gRPC_INSTALL_LIBDIR}
+    )
+  endif()
+endif()
+
+if(gRPC_BUILD_TESTS)
+if(IBVERBS_FOUND)
+  add_executable(ibverbs_pair_test
+    test/core/ibverbs/pair_test.cc)
+  target_compile_features(ibverbs_pair_test PUBLIC cxx_std_14)
+  target_include_directories(ibverbs_pair_test
+    PRIVATE
+      ${CMAKE_CURRENT_SOURCE_DIR}
+      ${CMAKE_CURRENT_SOURCE_DIR}/include
+      ${_gRPC_IBVERBS_INCLUDE_DIR}
+      third_party/googletest/googletest/include
+      third_party/googletest/googletest
+      third_party/googletest/googlemock/include
+      third_party/googletest/googlemock
+  )
+
+  target_link_libraries(ibverbs_pair_test
+    ${_gRPC_ALLTARGETS_LIBRARIES}
+    grpc_ibverbs
+    gtest
+    grpc_test_util
+  )
+endif()
+endif()
+
+if(gRPC_BUILD_TESTS)
+if(IBVERBS_FOUND)
+    add_executable(ibverbs_ring_buffer_test
+            test/core/ibverbs/ring_buffer_test.cc)
+    target_compile_features(ibverbs_ring_buffer_test PUBLIC cxx_std_14)
+    target_include_directories(ibverbs_ring_buffer_test
+            PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}
+            ${CMAKE_CURRENT_SOURCE_DIR}/include
+            ${_gRPC_IBVERBS_INCLUDE_DIR}
+            third_party/googletest/googletest/include
+            third_party/googletest/googletest
+            third_party/googletest/googlemock/include
+            third_party/googletest/googlemock
+    )
+
+    target_link_libraries(ibverbs_ring_buffer_test
+            ${_gRPC_ALLTARGETS_LIBRARIES}
+            grpc_ibverbs
+            gtest
+            grpc_test_util
+    )
+endif()
+endif()
+
 
 add_library(grpc
   src/core/ext/filters/census/grpc_context.cc
@@ -2076,6 +2170,7 @@ target_include_directories(grpc
   PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${_gRPC_ADDRESS_SORTING_INCLUDE_DIR}
+    ${_gRPC_IBVERBS_INCLUDE_DIR}
     ${_gRPC_RE2_INCLUDE_DIR}
     ${_gRPC_SSL_INCLUDE_DIR}
     ${_gRPC_UPB_GENERATED_DIR}
@@ -2101,8 +2196,13 @@ target_link_libraries(grpc
   address_sorting
   ibverbs
 )
+
 if(_gRPC_PLATFORM_IOS OR _gRPC_PLATFORM_MAC)
   target_link_libraries(grpc "-framework CoreFoundation")
+endif()
+
+if(IBVERBS_FOUND)
+  target_link_libraries(grpc grpc_ibverbs)
 endif()
 
 foreach(_hdr
@@ -2631,6 +2731,7 @@ target_include_directories(grpc_unsecure
   PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${_gRPC_ADDRESS_SORTING_INCLUDE_DIR}
+    ${_gRPC_IBVERBS_INCLUDE_DIR}
     ${_gRPC_RE2_INCLUDE_DIR}
     ${_gRPC_SSL_INCLUDE_DIR}
     ${_gRPC_UPB_GENERATED_DIR}
@@ -2655,6 +2756,10 @@ target_link_libraries(grpc_unsecure
 )
 if(_gRPC_PLATFORM_IOS OR _gRPC_PLATFORM_MAC)
   target_link_libraries(grpc_unsecure "-framework CoreFoundation")
+endif()
+
+if(IBVERBS_FOUND)
+  target_link_libraries(grpc_unsecure grpc_ibverbs)
 endif()
 
 foreach(_hdr

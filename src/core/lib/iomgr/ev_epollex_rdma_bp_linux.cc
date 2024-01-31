@@ -47,6 +47,7 @@
 #include "absl/strings/str_format.h"
 
 #include <grpc/support/alloc.h>
+#include <src/core/lib/ibverbs/pair.h>
 
 #include "src/core/lib/debug/stats.h"
 #include "src/core/lib/gpr/spinlock.h"
@@ -159,15 +160,17 @@ static void pollable_unref(pollable* p, const grpc_core::DebugLocation& dbg_loc,
  */
 
 struct grpc_fd {
-  grpc_fd(int fd, const char* name, bool track_err, bool) : fd(fd) {
+  grpc_fd(int fd, const char* name) : fd(fd) {
     gpr_mu_init(&orphan_mu);
     gpr_mu_init(&pollable_mu);
     read_closure.InitEvent();
     write_closure.InitEvent();
     error_closure.InitEvent();
-    rdmasr = nullptr;
     polling_by = new std::vector<pollable*>();
+    pair = nullptr;
     gpr_mu_init(&rdma_mu);
+
+    gpr_log(GPR_INFO, "fd %p init mu %p", this, &rdma_mu);
 
     std::string fd_name = absl::StrCat(name, " fd=", fd);
     grpc_iomgr_register_object(&iomgr_object, fd_name.c_str());
@@ -202,7 +205,7 @@ struct grpc_fd {
     read_closure.DestroyEvent();
     write_closure.DestroyEvent();
     error_closure.DestroyEvent();
-    rdmasr = nullptr;
+    pair = nullptr;
     delete polling_by;
     gpr_mu_destroy(&rdma_mu);
 
@@ -222,6 +225,7 @@ struct grpc_fd {
     pollable_obj = nullptr;
     on_done_closure = nullptr;
     memset(&iomgr_object, -1, sizeof(iomgr_object));
+    memset(&rdma_mu, -1, sizeof(rdma_mu));
   }
 #else
   void invalidate() {}
@@ -251,15 +255,8 @@ struct grpc_fd {
 
   grpc_iomgr_object iomgr_object;
 
-  // set to nullptr inside fd constructor and fd_create
-  // set value inside grpc_rdma_bp_create
-  // add it self to pollable during pollable_add_fd
-  // del it self from pollables during fd_orphan
-  RDMASenderReceiverBP* rdmasr = nullptr;
-  // fd is created by new, inside fd_create
-
-  std::vector<pollable*>* polling_by;
-
+  std::vector<pollable*>* polling_by = nullptr;
+  grpc_core::ibverbs::PairPollable* pair = nullptr;
   gpr_mu rdma_mu;
 };
 
@@ -475,14 +472,17 @@ static grpc_fd* fd_create(int fd, const char* name, bool track_err) {
     new_fd = static_cast<grpc_fd*>(gpr_malloc(sizeof(grpc_fd)));
   }
 
-  // return new (new_fd) grpc_fd(fd, name, track_err);
-  new (new_fd) grpc_fd(fd, name, track_err, true);
-
-  return new_fd;
+  gpr_log(GPR_INFO, "Create fd %p", new_fd);
+  return new (new_fd) grpc_fd(fd, name);
 }
 
 static void fd_set_rdmasr(grpc_fd* fd, RDMASenderReceiver* rdmasr) {
-  fd->rdmasr = dynamic_cast<RDMASenderReceiverBP*>(rdmasr);
+  GPR_ASSERT(false);
+}
+
+// called when create an endpoint
+static void fd_set_arg(grpc_fd* fd, void* arg) {
+  fd->pair = (grpc_core::ibverbs::PairPollable*)arg;
 }
 
 static int fd_wrapped_fd(grpc_fd* fd) {
@@ -528,7 +528,7 @@ static void fd_orphan(grpc_fd* fd, grpc_closure* on_done, int* release_fd,
     is_fd_closed = true;
   }
 
-  if (fd->rdmasr != nullptr) {
+  if (fd->pair != nullptr) {
     gpr_mu_lock(&fd->rdma_mu);
     auto pollables = *fd->polling_by;
     gpr_mu_unlock(&fd->rdma_mu);
@@ -701,7 +701,9 @@ static grpc_error_handle pollable_add_fd(pollable* p, grpc_fd* fd) {
     }
   }
 
-  if (fd->rdmasr != nullptr) {
+  if (fd->pair != nullptr) {
+    gpr_log(GPR_INFO, "lock fd %p mu %p", fd, &fd->rdma_mu);
+
     gpr_mu_lock(&fd->rdma_mu);
     gpr_mu_lock(&p->rdma_mu);
     auto& fds = *p->rdma_fds;
@@ -1061,21 +1063,41 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
         last_epoll_time = absl::Now();
       }
 
-      if (r <= 0) {
-        r = 0;
+      if (r == 0) {
         gpr_mu_lock(&p->rdma_mu);
         auto& fds = *p->rdma_fds;
         for (size_t i = 0; i < fds.size() && r < MAX_EPOLL_EVENTS; i++) {
           auto* fd = fds[i];
 
-          GPR_ASSERT(fd->rdmasr != nullptr);
+          GPR_ASSERT(fd->pair != nullptr);
+          auto* pair = fd->pair;
+          auto status = pair->get_status();
 
-          uint32_t events = fd->rdmasr->ToEpollEvent();
+          switch (status) {
+            case grpc_core::ibverbs::PairStatus::kConnected: {
+              if (pair->GetReadableSize()) {
+                p->events[r].events = EPOLLIN;
+                p->events[r].data.ptr = reinterpret_cast<void*>(fd);
+                r++;
+              }
 
-          if (events > 0) {
-            p->events[r].events = events;
-            p->events[r].data.ptr = reinterpret_cast<void*>(fd);
-            r++;
+              // N.B. Do not use GetWritableSize to trigger event, it slows down
+              if (pair->GetRemainWriteSize() && r < MAX_EPOLL_EVENTS) {
+                p->events[r].events = EPOLLOUT;
+                p->events[r].data.ptr = reinterpret_cast<void*>(fd);
+                r++;
+              }
+              break;
+            }
+            case grpc_core::ibverbs::PairStatus::kHalfClosed:
+            case grpc_core::ibverbs::PairStatus::kError: {
+              gpr_log(GPR_INFO, "Half-close or error");
+              // Generate an event, so do_read will handle connection close
+              p->events[r].events = EPOLLIN;
+              p->events[r].data.ptr = reinterpret_cast<void*>(fd);
+              r++;
+              break;
+            }
           }
         }
         gpr_mu_unlock(&p->rdma_mu);
@@ -1773,7 +1795,8 @@ static const grpc_event_engine_vtable vtable = {
     shutdown_background_closure,
     shutdown_engine,
     add_closure_to_background_poller,
-    fd_set_rdmasr};
+    fd_set_rdmasr,
+    fd_set_arg};
 
 const grpc_event_engine_vtable* grpc_init_epollex_rdma_bp_linux(
     bool /*explicitly_requested*/) {

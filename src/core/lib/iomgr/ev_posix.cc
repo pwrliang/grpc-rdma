@@ -433,6 +433,10 @@ bool grpc_add_closure_to_background_poller(grpc_closure* closure,
   return g_event_engine->add_closure_to_background_poller(closure, error);
 }
 
+void grpc_fd_set_arg(grpc_fd* fd, void* arg) {
+  g_event_engine->fd_set_arg(fd, arg);
+}
+
 void grpc_shutdown_background_closure(void) {
   g_event_engine->shutdown_background_closure();
 }

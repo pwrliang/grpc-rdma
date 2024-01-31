@@ -679,7 +679,7 @@ static void tcp_destroy(grpc_endpoint* ep) {
     gpr_atm_no_barrier_store(&tcp->stop_error_notification, true);
     grpc_fd_set_error(tcp->em_fd);
   }
-  TCP_UNREF(tcp, "destroy");
+  gpr_log(GPR_INFO, "tcp_destroy");
 }
 
 static void call_read_cb(grpc_tcp* tcp, grpc_error_handle error) {
