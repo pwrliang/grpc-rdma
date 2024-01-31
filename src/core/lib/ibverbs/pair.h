@@ -90,6 +90,7 @@ class PairPollable {
   static constexpr int WR_ID_MR = 100;
   static constexpr int WR_ID_DATA = 200;
   static constexpr int WR_ID_STATUS = 300;
+  static constexpr int STATUS_CHECK_INTERVAL_MS = 500;
 
   enum BufferType { kDataBuffer = 0, kStatusBuffer, BufferNum };
 
@@ -128,7 +129,7 @@ class PairPollable {
 
   const Address& get_peer_address() const { return peer_; }
 
-  PairStatus get_status() const;
+  PairStatus get_status();
 
   void Disconnect();
 
@@ -147,6 +148,7 @@ class PairPollable {
 
   PairStatus status_;
   std::string error_;
+  std::atomic_uint64_t last_qp_query_ts_;
 
   uint64_t internal_read_size_;
   uint64_t remote_tail_;
@@ -154,6 +156,7 @@ class PairPollable {
 
   std::atomic_int pending_write_num_data_;
   std::atomic_int pending_write_num_status_;
+
 
   RingBufferPollable ring_buf_;
 

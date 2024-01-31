@@ -94,6 +94,10 @@ void PairPollable::Init() {
     ring_buf_.Init();
 
     error_.clear();
+    last_qp_query_ts_ = std::chrono::duration_cast<std::chrono::milliseconds>(
+                            std::chrono::system_clock::now().time_since_epoch())
+                            .count();
+
     internal_read_size_ = 0;
     remote_tail_ = 0;
     remain_write_size_ = 0;
@@ -229,7 +233,7 @@ void PairPollable::Disconnect() {
   }
 }
 
-PairStatus PairPollable::get_status() const {
+PairStatus PairPollable::get_status() {
   if (!error_.empty()) {
     return PairStatus::kError;
   } else if (status_ == PairStatus::kConnected) {
@@ -238,6 +242,22 @@ PairStatus PairPollable::get_status() const {
         reinterpret_cast<volatile status_report*>(status_buf->data());
     if (status->peer_exit == 1) {
       return PairStatus::kHalfClosed;
+    }
+
+    auto now = std::chrono::duration_cast<std::chrono::milliseconds>(
+                   std::chrono::system_clock::now().time_since_epoch())
+                   .count();
+    if (now - last_qp_query_ts_ >= STATUS_CHECK_INTERVAL_MS) {
+      struct ibv_qp_attr attr;
+      struct ibv_qp_init_attr init_attr;
+
+      if (ibv_query_qp(qp_, &attr, IBV_QP_STATE, &init_attr)) {
+        return PairStatus::kDisconnected;
+      }
+      if (qp_->state != IBV_QPS_RTS) {
+        return PairStatus::kHalfClosed;
+      }
+      last_qp_query_ts_ = now;
     }
   }
   return status_;
