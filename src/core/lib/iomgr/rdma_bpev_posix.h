@@ -49,12 +49,6 @@ grpc_endpoint* grpc_rdma_bpev_create(grpc_fd* fd, const grpc_channel_args* args,
  */
 int grpc_rdma_bpev_fd(grpc_endpoint* ep);
 
-/* Destroy the rdma endpoint without closing its fd. *fd will be set and done
- * will be called when the endpoint is destroyed.
- * Requires: ep must be a rdma endpoint and fd must not be NULL. */
-void grpc_rdma_bpev_destroy_and_release_fd(grpc_endpoint* ep, int* fd,
-                                           grpc_closure* done);
-
 void* grpc_rdma_bpev_require_zerocopy_sendspace(grpc_endpoint* ep, size_t size);
 
 #endif /* GRPC_CORE_LIB_IOMGR_RDMA_BP_POSIX_H */

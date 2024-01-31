@@ -39,10 +39,10 @@ grpc_endpoint* grpc_endpoint_create(grpc_fd* fd, const grpc_channel_args* args,
       ep = grpc_rdma_event_create(fd, args, peer_string, server);
       break;
     case IOMGR_RDMA_BP:
-      ep = grpc_rdma_bp_create(fd, args, peer_string, server);
+      ep = grpc_rdma_bp_create(fd, args, peer_string, false);
       break;
     case IOMGR_RDMA_BPEV:
-      ep = grpc_rdma_bpev_create(fd, args, peer_string, server);
+      ep = grpc_rdma_bp_create(fd, args, peer_string, true);
       break;
     case IOMGR_TCP:
       ep = grpc_tcp_create(fd, args, peer_string);

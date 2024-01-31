@@ -72,7 +72,8 @@ PairPollable::~PairPollable() {
 void PairPollable::Init() {
   struct ibv_qp_attr attr;
 
-  if (status_ == PairStatus::kUninitialized || status_ == PairStatus::kError) {
+  if (status_ == PairStatus::kUninitialized || status_ == PairStatus::kError ||
+      status_ == PairStatus::kDisconnected) {
     // Init queue pair
     memset(&attr, 0, sizeof(struct ibv_qp_attr));
     attr.qp_state = IBV_QPS_INIT;
@@ -117,7 +118,7 @@ void PairPollable::Connect(const std::vector<char>& bytes) {
     gpr_log(GPR_INFO, "Connecting Pair %p", this);
     peer_ = Address(bytes);
 
-    GPR_ASSERT(peer_.addr_.tag = self_.addr_.tag);
+    GPR_ASSERT(peer_.addr_.tag == self_.addr_.tag);
 
     initQPs();
     syncMemoryRegion(kDataBuffer);
@@ -234,9 +235,7 @@ void PairPollable::Disconnect() {
 }
 
 PairStatus PairPollable::get_status() {
-  if (!error_.empty()) {
-    return PairStatus::kError;
-  } else if (status_ == PairStatus::kConnected) {
+  if (status_ == PairStatus::kConnected) {
     auto* status_buf = recv_buffers_[kStatusBuffer].get();
     auto* status =
         reinterpret_cast<volatile status_report*>(status_buf->data());
@@ -366,6 +365,7 @@ void PairPollable::syncMemoryRegion(int buffer_id) {
   // Send memory region to peer
   sendMemoryRegion(buffer_id, mr.get());
   mr_pending_send_[buffer_id] = std::move(mr);  // keep reference
+  mr_peer_[buffer_id] = nullptr;
 
   while (mr_pending_send_[buffer_id] != nullptr) {
     pollCompletions();
@@ -435,6 +435,7 @@ void PairPollable::handleCompletion(ibv_wc* wc) {
     ss << "completion has error, wr_id " << wc->wr_id << " opcode "
        << wc->opcode << " status " << wc->status;
     error_ = ss.str();
+    status_ = PairStatus::kError;
     gpr_log(GPR_ERROR, "%s", error_.c_str());
     return;
   }

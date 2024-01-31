@@ -600,16 +600,6 @@ int grpc_rdma_event_fd(grpc_endpoint* ep) {
   return grpc_fd_wrapped_fd(rdma->em_fd);
 }
 
-void grpc_rdma_event_destroy_and_release_fd(grpc_endpoint* ep, int* fd,
-                                            grpc_closure* done) {
-  grpc_rdma* rdma = reinterpret_cast<grpc_rdma*>(ep);
-  GPR_ASSERT(ep->vtable == &vtable);
-  rdma->release_fd = fd;
-  rdma->release_fd_cb = done;
-  grpc_slice_buffer_reset_and_unref_internal(&rdma->last_read_buffer);
-  RDMA_UNREF(rdma, "destroy");
-}
-
 void* grpc_rdma_event_require_zerocopy_sendspace(grpc_endpoint* ep,
                                                  size_t size) {
   grpc_rdma* rdma = reinterpret_cast<grpc_rdma*>(ep);

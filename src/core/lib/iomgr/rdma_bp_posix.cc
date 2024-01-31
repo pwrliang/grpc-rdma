@@ -53,6 +53,7 @@ struct grpc_rdma {
   gpr_atm shutdown_count;
 
   grpc_core::ibverbs::PairPollable* pair;
+  bool enable_poller;
 
   /* garbage after the last read */
   grpc_slice_buffer last_read_buffer;
@@ -71,14 +72,12 @@ struct grpc_rdma {
   grpc_closure read_done_closure;
   grpc_closure write_done_closure;
   grpc_closure error_closure;
-  grpc_closure check_conn_closure;
 
   std::string peer_string;
   std::string local_address;
 
   grpc_resource_user* resource_user;
   grpc_resource_user_slice_allocator slice_allocator;
-  grpc_timer check_conn_timer;
 };
 
 }  // namespace
@@ -119,9 +118,10 @@ static void rdma_free(grpc_rdma* rdma) {
   grpc_slice_buffer_destroy_internal(&rdma->last_read_buffer);
   grpc_resource_user_unref(rdma->resource_user);
 
-  gpr_log(GPR_INFO, "rdma free");
-
   if (rdma->pair != nullptr) {
+    if (rdma->enable_poller) {
+      grpc_core::ibverbs::Poller::Get().RemovePollable(rdma->pair);
+    }
     rdma->pair->Disconnect();
     gpr_log(GPR_INFO, "Putback a Pair %p", rdma->pair);
     grpc_core::ibverbs::PairPool::Get().Putback(rdma->pair);
@@ -158,12 +158,10 @@ static void rdma_ref(grpc_rdma* rdma) { rdma->refcount.Ref(); }
 
 static void rdma_destroy(grpc_endpoint* ep) {
   grpc_rdma* rdma = reinterpret_cast<grpc_rdma*>(ep);
-  gpr_log(GPR_INFO, "rdma destroy");
   if (GRPC_TRACE_FLAG_ENABLED(grpc_rdma_trace)) {
     gpr_log(GPR_INFO, "rdma %p destroy, fd = %d", rdma,
             grpc_fd_wrapped_fd(rdma->em_fd));
   }
-  grpc_timer_cancel(&rdma->check_conn_timer);
   grpc_slice_buffer_reset_and_unref_internal(&rdma->last_read_buffer);
   RDMA_UNREF(rdma, "destroy");
 }
@@ -638,7 +636,8 @@ static const grpc_endpoint_vtable vtable = {rdma_read,
                                             rdma_can_track_err};
 grpc_endpoint* grpc_rdma_bp_create(grpc_fd* em_fd,
                                    const grpc_channel_args* channel_args,
-                                   const char* peer_string, bool server) {
+                                   const char* peer_string,
+                                   bool enable_poller) {
   grpc_resource_quota* resource_quota = grpc_resource_quota_create(nullptr);
   grpc_rdma* rdma = new grpc_rdma();
   rdma->base.vtable = &vtable;
@@ -693,19 +692,14 @@ grpc_endpoint* grpc_rdma_bp_create(grpc_fd* em_fd,
   pair->Connect(peer_addr_bytes);
 
   rdma->pair = pair;
+  rdma->enable_poller = enable_poller;
   grpc_fd_set_arg(em_fd, pair);  // pass pair to grpc_fd
 
-  return &rdma->base;
-}
+  if (enable_poller) {
+    grpc_core::ibverbs::Poller::Get().AddPollable(pair);
+  }
 
-void grpc_rdma_bp_destroy_and_release_fd(grpc_endpoint* ep, int* fd,
-                                         grpc_closure* done) {
-  grpc_rdma* rdma = reinterpret_cast<grpc_rdma*>(ep);
-  GPR_ASSERT(ep->vtable == &vtable);
-  rdma->release_fd = fd;
-  rdma->release_fd_cb = done;
-  grpc_slice_buffer_reset_and_unref_internal(&rdma->last_read_buffer);
-  RDMA_UNREF(rdma, "destroy");
+  return &rdma->base;
 }
 
 void* grpc_rdma_bp_require_zerocopy_sendspace(grpc_endpoint* ep, size_t size) {

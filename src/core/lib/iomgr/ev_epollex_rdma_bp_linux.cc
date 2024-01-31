@@ -27,17 +27,13 @@
 
 #include "src/core/lib/iomgr/ev_epollex_rdma_bp_linux.h"
 
-#include <assert.h>
 #include <errno.h>
 #include <limits.h>
-#include <poll.h>
-#include <pthread.h>
 #include <string.h>
 #include <sys/epoll.h>
 #include <sys/socket.h>
 #include <sys/syscall.h>
 #include <unistd.h>
-#include <set>
 #include <vector>
 
 #include <string>
@@ -47,7 +43,6 @@
 #include "absl/strings/str_format.h"
 
 #include <grpc/support/alloc.h>
-#include <src/core/lib/ibverbs/pair.h>
 
 #include "src/core/lib/debug/stats.h"
 #include "src/core/lib/gpr/spinlock.h"
@@ -56,12 +51,11 @@
 #include "src/core/lib/gprpp/manual_constructor.h"
 #include "src/core/lib/gprpp/ref_counted.h"
 #include "src/core/lib/gprpp/sync.h"
+#include "src/core/lib/ibverbs/pair.h"
 #include "src/core/lib/iomgr/block_annotate.h"
 #include "src/core/lib/iomgr/iomgr_internal.h"
 #include "src/core/lib/iomgr/is_epollexclusive_available.h"
 #include "src/core/lib/iomgr/lockfree_event.h"
-#include "src/core/lib/iomgr/sys_epoll_wrapper.h"
-#include "src/core/lib/iomgr/timer.h"
 #include "src/core/lib/iomgr/wakeup_fd_posix.h"
 #include "src/core/lib/profiling/timers.h"
 #include "src/core/lib/rdma/rdma_sender_receiver.h"
@@ -1301,7 +1295,6 @@ static grpc_error_handle pollset_work(grpc_pollset* pollset,
     if (begin_worker(pollset, WORKER_PTR, worker_hdl, deadline)) {
       gpr_tls_set(&g_current_thread_pollset, (intptr_t)pollset);
       gpr_tls_set(&g_current_thread_worker, (intptr_t)WORKER_PTR);
-      GRPCProfiler profiler(GRPC_STATS_TIME_BEGIN_WORKER);
       if (WORKER_PTR->pollable_obj->event_cursor ==
           WORKER_PTR->pollable_obj->event_count) {
         append_error(&error, pollable_epoll(WORKER_PTR->pollable_obj, deadline),

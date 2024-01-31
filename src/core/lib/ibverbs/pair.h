@@ -233,6 +233,55 @@ class PairPollable {
   }
 };
 
+class PairPool {
+  static constexpr int kInitPoolSize = 2;
+
+  PairPool() {
+    struct grpc_core::ibverbs::attr attr;
+    attr.port = 1;  // TODO: read from config
+    attr.index = 0;
+    dev_ = CreateDevice(attr);
+  }
+
+ public:
+  PairPool(const PairPool&) = delete;
+
+  PairPool& operator=(const PairPool&) = delete;
+
+  static PairPool& Get() {
+    static PairPool pool;
+    return pool;
+  }
+
+  PairPollable* Take() {
+    std::lock_guard<std::mutex> lg(mu_);
+
+    if (pairs_.empty()) {
+      createPairs();
+    }
+    PairPollable* pair = pairs_.front();
+    pairs_.pop();
+    return pair;
+  }
+
+  void Putback(PairPollable* pair) {
+    std::lock_guard<std::mutex> lg(mu_);
+
+    pairs_.push(pair);
+  }
+
+ private:
+  std::mutex mu_;
+  std::queue<PairPollable*> pairs_;
+  std::shared_ptr<Device> dev_;
+
+  void createPairs() {
+    for (int i = 0; i < kInitPoolSize; i++) {
+      pairs_.push(new PairPollable(dev_));
+    }
+  }
+};
+
 }  // namespace ibverbs
 }  // namespace grpc_core
 
