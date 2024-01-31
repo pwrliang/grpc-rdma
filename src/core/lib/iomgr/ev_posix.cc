@@ -34,7 +34,6 @@
 #include "src/core/lib/gpr/useful.h"
 #include "src/core/lib/gprpp/global_config.h"
 #include "src/core/lib/iomgr/ev_epoll1_linux.h"
-#include "src/core/lib/iomgr/ev_epoll1_rdma_linux.h"
 #include "src/core/lib/iomgr/ev_epollex_linux.h"
 #include "src/core/lib/iomgr/ev_epollex_rdma_bp_linux.h"
 #include "src/core/lib/iomgr/ev_epollex_rdma_bpev_linux.h"
