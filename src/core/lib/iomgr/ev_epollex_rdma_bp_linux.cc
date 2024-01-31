@@ -170,8 +170,6 @@ struct grpc_fd {
     pair = nullptr;
     gpr_mu_init(&rdma_mu);
 
-    gpr_log(GPR_INFO, "fd %p init mu %p", this, &rdma_mu);
-
     std::string fd_name = absl::StrCat(name, " fd=", fd);
     grpc_iomgr_register_object(&iomgr_object, fd_name.c_str());
 #ifndef NDEBUG
@@ -472,7 +470,6 @@ static grpc_fd* fd_create(int fd, const char* name, bool track_err) {
     new_fd = static_cast<grpc_fd*>(gpr_malloc(sizeof(grpc_fd)));
   }
 
-  gpr_log(GPR_INFO, "Create fd %p", new_fd);
   return new (new_fd) grpc_fd(fd, name);
 }
 
@@ -702,8 +699,6 @@ static grpc_error_handle pollable_add_fd(pollable* p, grpc_fd* fd) {
   }
 
   if (fd->pair != nullptr) {
-    gpr_log(GPR_INFO, "lock fd %p mu %p", fd, &fd->rdma_mu);
-
     gpr_mu_lock(&fd->rdma_mu);
     gpr_mu_lock(&p->rdma_mu);
     auto& fds = *p->rdma_fds;
