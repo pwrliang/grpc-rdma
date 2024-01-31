@@ -35,7 +35,6 @@
 #include <grpc/support/alloc.h>
 #include <grpc/support/log.h>
 #include <grpc/support/string_util.h>
-#include <grpcpp/impl/codegen/call.h>
 
 #include "src/core/lib/channel/channel_stack.h"
 #include "src/core/lib/compression/algorithm_metadata.h"
@@ -63,9 +62,6 @@
 #include "src/core/lib/transport/static_metadata.h"
 #include "src/core/lib/transport/status_metadata.h"
 #include "src/core/lib/transport/transport.h"
-#include "src/core/lib/iomgr/rdma_bp_posix.h"
-#include "src/core/lib/iomgr/rdma_event_posix.h"
-#include "src/core/lib/iomgr/rdma_bpev_posix.h"
 
 /** The maximum number of concurrent batches possible.
     Based upon the maximum number of individually queueable ops in the batch
@@ -272,33 +268,6 @@ struct grpc_call {
     For 2, 3: See receiving_stream_ready() function */
   gpr_atm recv_state = 0;
 };
-
-// extern grpc_endpoint* grpc_client_endpoint;
-// extern std::map<grpc_channel*, grpc_endpoint*> grpc_server_endpoints;
-extern std::map <std::string, grpc_endpoint*> peer2endpoint;
-
-void* grpc_call_require_zerocopy_sendspace(grpc_call* call, size_t size) {
-  // printf("call get peer: %s\n", grpc_call_get_peer(call));
-
-//  std::string peer = grpc_trim_peer(std::string(grpc_call_get_peer(call)));
-//
-//  if (peer2endpoint.count(peer) == 0) return nullptr;
-//
-//  grpc_endpoint* ep = peer2endpoint[peer];
-//
-//  // printf("call get peer: %s\n", peer.c_str());
-//
-//  switch (grpc_check_iomgr_platform()) {
-//    case IOMGR_RDMA_BP:
-//      return grpc_rdma_bp_require_zerocopy_sendspace(ep, size);
-//    case IOMGR_RDMA_EVENT:
-//      return grpc_rdma_event_require_zerocopy_sendspace(ep, size);
-//    case IOMGR_RDMA_BPEV:
-//      return grpc_rdma_bpev_require_zerocopy_sendspace(ep, size);
-//  }
-  return nullptr;
-}
-
 
 grpc_core::TraceFlag grpc_call_error_trace(false, "call_error");
 grpc_core::TraceFlag grpc_compression_trace(false, "compression");

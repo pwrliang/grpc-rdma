@@ -473,7 +473,6 @@ static grpc_slice ru_slice_create(grpc_resource_user* resource_user,
   new (rc) grpc_core::RuSliceRefcount(resource_user, size);
   grpc_slice slice;
 
-
   slice.refcount = rc->base_refcount();
   slice.data.refcounted.bytes = reinterpret_cast<uint8_t*>(rc + 1);
   slice.data.refcounted.length = size;

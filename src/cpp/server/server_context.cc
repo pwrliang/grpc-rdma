@@ -31,8 +31,6 @@
 #include <grpcpp/impl/grpc_library.h>
 #include <grpcpp/support/server_callback.h>
 #include <grpcpp/support/time.h>
-#include <grpcpp/stats_time.h>
-// #include "include/grpcpp/stats_time.h"
 
 #include "src/core/lib/gprpp/ref_counted.h"
 #include "src/core/lib/gprpp/sync.h"

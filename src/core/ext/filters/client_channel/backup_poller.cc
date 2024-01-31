@@ -35,7 +35,7 @@
 #include "src/core/lib/surface/channel.h"
 #include "src/core/lib/surface/completion_queue.h"
 
-#define DEFAULT_POLL_INTERVAL_MS 50000   // previous is 5000
+#define DEFAULT_POLL_INTERVAL_MS 5000
 
 namespace {
 struct backup_poller {
