@@ -25,7 +25,6 @@
 #include "src/core/lib/iomgr/iomgr_internal.h"
 #include "src/core/lib/iomgr/rdma_bp_posix.h"
 #include "src/core/lib/iomgr/rdma_bpev_posix.h"
-#include "src/core/lib/iomgr/rdma_comm.h"
 #include "src/core/lib/iomgr/rdma_event_posix.h"
 #include "src/core/lib/iomgr/tcp_posix.h"
 
@@ -56,9 +55,6 @@ grpc_endpoint* grpc_endpoint_create(grpc_fd* fd, const grpc_channel_args* args,
       break;
     case IOMGR_RDMA_BPEV:
       ep = grpc_rdma_bpev_create(fd, args, peer_string, server);
-      break;
-    case IOMGR_RDMA:
-      ep = grpc_rdma_create(fd, args, peer_string, server);
       break;
     case IOMGR_TCP:
       ep = grpc_tcp_create(fd, args, peer_string);

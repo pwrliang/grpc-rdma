@@ -138,7 +138,6 @@ static event_engine_factory g_factories[] = {
     {ENGINE_HEAD_CUSTOM, nullptr},
     {"epollex", grpc_init_epollex_linux},
     {"epoll1", grpc_init_epoll1_linux},
-    {"epoll1_rdma", grpc_init_epoll1_rdma_linux},
     {"poll", grpc_init_poll_posix},
     {"none", init_non_polling},
     {"epollex_rdma_event", grpc_init_epollex_rdma_event_linux},
@@ -229,8 +228,6 @@ void grpc_event_engine_init(void) {
     GPR_GLOBAL_CONFIG_SET(grpc_poll_strategy, "epollex_rdma_event");
   } else if (type == IOMGR_RDMA_BPEV) {
     GPR_GLOBAL_CONFIG_SET(grpc_poll_strategy, "epollex_rdma_bpev");
-  } else if (type == IOMGR_RDMA) {
-    GPR_GLOBAL_CONFIG_SET(grpc_poll_strategy, "epoll1_rdma");
   }
   grpc_core::UniquePtr<char> value = GPR_GLOBAL_CONFIG_GET(grpc_poll_strategy);
 

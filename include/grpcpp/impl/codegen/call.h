@@ -23,7 +23,6 @@
 
 enum platform_t {
   IOMGR_TCP,
-  IOMGR_RDMA,
   IOMGR_RDMA_BP,
   IOMGR_RDMA_EVENT,
   IOMGR_RDMA_BPEV
