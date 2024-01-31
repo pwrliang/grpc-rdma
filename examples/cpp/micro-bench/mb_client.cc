@@ -242,6 +242,11 @@ int main(int argc, char** argv) {
     }
   }
 
+  auto pending_rpcs = n_send - n_recv;
+  while (pending_rpcs-- > 0) {
+    greeter.AsyncCompleteRpc();
+  }
+
   uint32_t total_rpcs;
   MPI_Reduce(&n_send, &total_rpcs, 1, MPI_UINT32_T, MPI_SUM, 0, MPI_COMM_WORLD);
 

@@ -22,10 +22,25 @@ cmake_minimum_required(VERSION 3.5.1)
 project(HelloWorld C CXX)
 
 include(../cmake/common.cmake)
+include("../cmake/FindGFlags.cmake")
+if (NOT GFLAGS_FOUND)
+  message(FATAL "gflags not found, build without gflags")
+else ()
+  include_directories(SYSTEM ${GFLAGS_INCLUDE_DIRS})
+endif ()
+find_package(MPI REQUIRED)
+include_directories(SYSTEM ${MPI_CXX_INCLUDE_PATH})
 
 # Proto file
 get_filename_component(hw_proto "../../protos/helloworld.proto" ABSOLUTE)
 get_filename_component(hw_proto_path "${hw_proto}" PATH)
+
+get_filename_component(any_proto_path "../../../third_party/protobuf/src" ABSOLUTE)
+
+message("any_proto_path: ${any_proto_path}")
+
+#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=address -fno-omit-frame-pointer -O1")
+#set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fsanitize=address")
 
 # Generated sources
 set(hw_proto_srcs "${CMAKE_CURRENT_BINARY_DIR}/helloworld.pb.cc")
@@ -37,7 +52,7 @@ add_custom_command(
       COMMAND ${_PROTOBUF_PROTOC}
       ARGS --grpc_out "${CMAKE_CURRENT_BINARY_DIR}"
         --cpp_out "${CMAKE_CURRENT_BINARY_DIR}"
-        -I "${hw_proto_path}" -I "/home/geng.161/.local/include"
+        -I "${hw_proto_path}" -I "${any_proto_path}"
         --plugin=protoc-gen-grpc="${_GRPC_CPP_PLUGIN_EXECUTABLE}"
         "${hw_proto}"
       DEPENDS "${hw_proto}")
@@ -58,12 +73,16 @@ target_link_libraries(hw_grpc_proto
 
 # Targets greeter_[async_](client|server)
 foreach(_target
-  greeter_client greeter_server
-  greeter_async_client greeter_async_client2 greeter_async_server)
-  add_executable(${_target} "${_target}.cc")
+        greeter_async_server greeter_async_client
+        greeter_async_client2 greeter_async_server2 greeter_cs serialize_benchmark)
+  add_executable(${_target} "${_target}.cc" "flags.cc")
   target_link_libraries(${_target}
     hw_grpc_proto
     ${_REFLECTION}
     ${_GRPC_GRPCPP}
-    ${_PROTOBUF_LIBPROTOBUF})
+    ${_PROTOBUF_LIBPROTOBUF}
+    ${GFLAGS_LIBRARIES} ${MPI_CXX_LIBRARIES})
+  if(NOT APPLE)
+    target_link_libraries(${_target} ibverbs)
+  endif()
 endforeach()

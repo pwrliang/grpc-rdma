@@ -66,7 +66,34 @@ class ServerImpl final {
     std::cout << "Server listening on " << server_address << std::endl;
 
     // Proceed to the server's main loop.
-    HandleRpcs();
+
+    std::thread th1([&](){HandleRpcs(1);});
+    std::thread th2([&](){HandleRpcs(2);});
+    std::thread th3([&](){HandleRpcs(3);});
+
+    th1.join();
+    th2.join();
+    th3.join();
+  }
+
+  // This can be run in multiple threads if needed.
+  void HandleRpcs(int id) {
+    // Spawn a new CallData instance to serve new clients.
+    new CallData(&service_, cq_.get());
+    void* tag;  // uniquely identifies a request.
+    bool ok;
+    while (true) {
+      // Block waiting to read the next event from the completion queue. The
+      // event is uniquely identified by its tag, which in this case is the
+      // memory address of a CallData instance.
+      // The return value of Next should always be checked. This return value
+      // tells us whether there is any kind of event or cq_ is shutting down.
+      // printf("thread %d got event\n", id);
+      // printf("thread %d got event, cq = %p\n", id, cq_.get());
+      GPR_ASSERT(cq_->Next(&tag, &ok));
+      GPR_ASSERT(ok);
+      static_cast<CallData*>(tag)->Proceed();
+    }
   }
 
  private:
@@ -139,24 +166,6 @@ class ServerImpl final {
     enum CallStatus { CREATE, PROCESS, FINISH };
     CallStatus status_;  // The current serving state.
   };
-
-  // This can be run in multiple threads if needed.
-  void HandleRpcs() {
-    // Spawn a new CallData instance to serve new clients.
-    new CallData(&service_, cq_.get());
-    void* tag;  // uniquely identifies a request.
-    bool ok;
-    while (true) {
-      // Block waiting to read the next event from the completion queue. The
-      // event is uniquely identified by its tag, which in this case is the
-      // memory address of a CallData instance.
-      // The return value of Next should always be checked. This return value
-      // tells us whether there is any kind of event or cq_ is shutting down.
-      GPR_ASSERT(cq_->Next(&tag, &ok));
-      GPR_ASSERT(ok);
-      static_cast<CallData*>(tag)->Proceed();
-    }
-  }
 
   std::unique_ptr<ServerCompletionQueue> cq_;
   Greeter::AsyncService service_;
