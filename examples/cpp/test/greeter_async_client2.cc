@@ -94,9 +94,9 @@ class GreeterClient {
         std::cout << "Greeter " << call->idx << " received." << std::endl;
         total_req--;
       } else {
-        std::cout << "RPC failed, error code " << status.error_code()
-                  << ", details " << status.error_details() << " msg, "
-                  << status.error_message() << std::endl;
+        std::cout << "RPC failed, error code " << call->status.error_code()
+                  << ", details " << call->status.error_details() << " msg, "
+                  << call->status.error_message() << std::endl;
         exit(1);
       }
 
