@@ -5,12 +5,14 @@ PORT=$(shuf -i 2000-65000 -n 1)
 NP=4
 
 function start_server() {
+  echo "Start start_server, mode: ${GRPC_PLATFORM_TYPE}"
   TEST_BUILD_ROOT=$1
   "$TEST_BUILD_ROOT"/greeter_server $PORT |& tee server.log &
   SERVER_PID=$!
 }
 
 function start_client() {
+  echo "Start start_client, mode: ${GRPC_PLATFORM_TYPE}"
   TEST_BUILD_ROOT=$1
   mpirun --bind-to none -n $NP -output-filename client_log "$TEST_BUILD_ROOT"/greeter_client $PORT
   echo "Killing $SERVER_PID"
@@ -18,12 +20,14 @@ function start_client() {
 }
 
 function start_async_server() {
+  echo "Start server, ${TEST_BUILD_ROOT}/greeter_async_server, mode: ${GRPC_PLATFORM_TYPE}"
   TEST_BUILD_ROOT=$1
   "$TEST_BUILD_ROOT"/greeter_async_server $PORT |& tee server.log &
   SERVER_PID=$!
 }
 
 function start_async_client() {
+  echo "Start start_async_client, mode: ${GRPC_PLATFORM_TYPE}"
   TEST_BUILD_ROOT=$1
   mpirun --bind-to none -n $NP -output-filename client_log "$TEST_BUILD_ROOT"/greeter_async_client $PORT
   echo "Killing $SERVER_PID"
@@ -31,6 +35,7 @@ function start_async_client() {
 }
 
 function start_async_client2() {
+  echo "Start start_async_client2, mode: ${GRPC_PLATFORM_TYPE}"
   TEST_BUILD_ROOT=$1
   mpirun --bind-to none -n $NP -output-filename client_log "$TEST_BUILD_ROOT"/greeter_async_client2 $PORT
   echo "Killing $SERVER_PID"
