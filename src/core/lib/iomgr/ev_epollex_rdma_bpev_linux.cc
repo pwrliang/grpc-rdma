@@ -520,6 +520,7 @@ static void fd_orphan(grpc_fd* fd, grpc_closure* on_done, int* release_fd,
                   fd->pair->get_wakeup_fd()->read_fd, &ev_fd);
       }
     }
+
     for (size_t i = 0; i < fd->pollset_fds.size(); ++i) {  // For PO_MULTI.
       const int epfd = fd->pollset_fds[i];
       epoll_ctl(epfd, EPOLL_CTL_DEL, fd->fd, &ev_fd);
@@ -1016,24 +1017,26 @@ static grpc_error_handle pollable_process_events(grpc_pollset* pollset,
       grpc_fd* fd = reinterpret_cast<grpc_fd*>(
           ~static_cast<intptr_t>(2) & reinterpret_cast<intptr_t>(ev->data.ptr));
       auto* pair = fd->pair;
-      GPR_ASSERT(pair != nullptr);
 
-      auto err = grpc_wakeup_fd_consume_wakeup(pair->get_wakeup_fd());
-      if (err != GRPC_ERROR_NONE) {
-        gpr_log(GPR_ERROR, "consume wakeup error");
-      }
-      auto status = pair->get_status();
-
-      if (status != grpc_core::ibverbs::PairStatus::kUninitialized &&
-          status != grpc_core::ibverbs::PairStatus::kDisconnected) {
-        /* If half-closed, trigger read to free resources */
-        if (pair->GetReadableSize() ||
-            pair->get_status() == grpc_core::ibverbs::PairStatus::kHalfClosed) {
-          fd_become_readable(fd);
+      if (pair != nullptr) {
+        auto err = grpc_wakeup_fd_consume_wakeup(pair->get_wakeup_fd());
+        if (err != GRPC_ERROR_NONE) {
+          gpr_log(GPR_ERROR, "consume wakeup error");
         }
+        auto status = pair->get_status();
 
-        if (pair->GetRemainWriteSize()) {
-          fd_become_writable(fd);
+        if (status != grpc_core::ibverbs::PairStatus::kUninitialized &&
+            status != grpc_core::ibverbs::PairStatus::kDisconnected) {
+          /* If half-closed, trigger read to free resources */
+          if (pair->GetReadableSize() ||
+              pair->get_status() ==
+                  grpc_core::ibverbs::PairStatus::kHalfClosed) {
+            fd_become_readable(fd);
+          }
+
+          if (pair->GetRemainWriteSize()) {
+            fd_become_writable(fd);
+          }
         }
       }
     } else {
