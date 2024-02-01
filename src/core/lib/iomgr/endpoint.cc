@@ -24,7 +24,6 @@
 #include "src/core/lib/iomgr/ev_posix.h"
 #include "src/core/lib/iomgr/iomgr_internal.h"
 #include "src/core/lib/iomgr/rdma_bp_posix.h"
-#include "src/core/lib/iomgr/rdma_bpev_posix.h"
 #include "src/core/lib/iomgr/rdma_event_posix.h"
 #include "src/core/lib/iomgr/tcp_posix.h"
 
