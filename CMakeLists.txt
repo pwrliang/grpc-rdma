@@ -50,10 +50,6 @@ option(gRPC_BUILD_CSHARP_EXT "Build C# extensions" ON)
 option(gRPC_BACKWARDS_COMPATIBILITY_MODE "Build libraries that are binary compatible across a larger number of OS and libc versions" OFF)
 option(gRPC_BUILD_IBVERBS "Enable ibverbs support" ON)
 
-if(gRPC_BUILD_RDMA)
-  add_definitions(-DRDMA_ENABLE)
-endif()
-
 set(gRPC_INSTALL_default ON)
 if(NOT CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
   # Disable gRPC_INSTALL by default if building as a submodule
@@ -1991,13 +1987,10 @@ add_library(grpc
   src/core/lib/iomgr/tcp_posix.cc
   src/core/lib/iomgr/rdma_event_posix.cc
   src/core/lib/iomgr/rdma_bp_posix.cc
-  src/core/lib/iomgr/rdma_bpev_posix.cc
   src/core/lib/rdma/ringbuffer.cc
   src/core/lib/rdma/rdma_utils.cc
   src/core/lib/rdma/rdma_conn.cc
-  src/core/lib/rdma/rdma_sender_receiver_bp.cc
   src/core/lib/rdma/rdma_sender_receiver_event.cc
-  src/core/lib/rdma/rdma_sender_receiver_bpev.cc
   src/core/lib/iomgr/tcp_server.cc
   src/core/lib/iomgr/tcp_server_custom.cc
   src/core/lib/iomgr/tcp_server_posix.cc
@@ -2632,13 +2625,10 @@ add_library(grpc_unsecure
   src/core/lib/iomgr/tcp_posix.cc
   src/core/lib/iomgr/rdma_event_posix.cc
   src/core/lib/iomgr/rdma_bp_posix.cc
-  src/core/lib/iomgr/rdma_bpev_posix.cc
   src/core/lib/rdma/ringbuffer.cc
   src/core/lib/rdma/rdma_utils.cc
   src/core/lib/rdma/rdma_conn.cc
-  src/core/lib/rdma/rdma_sender_receiver_bp.cc
   src/core/lib/rdma/rdma_sender_receiver_event.cc
-  src/core/lib/rdma/rdma_sender_receiver_bpev.cc
   src/core/lib/iomgr/tcp_server.cc
   src/core/lib/iomgr/tcp_server_custom.cc
   src/core/lib/iomgr/tcp_server_posix.cc

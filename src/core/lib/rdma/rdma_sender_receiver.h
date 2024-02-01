@@ -231,123 +231,6 @@ class RDMASenderReceiver {
   bool server_;
 };
 
-/*
- * 1. update_remote_metadata after garbage >= ringbuf_size_ / 2, so
- * sendbuf_size_ <= ringbuf_size_ / 2.
- * 2. reset ringbuf fisrt, then update head.
- * 3. mlen: length of pure data; len: mlen + sizeof(size_t) + 1.
- */
-
-class RDMASenderReceiverBP : public RDMASenderReceiver {
- public:
-  RDMASenderReceiverBP(int fd, bool server);
-
-  ~RDMASenderReceiverBP();
-
-  void Init() override;
-
-  int Send(msghdr* msg, ssize_t* sz) override;
-
-  int Recv(msghdr* msg, ssize_t* sz) override;
-
-  // this should be thread safe,
-  bool HasMessage() const;
-
-  size_t MarkMessageLength() override;
-
-  int ToEpollEvent() {
-    uint32_t event = 0;
-
-    if (((RingBufferBP*)ringbuf_)->CheckFirstMessageLength() > 0) {
-      event |= EPOLLIN;
-    }
-
-    if (last_failed_send_size_ > 0 && isWritable(last_failed_send_size_)) {
-      event |= EPOLLOUT;
-    }
-
-    if (status_ == RDMASenderReceiver::Status::kShutdown) {
-      event |= EPOLLHUP;
-    }
-
-    return event;
-  }
-
-  int PollLastSendCompletion() override {
-    uint32_t n_poll = n_outstanding_send_.exchange(0);
-
-    if (n_poll > 0) {
-      GRPCProfiler profiler(GRPC_STATS_TIME_SEND_POLL, 0);
-      int ret = conn_data_->PollSendCompletion(n_poll);
-
-      if (ret != 0) {
-        gpr_log(GPR_ERROR,
-                "rdmasr: %p PollLastSendCompletion failed, code: %d ", this,
-                ret);
-        return ret;
-      }
-    }
-    bytes_outstanding_send_ = 0;
-    return 0;
-  }
-
- private:
-  std::atomic_uint32_t bytes_outstanding_send_;
-
-  bool isWritable(size_t mlen) override {
-    size_t len = mlen + sizeof(size_t) + 1;
-    size_t remote_ringbuf_sz = remote_ringbuf_mr_.length();
-    size_t used =
-        (remote_ringbuf_sz + remote_ringbuf_tail_ - get_remote_ringbuf_head()) %
-        remote_ringbuf_sz;
-    // If unread datasize + the size of data we want to send is greater than
-    // ring buffer size, we can not send message. we reserve 1 byte to
-    // distinguish the status between empty and full
-
-    return used + len <= remote_ringbuf_sz - 8;
-  }
-
-  int updateRemoteMetadata() override {
-    MEM_BAR();
-    *static_cast<volatile size_t*>(metadata_sendbuf_) = ringbuf_->get_head();
-    MEM_BAR();
-    int n_entries = conn_metadata_->PostSendRequest(
-        remote_metadata_recvbuf_mr_, metadata_sendbuf_mr_, metadata_sendbuf_sz_,
-        IBV_WR_RDMA_WRITE);
-    MEM_BAR();
-    int ret = conn_metadata_->PollSendCompletion(n_entries);
-    MEM_BAR();
-    if (ret != 0) {
-      gpr_log(GPR_ERROR,
-              "updateRemoteMetadata failed, code: %d "
-              "head: %zu, post_num: %d",
-              ret, reinterpret_cast<size_t*>(metadata_sendbuf_)[0], n_entries);
-      return EPIPE;
-    }
-    return 0;
-  }
-};
-
-class RDMASenderReceiverBPEV : public RDMASenderReceiverBP {
- public:
-  explicit RDMASenderReceiverBPEV(int fd, bool server);
-
-  ~RDMASenderReceiverBPEV();
-
-  void Init() override;
-
-  int get_wakeup_fd() const { return wakeup_fd_; }
-
-  void set_index(int index) { this->index_ = index; }
-
-  int get_index() const { return index_; }
-
- private:
-  // this need to sync in initialization
-  int wakeup_fd_;
-  int index_;
-};
-
 class RDMASenderReceiverEvent : public RDMASenderReceiver {
  public:
   explicit RDMASenderReceiverEvent(int fd, bool server);
@@ -359,8 +242,6 @@ class RDMASenderReceiverEvent : public RDMASenderReceiver {
   int Send(msghdr* msg, ssize_t* sz) override;
 
   int Recv(msghdr* msg, ssize_t* sz) override;
-
-  int SendChunk(msghdr* msg, ssize_t* sz);
 
   size_t MarkMessageLength() override;
 

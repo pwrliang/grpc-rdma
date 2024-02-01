@@ -1018,6 +1018,7 @@ static grpc_error_handle pollable_process_events(grpc_pollset* pollset,
           ~static_cast<intptr_t>(2) & reinterpret_cast<intptr_t>(ev->data.ptr));
       auto* pair = fd->pair;
 
+      // pair maybe null when fd is destroyed
       if (pair != nullptr) {
         auto err = grpc_wakeup_fd_consume_wakeup(pair->get_wakeup_fd());
         if (err != GRPC_ERROR_NONE) {
