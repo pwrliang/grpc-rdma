@@ -1045,7 +1045,6 @@ grpc_cc_library(
         "src/core/lib/iomgr/work_serializer.h",
         "src/core/lib/json/json.h",
         "src/core/lib/json/json_util.h",
-        "src/core/lib/rdma/rdma_poller.h",
         "src/core/lib/rdma/rdma_conn.h",
         "src/core/lib/rdma/rdma_sender_receiver.h",
         "src/core/lib/rdma/rdma_utils.h",
