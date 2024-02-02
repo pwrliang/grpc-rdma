@@ -129,7 +129,7 @@ bool PairPollable::Connect(const std::vector<char>& bytes) {
 
     if (error_.empty()) {
       debugging_ = true;
-      monitor_thread_ = std::thread(&PairPollable::printStatus, this);
+//      monitor_thread_ = std::thread(&PairPollable::printStatus, this);
       status_ = PairStatus::kConnected;
       return true;
     }
@@ -235,7 +235,7 @@ void PairPollable::Disconnect() {
 
     if (debugging_) {
       debugging_ = false;
-      monitor_thread_.join();
+//      monitor_thread_.join();
     }
     status_ = PairStatus::kDisconnected;
   }

@@ -6,25 +6,47 @@
 namespace grpc_core {
 namespace ibverbs {
 void Poller::AddPollable(grpc_core::ibverbs::PairPollable* pollable) {
-  std::lock_guard<std::mutex> lg(mu_);
-  pairs_.push_back(pollable);
+  GPR_ASSERT(tail_ < GRPC_IBVERBS_POLLER_CAPACITY);
+  bool inserted;
+  do {
+    uint32_t tail = tail_;
+    int empty_slot = 0;
+
+    for (; empty_slot < tail; empty_slot++) {
+      if (pairs_[empty_slot] == 0) {
+        break;
+      }
+    }
+
+    if (empty_slot == tail) {
+      pairs_[tail_++] = reinterpret_cast<uint64_t>(pollable);
+      inserted = true;
+    } else {
+      uint64_t exp = 0;
+      inserted = pairs_[empty_slot].compare_exchange_weak(
+          exp, reinterpret_cast<uint64_t>(pollable));
+    }
+  } while (!inserted);
 }
 
 void Poller::RemovePollable(grpc_core::ibverbs::PairPollable* pollable) {
-  std::lock_guard<std::mutex> lg(mu_);
-
-  pairs_.erase(std::remove(pairs_.begin(), pairs_.end(), pollable),
-               pairs_.end());
+  uint32_t tail = tail_;
+  for (int i = 0; i < tail; i++) {
+    if (pairs_[i] == reinterpret_cast<uint64_t>(pollable)) {
+      pairs_[i] = 0;
+      break;
+    }
+  }
 }
 
 void Poller::poll() {
-  std::vector<grpc_wakeup_fd*> fds;
-
   while (running_) {
-    {
-      std::lock_guard<std::mutex> lg(mu_);
+    uint32_t tail = tail_;
 
-      for (auto* pair : pairs_) {
+    for (uint32_t i = 0; i < tail; i++) {
+      auto* pair = reinterpret_cast<PairPollable*>(pairs_[i].load());
+
+      if (pair != nullptr) {
         auto status = pair->get_status();
         bool trigger;
 
@@ -44,23 +66,13 @@ void Poller::poll() {
         }
 
         if (trigger) {
-          fds.push_back(pair->get_wakeup_fd());
+          auto err = grpc_wakeup_fd_wakeup(pair->get_wakeup_fd());
+
+          if (err != GRPC_ERROR_NONE) {
+            gpr_log(GPR_ERROR, "wakeup fd error, Pair %p", pair);
+          }
         }
       }
-    }
-
-    for (auto* fd : fds) {
-      auto err = grpc_wakeup_fd_wakeup(fd);
-
-      if (err != GRPC_ERROR_NONE) {
-        gpr_log(GPR_ERROR, "wakeup fd error");
-      }
-    }
-
-    if (fds.empty()) {
-      std::this_thread::yield();
-    } else {
-      fds.clear();
     }
   }
 }

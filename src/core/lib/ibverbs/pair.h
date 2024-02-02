@@ -212,16 +212,17 @@ class PairPollable {
     while (debugging_) {
       char msg[1024];
       auto remote_head = status->remote_head;
-      auto exit = status->peer_exit;
       auto readable_size = GetReadableSize();
 
       sprintf(msg,
-              "Read %lu Write %lu Readable Size %lu Head %lu Remote Head %lu "
-              "Remote Tail %lu PendingWrite Data %d Status %d Exit %d",
-              total_read_size_.load(), total_write_size_.load(), readable_size,
-              ring_buf_.get_head(), remote_head, remote_tail_,
+              "PID %d Read %lu Write %lu Readable Size %lu Head %lu Remote "
+              "Head %lu "
+              "Remote Tail %lu PendingWrite Data %d PendingWrite Status %d "
+              "Status %d",
+              getpid(), total_read_size_.load(), total_write_size_.load(),
+              readable_size, ring_buf_.get_head(), remote_head, remote_tail_,
               pending_write_num_data_.load(), pending_write_num_status_.load(),
-              exit);
+              get_status());
 
       if (strcmp(last_msg, msg) != 0) {
         gpr_log(GPR_INFO, "Pair %p %s", this, msg);
