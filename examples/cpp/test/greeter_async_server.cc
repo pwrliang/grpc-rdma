@@ -30,8 +30,7 @@
 #else
 #include "helloworld.grpc.pb.h"
 #endif
-#define N_SERVING_THREADS (4)
-#define N_CQS (8)
+#define N_SERVING_THREADS (8)
 
 using grpc::Server;
 using grpc::ServerAsyncResponseWriter;
@@ -64,15 +63,13 @@ class ServerImpl final {
     // Get hold of the completion queue used for the asynchronous communication
     // with the gRPC runtime.
 
-    for (int i = 0; i < N_CQS; i++) {
+    for (int i = 0; i < N_SERVING_THREADS; i++) {
       cqs_.emplace_back(builder.AddCompletionQueue());
     }
     // Finally assemble the server.
     server_ = builder.BuildAndStart();
     std::cout << "Server listening on " << server_address
-              << " Serving Threads: " << N_SERVING_THREADS << " CQs: " << N_CQS
-              << std::endl;
-
+              << " Serving Threads: " << N_SERVING_THREADS << std::endl;
     // Proceed to the server's main loop.
     HandleRpcs();
     for (auto& th : ths_) {
@@ -158,7 +155,7 @@ class ServerImpl final {
             pthread_setname_np(pthread_self(),
                                ("work_th" + std::to_string(idx)).c_str());
 
-            auto& cq = cqs_[idx % cqs_.size()];
+            auto& cq = cqs_[idx];
             // Spawn a new CallData instance to serve new clients.
             new CallData(&service_, cq.get());
             void* tag;  // uniquely identifies a request.
@@ -179,7 +176,6 @@ class ServerImpl final {
   }
 
   std::vector<std::thread> ths_;
-
   std::vector<std::unique_ptr<ServerCompletionQueue>> cqs_;
   Greeter::AsyncService service_;
   std::unique_ptr<Server> server_;
