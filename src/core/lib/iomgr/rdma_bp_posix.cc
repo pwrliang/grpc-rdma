@@ -704,6 +704,7 @@ grpc_endpoint* grpc_rdma_bp_create(grpc_fd* em_fd,
 
   if (!pair->Connect(peer_addr_bytes)) {
     gpr_log(GPR_ERROR, "Connection failed");
+    pair->Disconnect();  // Cleanup
     grpc_core::ibverbs::PairPool::Get().Putback(pair);
     delete rdma;
     return nullptr;

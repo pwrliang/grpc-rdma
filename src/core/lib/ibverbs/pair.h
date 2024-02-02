@@ -234,7 +234,7 @@ class PairPollable {
 };
 
 class PairPool {
-  static constexpr int kInitPoolSize = 100;
+  static constexpr int kInitPoolSize = 128;
 
   PairPool() {
     struct grpc_core::ibverbs::attr attr;
