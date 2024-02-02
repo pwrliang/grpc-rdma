@@ -268,16 +268,19 @@ static void on_read(void* arg, grpc_error_handle err) {
     acceptor->port_index = sp->port_index;
     acceptor->fd_index = sp->fd_index;
     acceptor->external_connection = false;
-
-    sp->server->on_accept_cb(
-        sp->server->on_accept_cb_arg,
-        grpc_endpoint_create(fdobj, sp->server->channel_args, addr_str.c_str(),
-                             true),
-        read_notifier_pollset, acceptor);
+    grpc_endpoint* endpoint = grpc_endpoint_create(
+        fdobj, sp->server->channel_args, addr_str.c_str(), true);
+    if (endpoint == nullptr) {
+      close(fd);
+      err = GRPC_ERROR_CREATE_FROM_STATIC_STRING("Create endpoint failed");
+      goto error;
+    }
+    sp->server->on_accept_cb(sp->server->on_accept_cb_arg, endpoint,
+                             read_notifier_pollset, acceptor);
     grpc_pollset_add_fd(read_notifier_pollset, fdobj);
   }
 
-  GPR_UNREACHABLE_CODE(return );
+  GPR_UNREACHABLE_CODE(return);
 
 error:
   gpr_mu_lock(&sp->server->mu);

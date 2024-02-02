@@ -579,9 +579,8 @@ static bool rdma_can_track_err(grpc_endpoint* ep) {
   return addr.sa_family == AF_INET || addr.sa_family == AF_INET6;
 }
 
-int exchange_data(int fd, const char* local, char* remote, const size_t sz) {
-  size_t remain = sz;
-  ssize_t done;
+int exchange_data(int fd, const char* buf_in, char* buf_out, const size_t sz) {
+  size_t bytes_send = 0, bytes_recv = 0;
   if (fd < 3) {
     gpr_log(GPR_ERROR,
             "RDMAConn::sync_data, failed to sync data with remote, no opened "
@@ -590,32 +589,44 @@ int exchange_data(int fd, const char* local, char* remote, const size_t sz) {
     return -1;
   }
 
-  while (remain) {
-    done = ::write(fd, local + (sz - remain), remain);
-    if (done < 0) {
-      if (errno == EINTR || errno == EAGAIN) {
-      } else {
-        gpr_log(GPR_ERROR, "exchange_data, write errno %d: %s", errno,
-                strerror(errno));
-        return -1;
-      }
-    } else {
-      remain -= done;
-    }
-  }
+  struct pollfd fds[1];
 
-  remain = sz;
-  while (remain) {
-    done = ::read(fd, remote + (sz - remain), remain);
-    if (done < 0) {
-      if (errno == EINTR || errno == EAGAIN) {
-      } else {
-        gpr_log(GPR_ERROR, "exchange_data, read errno %d: %s", errno,
-                strerror(errno));
-        return -1;
+  fds[0].fd = fd;
+  fds[0].events = POLLIN | POLLOUT;
+
+  while (bytes_recv < sz) {
+    auto r = poll(fds, 1, -1);
+
+    if (r > 0) {
+      if (bytes_send < sz && (fds[0].revents & POLLOUT)) {
+        ssize_t n = ::write(fd, buf_in + bytes_send, sz - bytes_send);
+
+        if (n < 0) {
+          if (errno == EINTR || errno == EAGAIN) {
+          } else {
+            gpr_log(GPR_ERROR, "exchange_data, write errno %d: %s", errno,
+                    strerror(errno));
+            return -1;
+          }
+        } else {
+          bytes_send += n;
+        }
       }
-    } else {
-      remain -= done;
+
+      if (fds[0].revents & POLLIN) {
+        ssize_t n = ::read(fd, buf_out + bytes_recv, sz - bytes_recv);
+
+        if (n < 0) {
+          if (errno == EINTR || errno == EAGAIN) {
+          } else {
+            gpr_log(GPR_ERROR, "exchange_data, read errno %d: %s", errno,
+                    strerror(errno));
+            return -1;
+          }
+        } else {
+          bytes_recv += n;
+        }
+      }
     }
   }
 
@@ -689,7 +700,14 @@ grpc_endpoint* grpc_rdma_bp_create(grpc_fd* em_fd,
 
   GPR_ASSERT(err != -1);
 
-  pair->Connect(peer_addr_bytes);
+  gpr_log(GPR_INFO, "Exchanging data finished, fd %d", rdma->fd);
+
+  if (!pair->Connect(peer_addr_bytes)) {
+    gpr_log(GPR_ERROR, "Connection failed");
+    grpc_core::ibverbs::PairPool::Get().Putback(pair);
+    delete rdma;
+    return nullptr;
+  }
 
   rdma->pair = pair;
   rdma->enable_poller = enable_poller;
@@ -697,6 +715,7 @@ grpc_endpoint* grpc_rdma_bp_create(grpc_fd* em_fd,
 
   if (enable_poller) {
     grpc_core::ibverbs::Poller::Get().AddPollable(pair);
+    gpr_log(GPR_INFO, "Add pair %p", pair);
   }
 
   return &rdma->base;
