@@ -113,7 +113,7 @@ class PairPollable {
    */
   void Init();
 
-  void Connect(const std::vector<char>& bytes);
+  bool Connect(const std::vector<char>& bytes);
 
   uint64_t Send(void* buf, uint64_t size);
 
@@ -234,7 +234,7 @@ class PairPollable {
 };
 
 class PairPool {
-  static constexpr int kInitPoolSize = 2;
+  static constexpr int kInitPoolSize = 100;
 
   PairPool() {
     struct grpc_core::ibverbs::attr attr;

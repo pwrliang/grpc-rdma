@@ -83,6 +83,8 @@ void PairPollable::Init() {
     IBVERBS_CHECK(error_, ibv_modify_qp(qp_, &attr,
                                         IBV_QP_STATE | IBV_QP_PKEY_INDEX |
                                             IBV_QP_PORT | IBV_QP_ACCESS_FLAGS));
+    // Clear queue, which can be nonempty if the last time connection fails
+    mr_posted_recv_ = std::queue<std::unique_ptr<MemoryRegion>>();
 
     initSendBuffer(kDataBuffer, kSendBufSize);
     initRecvBuffer(kDataBuffer, kRecvBufSize);
@@ -113,7 +115,7 @@ void PairPollable::Init() {
   }
 }
 
-void PairPollable::Connect(const std::vector<char>& bytes) {
+bool PairPollable::Connect(const std::vector<char>& bytes) {
   if (status_ == PairStatus::kInitialized) {
     gpr_log(GPR_INFO, "Connecting Pair %p", this);
     peer_ = Address(bytes);
@@ -121,17 +123,22 @@ void PairPollable::Connect(const std::vector<char>& bytes) {
     GPR_ASSERT(peer_.addr_.tag == self_.addr_.tag);
 
     initQPs();
+
     syncMemoryRegion(kDataBuffer);
     syncMemoryRegion(kStatusBuffer);
-    assert(mr_posted_recv_.empty());
 
-    debugging_ = true;
-    //    monitor_thread_ = std::thread(&PairPollable::printStatus, this);
-    status_ = PairStatus::kConnected;
+    if (error_.empty()) {
+      debugging_ = true;
+      monitor_thread_ = std::thread(&PairPollable::printStatus, this);
+      status_ = PairStatus::kConnected;
+      return true;
+    }
   }
+  return false;
 }
 
 uint64_t PairPollable::Send(void* buf, uint64_t payload_size) {
+  GPR_ASSERT(status_ == PairStatus::kConnected);
   ContentAssertion cassert(write_content_);
   auto* send_buf = send_buffers_[kDataBuffer].get();
   const ibv_mr& peer = mr_peer_[kDataBuffer]->mr();
@@ -173,6 +180,7 @@ uint64_t PairPollable::Send(void* buf, uint64_t payload_size) {
 }
 
 uint64_t PairPollable::Recv(void* buf, uint64_t capacity) {
+  GPR_ASSERT(status_ == PairStatus::kConnected);
   ContentAssertion cassert(read_content_);
   uint64_t internal_read_bytes;
   auto read_size = ring_buf_.Read(buf, capacity, &internal_read_bytes);
@@ -193,8 +201,7 @@ uint64_t PairPollable::Recv(void* buf, uint64_t capacity) {
 }
 
 uint64_t PairPollable::GetReadableSize() const {
-  return status_ == PairStatus::kUninitialized ? 0
-                                               : ring_buf_.GetReadableSize();
+  return status_ == PairStatus::kConnected ? ring_buf_.GetReadableSize() : 0;
 }
 
 uint64_t PairPollable::GetWritableSize() const {
@@ -228,7 +235,7 @@ void PairPollable::Disconnect() {
 
     if (debugging_) {
       debugging_ = false;
-      //      monitor_thread_.join();
+      monitor_thread_.join();
     }
     status_ = PairStatus::kDisconnected;
   }
@@ -269,11 +276,11 @@ int PairPollable::pollCompletions() {
   int n_completions = 0;
 
   // Invoke handler for every work completion.
-  for (;;) {
+  while (error_.empty()) {
     auto nwc = ibv_poll_cq(cq_, wc.size(), wc.data());
     GPR_ASSERT(nwc >= 0);
     // Handle work completions
-    for (int i = 0; i < nwc && error_.empty(); i++) {
+    for (int i = 0; i < nwc; i++) {
       handleCompletion(&wc[i]);
       n_completions++;
     }
@@ -365,14 +372,9 @@ void PairPollable::syncMemoryRegion(int buffer_id) {
   // Send memory region to peer
   sendMemoryRegion(buffer_id, mr.get());
   mr_pending_send_[buffer_id] = std::move(mr);  // keep reference
-  mr_peer_[buffer_id] = nullptr;
-
-  while (mr_pending_send_[buffer_id] != nullptr) {
-    pollCompletions();
-  }
 
   // wait for memory region from peer
-  while (mr_peer_[buffer_id] == nullptr) {
+  while (error_.empty() && mr_peer_[buffer_id] == nullptr) {
     pollCompletions();
   }
 }
@@ -399,6 +401,7 @@ void PairPollable::initRecvBuffer(int buffer_id, uint64_t size) {
   auto mr = std::make_unique<MemoryRegion>(dev_->pd_);
   postReceiveMemoryRegion(mr.get());
   mr_posted_recv_.emplace(std::move(mr));
+  mr_peer_[buffer_id] = nullptr;  // this will be filled when the mr received
 }
 
 void PairPollable::sendMemoryRegion(int buffer_id, MemoryRegion* mr) {
