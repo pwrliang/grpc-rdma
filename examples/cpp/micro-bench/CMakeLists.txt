@@ -24,7 +24,7 @@ project(HelloWorld C CXX)
 include(../cmake/common.cmake)
 include(FindHdrHistogram.cmake)
 if (NOT HdrHistogram_FOUND)
-    message(ERROR_FATAL "HdrHistogram not found, need to build and install from https://github.com/HdrHistogram/HdrHistogram_c")
+    message(FATAL_ERROR "HdrHistogram not found, need to build and install from https://github.com/HdrHistogram/HdrHistogram_c")
 endif ()
 
 message("protoc: ${_PROTOBUF_PROTOC}")
@@ -43,7 +43,7 @@ add_custom_command(
         COMMAND ${_PROTOBUF_PROTOC}
         ARGS --grpc_out "${CMAKE_CURRENT_BINARY_DIR}"
         --cpp_out "${CMAKE_CURRENT_BINARY_DIR}"
-        -I "${hw_proto_path}" -I "/home/geng.161/.local/include"
+        -I "${hw_proto_path}" -I "/home/geng.161/.local/include" -I "/users/PAS0350/geng161/.local/include"
         --plugin=protoc-gen-grpc="${_GRPC_CPP_PLUGIN_EXECUTABLE}"
         "${hw_proto}"
         DEPENDS "${hw_proto}")
@@ -77,5 +77,7 @@ foreach (_target
             ${_GRPC_GRPCPP}
             ${_PROTOBUF_LIBPROTOBUF}
             ${MPI_CXX_LIBRARIES}
-            ${HdrHistogram_LIBRARIES})
+            ${HdrHistogram_LIBRARIES}
+            numa
+    )
 endforeach ()

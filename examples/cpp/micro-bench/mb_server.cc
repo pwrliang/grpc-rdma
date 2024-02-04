@@ -16,6 +16,7 @@
  *
  */
 
+#include <numa.h>
 #include <iostream>
 #include <memory>
 #include <string>
@@ -28,6 +29,8 @@
 
 #include <grpc/support/log.h>
 #include <grpcpp/grpcpp.h>
+#include <numacompat1.h>
+#include <csignal>
 
 #ifdef BAZEL_BUILD
 #include "examples/protos/helloworld.grpc.pb.h"
@@ -36,9 +39,10 @@
 #endif
 
 ABSL_FLAG(uint16_t, port, 50051, "Server port for the service");
-ABSL_FLAG(uint32_t, cqs, 1, "Number of completion queues");
 ABSL_FLAG(uint32_t, threads, 1, "Number of threads");
+ABSL_FLAG(uint32_t, cqs, 1, "Number of CQs");
 ABSL_FLAG(uint32_t, resp, 1, "Reply size in bytes");
+ABSL_FLAG(bool, numa, false, "Enable NUMA");
 
 using grpc::Server;
 using grpc::ServerAsyncResponseWriter;
@@ -62,7 +66,7 @@ class ServerImpl final {
   }
 
   // There is no shutdown handling in this code.
-  void Run(uint16_t port, uint32_t n_cqs, uint32_t n_threads) {
+  void Run(uint16_t port, uint32_t n_cqs, uint32_t n_threads, bool numa) {
     std::string server_address = absl::StrFormat("0.0.0.0:%d", port);
 
     ServerBuilder builder;
@@ -74,22 +78,54 @@ class ServerImpl final {
     // Get hold of the completion queue used for the asynchronous communication
     // with the gRPC runtime.
 
+    if (n_cqs > n_threads) {
+      std::cerr << "Thread number is less than CQs" << std::endl;
+      exit(1);
+    }
+
     for (uint32_t i = 0; i < n_cqs; i++) {
       cqs_.emplace_back(builder.AddCompletionQueue());
     }
 
+    finished_rpcs_.resize(n_threads, 0);
+
     // Finally assemble the server.
     server_ = builder.BuildAndStart();
-    std::cout << "Server listening on " << server_address << " cqs: " << n_cqs
-              << " threads: " << n_threads << std::endl;
+    std::cout << "Server listening on " << server_address << " CQs: " << n_cqs
+              << " Threads: " << n_threads << " NUMA: " << numa << std::endl;
 
     running_ = true;
+    curr_cq_ = 0;
     // Proceed to the server's main loop.
-    for (uint32_t i = 0; i < n_threads; i++) {
-      ths_.push_back(std::thread([this, i]() { HandleRpcs(i); }));
+    for (uint32_t tid = 0; tid < n_threads; tid++) {
+      ths_.push_back(std::thread([this, tid, numa]() {
+        if (numa) {
+          if (numa_available() >= 0) {
+            auto nodes = numa_max_node();
+            nodemask_t mask;
+
+            nodemask_zero(&mask);
+            nodemask_set(&mask, tid % nodes);
+            numa_bind(&mask);
+          } else {
+            printf("NUMA is not available\n");
+            exit(1);
+          }
+        }
+
+        pthread_setname_np(pthread_self(),
+                           ("work_th" + std::to_string(tid)).c_str());
+        HandleRpcs(tid);
+      }));
     }
     for (auto& th : ths_) {
       th.join();
+    }
+  }
+
+  void PrintStatistics() {
+    for (int i = 0; i < finished_rpcs_.size(); i++) {
+      printf("Thread %d, RPCs %u\n", i, finished_rpcs_[i]);
     }
   }
 
@@ -97,6 +133,8 @@ class ServerImpl final {
   // Class encompasing the state and logic needed to serve a request.
   class CallData {
    public:
+    // Let's implement a tiny state machine with the following states.
+    enum CallStatus { CREATE, PROCESS, FINISH };
     // Take in the "service" instance (in this case representing an asynchronous
     // server) and the completion queue "cq" used for asynchronous communication
     // with the gRPC runtime.
@@ -119,11 +157,6 @@ class ServerImpl final {
         service_->RequestSayHello(&ctx_, &request_, &responder_, cq_, cq_,
                                   this);
       } else if (status_ == PROCESS) {
-        // Spawn a new CallData instance to serve new clients while we process
-        // the one for this CallData. The instance will deallocate itself as
-        // part of its FINISH state.
-        new CallData(service_, cq_);
-
         // The actual processing.
         reply_.mutable_message()->resize(absl::GetFlag(FLAGS_resp));
 
@@ -138,6 +171,8 @@ class ServerImpl final {
         delete this;
       }
     }
+
+    CallStatus get_status() const { return status_; }
 
    private:
     // The means of communication with the gRPC runtime for an asynchronous
@@ -158,8 +193,6 @@ class ServerImpl final {
     // The means to get back to the client.
     ServerAsyncResponseWriter<HelloReply> responder_;
 
-    // Let's implement a tiny state machine with the following states.
-    enum CallStatus { CREATE, PROCESS, FINISH };
     CallStatus status_;  // The current serving state.
   };
 
@@ -179,22 +212,79 @@ class ServerImpl final {
       // tells us whether there is any kind of event or cq_ is shutting down.
       GPR_ASSERT(cq->Next(&tag, &ok));
       GPR_ASSERT(ok);
-      static_cast<CallData*>(tag)->Proceed();
+      auto* call = static_cast<CallData*>(tag);
+
+      if (call->get_status() == CallData::PROCESS) {
+        finished_rpcs_[tid]++;
+        // Spawn a new CallData instance to serve new clients while we process
+        // the one for this CallData. The instance will deallocate itself as
+        // part of its FINISH state.
+        new CallData(&service_, cq);
+      }
+      call->Proceed();
+    }
+  }
+
+  void HandleRpcsAsync(int tid) {
+    gpr_timespec deadline;
+    deadline.clock_type = GPR_TIMESPAN;
+    deadline.tv_sec = 0;
+    deadline.tv_nsec = 0;
+    auto* cq = cqs_[tid % cqs_.size()].get();
+
+    new CallData(&service_, cq);
+
+    while (running_) {
+      cq = cqs_[curr_cq_++ % cqs_.size()].get();
+      void* tag;  // uniquely identifies a request.
+      bool ok;
+      auto ev = cq->AsyncNext(&tag, &ok, deadline);
+
+      if (ev == grpc::CompletionQueue::NextStatus::GOT_EVENT) {
+        auto* call = static_cast<CallData*>(tag);
+        GPR_ASSERT(ok);
+        if (call->get_status() == CallData::PROCESS) {
+          // Spawn a new CallData instance to serve new clients while we process
+          // the one for this CallData. The instance will deallocate itself as
+          // part of its FINISH state.
+          cq = cqs_[curr_cq_++ % cqs_.size()].get();
+          new CallData(&service_, cq);
+        }
+        call->Proceed();
+      }
     }
   }
 
   std::vector<std::unique_ptr<ServerCompletionQueue>> cqs_;
+  std::vector<uint32_t> finished_rpcs_;
+  std::atomic_uint32_t curr_cq_;
   std::vector<std::thread> ths_;
   Greeter::AsyncService service_;
   std::unique_ptr<Server> server_;
   std::atomic_bool running_;
 };
 
+ServerImpl* p_server;
+
+void sig_handler(int signum) {
+  p_server->PrintStatistics();
+
+  if (signum == SIGINT) {
+    exit(0);
+  }
+}
+
 int main(int argc, char** argv) {
   absl::ParseCommandLine(argc, argv);
   ServerImpl server;
+
+  p_server = &server;
+
+  signal(SIGUSR1, sig_handler);
+  signal(SIGINT, sig_handler);
+
   server.Run(absl::GetFlag(FLAGS_port), absl::GetFlag(FLAGS_cqs),
-             absl::GetFlag(FLAGS_threads));
+             absl::GetFlag(FLAGS_threads), absl::GetFlag(FLAGS_numa));
 
   return 0;
 }

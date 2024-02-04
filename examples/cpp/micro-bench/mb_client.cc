@@ -105,7 +105,6 @@ class GreeterClient {
     void* got_tag;
     bool ok = false;
 
-    // Block until the next result is available in the completion queue "cq".
     if (cq_.Next(&got_tag, &ok)) {
       // The tag in this example is the memory location of the call object
       AsyncClientCall* call = static_cast<AsyncClientCall*>(got_tag);
@@ -117,14 +116,13 @@ class GreeterClient {
         hdr_record_value(histogram_, rtt_us);
         received_rpcs_++;
       }
-      // Verify that the request was completed successfully. Note that "ok"
-      // corresponds solely to the request for updates introduced by Finish().
       GPR_ASSERT(ok);
       GPR_ASSERT(call->status.ok());
 
       // Once we're complete, deallocate the call object.
       delete call;
     }
+
     return ok;
   }
 
@@ -135,9 +133,11 @@ class GreeterClient {
             .count() /
         1000.0 / 1000.0 / 1000.0;
     if (past_sec >= interval_sec) {
-      printf("Rank %d, Rate %.2f RPCs/s, Bandwidth %.2f Gb/s\n", rank,
-             (received_rpcs_ - last_rpcs_) / past_sec,
-             8e-9 * (send_bytes_ - last_send_bytes_) / past_sec);
+      char host[256];
+      gethostname(host, 255);
+      printf("Host %s Rank %d, Rate %.2f RPCs/s, Bandwidth %.2f Mb/s\n", host,
+             rank, (received_rpcs_ - last_rpcs_) / past_sec,
+             8e-6 * (send_bytes_ - last_send_bytes_) / past_sec);
 
       last_ts_ = now;
       last_send_bytes_ = send_bytes_;
@@ -224,8 +224,7 @@ int main(int argc, char** argv) {
   }
 
   while (n_recv < rpcs) {
-    if (n_recv < rpcs) {
-      greeter.AsyncCompleteRpc();
+    if (n_recv < rpcs && greeter.AsyncCompleteRpc()) {
       n_recv++;
     }
 
@@ -260,9 +259,9 @@ int main(int argc, char** argv) {
     auto lat_us_max = hdr_max(greeter.histogram_) / 1000.0;
 
     printf(
-        "Rank %d, Duration %ld ms, Total RPCs %u, Rate: %.3f RPCs/s, "
+        "Result: Duration %ld ms, Total RPCs %u, Rate: %.3f RPCs/s, "
         "Median, %.2f us, P95 %.2f us, P99 %.2f us, Max %.2f us\n",
-        rank, time_ms, total_rpcs, total_rpcs / (time_ms / 1000.0f), lat_us_50,
+        time_ms, total_rpcs, total_rpcs / (time_ms / 1000.0f), lat_us_50,
         lat_us_95, lat_us_99, lat_us_max);
   }
 
