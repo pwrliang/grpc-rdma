@@ -44,7 +44,7 @@ function start_async_client2() {
 
 function cleanup() {
   if ps aux | pgrep greeter; then
-    ps aux | pgrep greeter | xargs kill -9
+    ps aux | pgrep greeter | xargs kill -9 2>/dev/null || true
   fi
 }
 
