@@ -84,7 +84,7 @@ done
 
 function kill_server() {
 #  ssh "$SERVER" 'ps aux | pgrep mb_server | xargs kill -USR1 2>/dev/null'
-  ssh "$SERVER" 'ps aux | pgrep mb_server | xargs kill 2>/dev/null && while [[ $(ps aux | pgrep mb_server) ]]; do sleep 1; done || true'
+  ssh "$SERVER" 'ps aux | pgrep mb_server | xargs kill -9 2>/dev/null && while [[ $(ps aux | pgrep mb_server) ]]; do sleep 1; done || true'
 }
 
 function start_server() {
