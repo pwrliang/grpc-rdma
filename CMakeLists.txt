@@ -1493,6 +1493,7 @@ if(IBVERBS_FOUND)
   add_library(grpc_ibverbs
     src/core/lib/ibverbs/address.cc
     src/core/lib/ibverbs/buffer.cc
+    src/core/lib/ibverbs/config.cc
     src/core/lib/ibverbs/device.cc
     src/core/lib/ibverbs/memory_region.cc
     src/core/lib/ibverbs/pair.cc

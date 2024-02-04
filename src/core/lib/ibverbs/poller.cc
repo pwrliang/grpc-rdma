@@ -1,6 +1,6 @@
 #include "src/core/lib/ibverbs/poller.h"
-
 #include <unistd.h>
+#include "absl/time/clock.h"
 
 #include <algorithm>
 namespace grpc_core {
@@ -27,6 +27,11 @@ void Poller::AddPollable(grpc_core::ibverbs::PairPollable* pollable) {
           exp, reinterpret_cast<uint64_t>(pollable));
     }
   } while (!inserted);
+  n_pairs_++;
+  {
+    std::unique_lock<std::mutex> lk(mu_);
+    cv_.notify_one();
+  }
 }
 
 void Poller::RemovePollable(grpc_core::ibverbs::PairPollable* pollable) {
@@ -37,40 +42,58 @@ void Poller::RemovePollable(grpc_core::ibverbs::PairPollable* pollable) {
       break;
     }
   }
+  n_pairs_--;
 }
 
-void Poller::poll() {
+void Poller::poll(int poller_id) {
+  absl::Time last_poll_time = absl::Now();
+  auto poller_sleep_timeout = Config::Get().get_poller_sleep_timeout_ms();
+
+  gpr_log(GPR_INFO, "Poller started");
+
   while (running_) {
+    if (n_pairs_ == 0) {
+      if ((absl::Now() - last_poll_time) >
+          absl::Milliseconds(poller_sleep_timeout)) {
+        gpr_log(GPR_INFO, "Poller sleep");
+        std::unique_lock<std::mutex> lk(mu_);
+        cv_.wait(lk, [this] { return n_pairs_ > 0; });
+        gpr_log(GPR_INFO, "Poller wakeup");
+      }
+      continue;
+    } else {
+      last_poll_time = absl::Now();
+    }
+
     uint32_t tail = tail_;
+    uint32_t curr = curr_++;
+    auto id = curr % tail;
+    auto* pair = reinterpret_cast<PairPollable*>(pairs_[id].load());
 
-    for (uint32_t i = 0; i < tail; i++) {
-      auto* pair = reinterpret_cast<PairPollable*>(pairs_[i].load());
+    if (pair != nullptr) {
+      auto status = pair->get_status();
+      bool trigger;
 
-      if (pair != nullptr) {
-        auto status = pair->get_status();
-        bool trigger;
-
-        switch (status) {
-          case PairStatus::kConnected: {
-            // N.B. Do not use GetWritableSize to trigger event, it slows down
-            trigger = pair->GetReadableSize() || pair->GetRemainWriteSize();
-            break;
-          }
-          case PairStatus::kHalfClosed:
-          case PairStatus::kError: {
-            trigger = true;
-            break;
-          }
-          default:
-            trigger = false;
+      switch (status) {
+        case PairStatus::kConnected: {
+          // N.B. Do not use GetWritableSize to trigger event, it slows down
+          trigger = pair->GetReadableSize() || pair->GetRemainWriteSize();
+          break;
         }
+        case PairStatus::kHalfClosed:
+        case PairStatus::kError: {
+          trigger = true;
+          break;
+        }
+        default:
+          trigger = false;
+      }
 
-        if (trigger) {
-          auto err = grpc_wakeup_fd_wakeup(pair->get_wakeup_fd());
+      if (trigger) {
+        auto err = grpc_wakeup_fd_wakeup(pair->get_wakeup_fd());
 
-          if (err != GRPC_ERROR_NONE) {
-            gpr_log(GPR_ERROR, "wakeup fd error, Pair %p", pair);
-          }
+        if (err != GRPC_ERROR_NONE) {
+          gpr_log(GPR_ERROR, "wakeup fd error, Pair %p", pair);
         }
       }
     }

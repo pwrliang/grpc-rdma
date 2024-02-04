@@ -56,9 +56,9 @@
 #include "src/core/lib/iomgr/iomgr_internal.h"
 #include "src/core/lib/iomgr/is_epollexclusive_available.h"
 #include "src/core/lib/iomgr/lockfree_event.h"
+#include "src/core/lib/iomgr/sys_epoll_wrapper.h"
 #include "src/core/lib/iomgr/wakeup_fd_posix.h"
 #include "src/core/lib/profiling/timers.h"
-#include "src/core/lib/rdma/rdma_sender_receiver.h"
 
 // debug aid: create workers on the heap (allows asan to spot
 // use-after-destruction)
@@ -112,7 +112,6 @@ struct pollable {
   // pollable is created by malloc inside pollable_create
   std::vector<grpc_fd*>* rdma_fds;
   gpr_mu rdma_mu;
-  bool bp_yield;
 };
 
 static const char* pollable_type_string(pollable_type t) {
@@ -467,10 +466,6 @@ static grpc_fd* fd_create(int fd, const char* name, bool track_err) {
   return new (new_fd) grpc_fd(fd, name);
 }
 
-static void fd_set_rdmasr(grpc_fd* fd, RDMASenderReceiver* rdmasr) {
-  GPR_ASSERT(false);
-}
-
 // called when create an endpoint
 static void fd_set_arg(grpc_fd* fd, void* arg) {
   fd->pair = (grpc_core::ibverbs::PairPollable*)arg;
@@ -656,10 +651,6 @@ static grpc_error_handle pollable_create(pollable_type type, pollable** p) {
   (*p)->event_count = 0;
   (*p)->rdma_fds = new std::vector<grpc_fd*>();
   gpr_mu_init(&(*p)->rdma_mu);
-
-  auto& config = RDMAConfig::GetInstance();
-
-  (*p)->bp_yield = config.is_polling_yield();
 
   return GRPC_ERROR_NONE;
 }
@@ -1052,7 +1043,8 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
         last_epoll_time = absl::Now();
       }
 
-      if (r == 0) {
+      if (r <= 0) {
+        r = 0;  // r < 0 if epoll_wait fails
         gpr_mu_lock(&p->rdma_mu);
         auto& fds = *p->rdma_fds;
         for (size_t i = 0; i < fds.size() && r < MAX_EPOLL_EVENTS; i++) {
@@ -1080,7 +1072,6 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
             }
             case grpc_core::ibverbs::PairStatus::kHalfClosed:
             case grpc_core::ibverbs::PairStatus::kError: {
-              gpr_log(GPR_INFO, "Half-close or error");
               // Generate an event, so do_read will handle connection close
               p->events[r].events = EPOLLIN;
               p->events[r].data.ptr = reinterpret_cast<void*>(fd);
@@ -1090,10 +1081,6 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
           }
         }
         gpr_mu_unlock(&p->rdma_mu);
-      }
-
-      if (r == 0 && p->bp_yield) {
-        std::this_thread::yield();
       }
     } while ((r < 0 && errno == EINTR) ||
              (r == 0 && (timeout == -1 || (absl::Now() - begin_poll_time) <
@@ -1783,7 +1770,7 @@ static const grpc_event_engine_vtable vtable = {
     shutdown_background_closure,
     shutdown_engine,
     add_closure_to_background_poller,
-    fd_set_rdmasr,
+    nullptr,
     fd_set_arg};
 
 const grpc_event_engine_vtable* grpc_init_epollex_rdma_bp_linux(

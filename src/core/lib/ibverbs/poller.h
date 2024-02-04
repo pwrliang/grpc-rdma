@@ -1,11 +1,14 @@
 
 #ifndef GRPC_SRC_CORE_LIB_IBVERBS_POLLER_H
 #define GRPC_SRC_CORE_LIB_IBVERBS_POLLER_H
+#include <src/core/lib/gpr/env.h>
+#include <condition_variable>
 #include <mutex>
 #include <queue>
-#include <unordered_set>
 
+#include "src/core/lib/ibverbs/config.h"
 #include "src/core/lib/ibverbs/pair.h"
+
 #define GRPC_IBVERBS_POLLER_CAPACITY (4096)
 namespace grpc_core {
 namespace ibverbs {
@@ -15,7 +18,12 @@ class Poller {
     running_ = true;
     tail_ = 0;
     std::fill(pairs_.begin(), pairs_.end(), 0);
-    threads_.push_back(std::thread(&Poller::poll, this));
+    int n_pollers = Config::Get().get_poller_thread_num();
+
+    for (int i = 0; i < n_pollers; i++) {
+      threads_.push_back(std::thread(&Poller::poll, this, i));
+    }
+    curr_ = 0;
   }
 
  public:
@@ -26,6 +34,11 @@ class Poller {
 
   void Shutdown() {
     running_ = false;
+    {
+      std::unique_lock<std::mutex> lk(mu_);
+      cv_.notify_all();
+    }
+
     for (auto& th : threads_) {
       th.join();
     }
@@ -40,11 +53,14 @@ class Poller {
   std::vector<std::thread> threads_;
   std::atomic_bool running_;
   std::atomic_uint32_t tail_;
-
-  std::array<std::atomic_uint64_t, GRPC_IBVERBS_POLLER_CAPACITY> pairs_;
+  std::atomic_uint32_t curr_;
+  std::atomic_uint32_t n_pairs_;
+  std::condition_variable cv_;
   std::mutex mu_;
 
-  void poll();
+  std::array<std::atomic_uint64_t, GRPC_IBVERBS_POLLER_CAPACITY> pairs_;
+
+  void poll(int poller_id);
 };
 }  // namespace ibverbs
 }  // namespace grpc_core
