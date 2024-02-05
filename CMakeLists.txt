@@ -1517,10 +1517,12 @@ if(IBVERBS_FOUND)
       ${CMAKE_CURRENT_SOURCE_DIR}
       ${_gRPC_ADDRESS_SORTING_INCLUDE_DIR}
       ${_gRPC_IBVERBS_INCLUDE_DIR}
+      ${_gRPC_HDRHISTOGRAM_INCLUDE_DIR}
   )
   target_link_libraries(grpc_ibverbs
     ${_gRPC_ALLTARGETS_LIBRARIES}
     ${_gRPC_IBVERBS_LIBRARIES}
+    ${_gRPC_HDRHISTOGRAM_LIBRARIES}
     gpr
   )
     

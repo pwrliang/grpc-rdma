@@ -141,8 +141,6 @@ int RDMASenderReceiverEvent::Send(msghdr* msg, ssize_t* sz) {
 
   int n_post_send;
   {
-    GRPCProfiler profiler(GRPC_STATS_TIME_SEND_POST);
-
     if (!zerocopy) {
       n_post_send = conn_data_->PostSendRequest(
           remote_ringbuf_mr_, remote_ringbuf_tail_, sendbuf_mr_, 0, mlen,
