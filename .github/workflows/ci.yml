@@ -34,7 +34,7 @@ jobs:
           
           popd
           
-          rm -rf HdrHistogram && git clone https://github.com/HdrHistogram/HdrHistogram.git
+          rm -rf HdrHistogram && git clone https://github.com/HdrHistogram/HdrHistogram_c.git
           pushd HdrHistogram
           
           rm -rf debug && mkdir debug
