@@ -99,9 +99,7 @@ class RingBufferPollable {
         remain = payload_size_limit - (offset - alignment);
       }
 
-      auto len_roundup = round_up(iov[i].iov_len);
-
-      if (remain < len_roundup) {
+      if (remain < alignment) {  // reserve an alignment as we need to roundup
         break;
       }
 
@@ -111,9 +109,12 @@ class RingBufferPollable {
       encoded_payload_size += len;
     }
 
-    *reinterpret_cast<uint64_t*>(buf) = offset - alignment;
-    *reinterpret_cast<uint64_t*>(buf + round_up(offset)) = footer_tag;
-    return alignment + round_up(offset);
+    if (encoded_payload_size > 0) {
+      *reinterpret_cast<uint64_t*>(buf) = offset - alignment;
+      *reinterpret_cast<uint64_t*>(buf + round_up(offset)) = footer_tag;
+      return alignment + round_up(offset);
+    }
+    return 0;
   }
 
   uint64_t GetWriteRequests(uint64_t size, uint64_t tail,

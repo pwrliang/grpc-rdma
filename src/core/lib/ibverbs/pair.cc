@@ -128,8 +128,10 @@ bool PairPollable::Connect(const std::vector<char>& bytes) {
     syncMemoryRegion(kStatusBuffer);
 
     if (error_.empty()) {
+#ifndef NDEBUG
       debugging_ = true;
-      //      monitor_thread_ = std::thread(&PairPollable::printStatus, this);
+      monitor_thread_ = std::thread(&PairPollable::printStatus, this);
+#endif
       status_ = PairStatus::kConnected;
       return true;
     }
@@ -207,25 +209,27 @@ uint64_t PairPollable::Send(iovec* iov, uint64_t iov_size) {
   auto encoded_buffer_size = RingBufferPollable::EncodeBuffer(
       send_buf->data(), free_size, iov, iov_size, encoded_payload_size);
 
-  std::vector<ring_buffer_write_request> reqs;
+  if (encoded_payload_size > 0) {
+    std::vector<ring_buffer_write_request> reqs;
 
-  assert(encoded_buffer_size <= send_buf->size());
-  remote_tail_ =
-      ring_buf_.GetWriteRequests(encoded_buffer_size, remote_tail_, reqs);
+    assert(encoded_buffer_size <= send_buf->size());
+    remote_tail_ =
+        ring_buf_.GetWriteRequests(encoded_buffer_size, remote_tail_, reqs);
 
-  for (auto& req : reqs) {
-    rdma_write_request w_req;
+    for (auto& req : reqs) {
+      rdma_write_request w_req;
 
-    w_req.id = WR_ID_DATA;
-    w_req.addr = (uint64_t)send_buf->data() + req.src_offset;
-    w_req.lkey = send_buf->get_mr()->lkey;
-    w_req.remote_addr = (uint64_t)peer.addr + req.dst_offset;
-    w_req.rkey = peer.rkey;
-    w_req.size = req.size;
-    postWrite(w_req);
+      w_req.id = WR_ID_DATA;
+      w_req.addr = (uint64_t)send_buf->data() + req.src_offset;
+      w_req.lkey = send_buf->get_mr()->lkey;
+      w_req.remote_addr = (uint64_t)peer.addr + req.dst_offset;
+      w_req.rkey = peer.rkey;
+      w_req.size = req.size;
+      postWrite(w_req);
+    }
+
+    total_write_size_ += size;
   }
-
-  total_write_size_ += size;
   return encoded_payload_size;
 }
 
@@ -285,8 +289,10 @@ void PairPollable::Disconnect() {
     closeQPs();
 
     if (debugging_) {
+#ifndef NDEBUG
       debugging_ = false;
-      //      monitor_thread_.join();
+      monitor_thread_.join();
+#endif
     }
     status_ = PairStatus::kDisconnected;
   }
