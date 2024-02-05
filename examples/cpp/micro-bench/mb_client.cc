@@ -29,6 +29,8 @@
 
 #include <grpc/support/log.h>
 #include <grpcpp/grpcpp.h>
+#include <numa.h>
+#include <numacompat1.h>
 
 #ifdef BAZEL_BUILD
 #include "examples/protos/helloworld.grpc.pb.h"
@@ -43,6 +45,7 @@ ABSL_FLAG(uint32_t, rpcs, 1000000, "Number of evaluated RPCs");
 ABSL_FLAG(uint32_t, concurrent, 1, "Number of concurrent RPCs");
 ABSL_FLAG(uint32_t, duration, 10, "Duration of benchmark in second");
 ABSL_FLAG(uint32_t, report_interval, 1, "Report statistics interval in second");
+ABSL_FLAG(bool, numa, false, "Enable NUMA");
 
 using grpc::Channel;
 using grpc::ClientAsyncResponseReader;
@@ -196,6 +199,7 @@ int main(int argc, char** argv) {
   uint32_t concurrent = absl::GetFlag(FLAGS_concurrent);
   uint32_t duration = absl::GetFlag(FLAGS_duration);
   uint32_t report_interval = absl::GetFlag(FLAGS_report_interval);
+  bool numa = absl::GetFlag(FLAGS_numa);
 
   if (rank == 0) {
     printf(
@@ -204,6 +208,19 @@ int main(int argc, char** argv) {
         req, warmup, rpcs, concurrent, duration, report_interval);
   }
 
+  if (numa) {
+    if (numa_available() >= 0) {
+      auto nodes = numa_max_node();
+      nodemask_t mask;
+
+      nodemask_zero(&mask);
+      nodemask_set(&mask, rank % nodes);
+      numa_bind(&mask);
+    } else {
+      printf("NUMA is not available\n");
+      exit(1);
+    }
+  }
   // We indicate that the channel isn't authenticated (use of
   // InsecureChannelCredentials()).
   GreeterClient greeter(

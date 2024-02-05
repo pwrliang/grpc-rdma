@@ -1,10 +1,9 @@
 #ifndef GRPCPP_STATS_TIME_H
 #define GRPCPP_STATS_TIME_H
-#include <grpc/support/sync.h>
-#include <grpcpp/get_clock.h>
-#include <atomic>
-#include <mutex>
-#include <vector>
+#include <array>
+#include <ostream>
+#include "hdr/hdr_histogram.h"
+#define GRPC_PROFILING_MAX_VALUE (60 * 1000 * 1000 * 1000L)
 
 typedef enum {
   GRPC_STATS_TIME_POLLABLE_EPOLL,
@@ -56,58 +55,73 @@ typedef enum {
 } grpc_stats_time_unit;
 
 struct grpc_stats_time_entry {
-  uint64_t duration;
   uint64_t count;
-  cycles_t max_time;
+  struct hdr_histogram* histogram_;
   bool scale;
-  int group;
-  int thread_id;
 
-  grpc_stats_time_entry()
-      : duration(0), count(0), max_time(0), scale(true), group(-1) {}
+  grpc_stats_time_entry() : count(0), scale(true) {
+    hdr_init(1,                         // Minimum value
+             GRPC_PROFILING_MAX_VALUE,  // Maximum value
+             3,                         // Number of significant figures
+             &histogram_);              // Pointer to initialise
+  }
 
-  inline void add(cycles_t time) {
-    duration += time;
+  grpc_stats_time_entry(const grpc_stats_time_entry& other) {
+    hdr_init(1,                         // Minimum value
+             GRPC_PROFILING_MAX_VALUE,  // Maximum value
+             3,                         // Number of significant figures
+             &histogram_);              // Pointer to initialise
+    hdr_add(histogram_, other.histogram_);
+  }
+
+  grpc_stats_time_entry& operator=(const grpc_stats_time_entry& other) {
+    if (&other == this) {
+      return *this;
+    }
+    hdr_reset(histogram_);
+    hdr_add(histogram_, other.histogram_);
+    return *this;
+  }
+
+  ~grpc_stats_time_entry() { hdr_close(histogram_); }
+
+  inline void add(int64_t val) {
+    hdr_record_value(histogram_, val);
     count++;
-    max_time = std::max(max_time, time);
+  }
+
+  inline void clear() {
+    hdr_reset(histogram_);
+    count = 0;
   }
 };
 
 typedef struct grpc_stats_time_data {
-  std::vector<grpc_stats_time_entry*> stats_per_op;
+  std::array<grpc_stats_time_entry, GRPC_STATS_TIME_MAX_OP_SIZE> stats_per_op;
   grpc_stats_time_unit unit;
-  int thread_id;
+  int slot;
 } grpc_stats_time_data;
 
-extern thread_local grpc_stats_time_data* grpc_stats_time_storage;
-extern std::vector<grpc_stats_time_data*> grpc_stats_time_vec;
-extern std::mutex grpc_stats_time_mtx;
-
 void grpc_stats_time_init(int);
-void grpc_stats_time_init();
-void grpc_stats_time_shutdown(void);
 void grpc_stats_time_enable();
 void grpc_stats_time_disable();
 void grpc_stats_time_print(void);
 void grpc_stats_time_print(std::ostream& os);
-std::string grpc_stats_time_op_to_str(int op);
-
-void grpc_stats_time_add_custom(grpc_stats_time op, long long data);
-
-void grpc_stats_time_add(grpc_stats_time op, cycles_t cycles, int group = -1);
+void grpc_stats_time_add(grpc_stats_time op, int64_t val);
+void grpc_stats_time_add_custom(grpc_stats_time op, int64_t val);
+void grpc_stats_time_shutdown();
 
 double grpc_stats_time_get_cpu_mhz();
 
 class GRPCProfiler {
  public:
-  explicit GRPCProfiler(grpc_stats_time op, int group = -1);
+  explicit GRPCProfiler(grpc_stats_time op);
 
   ~GRPCProfiler();
 
  private:
   grpc_stats_time op_;
-  int group_;
-  cycles_t begin_;
+  uint64_t begin_;
 };
 
 #endif  // GRPCPP_STATS_TIME_H

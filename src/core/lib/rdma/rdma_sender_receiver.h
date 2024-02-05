@@ -7,8 +7,6 @@
 #include <map>
 #include <mutex>
 #include <vector>
-#include "grpcpp/get_clock.h"
-#include "grpcpp/stats_time.h"
 #include "src/core/lib/debug/trace.h"
 #include "src/core/lib/rdma/rdma_conn.h"
 #include "src/core/lib/rdma/ringbuffer.h"
@@ -259,7 +257,6 @@ class RDMASenderReceiverEvent : public RDMASenderReceiver {
     uint32_t n_poll = n_outstanding_send_.exchange(0);
 
     if (n_poll > 0) {
-      GRPCProfiler profiler(GRPC_STATS_TIME_SEND_POLL, 0);
       int ret = conn_data_->PollSendCompletion(n_poll);
 
       if (ret != 0) {

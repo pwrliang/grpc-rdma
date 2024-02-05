@@ -29,6 +29,7 @@
 
 #include <grpc/support/log.h>
 #include <grpcpp/grpcpp.h>
+#include <grpcpp/stats_time.h>
 #include <numacompat1.h>
 #include <csignal>
 
@@ -98,14 +99,27 @@ class ServerImpl final {
     curr_cq_ = 0;
     // Proceed to the server's main loop.
     for (uint32_t tid = 0; tid < n_threads; tid++) {
-      ths_.push_back(std::thread([this, tid, numa]() {
+      ths_.push_back(std::thread([this, tid, numa, n_threads]() {
         if (numa) {
+          //          cpu_set_t cpuset;
+          //          int num_cores = sysconf(_SC_NPROCESSORS_ONLN);
+          //          int cpu_id = tid % num_cores;
+          //
+          //          CPU_ZERO(&cpuset);
+          //          CPU_SET(cpu_id, &cpuset);
+          //          int r_val = pthread_setaffinity_np(pthread_self(),
+          //          sizeof(cpu_set_t),
+          //                                             &cpuset);
+          //          if (r_val != 0) {
+          //            printf("Set affinity failed, %s\n", strerror(r_val));
+          //            exit(1);
+          //          }
           if (numa_available() >= 0) {
             auto nodes = numa_max_node();
             nodemask_t mask;
 
             nodemask_zero(&mask);
-            nodemask_set(&mask, tid % nodes);
+            nodemask_set(&mask, 0);
             numa_bind(&mask);
           } else {
             printf("NUMA is not available\n");
@@ -115,6 +129,7 @@ class ServerImpl final {
 
         pthread_setname_np(pthread_self(),
                            ("work_th" + std::to_string(tid)).c_str());
+        grpc_stats_time_init(tid);
         HandleRpcs(tid);
       }));
     }
@@ -216,6 +231,9 @@ class ServerImpl final {
 
       if (call->get_status() == CallData::PROCESS) {
         finished_rpcs_[tid]++;
+        if (finished_rpcs_[tid] == 1000) {
+          grpc_stats_time_enable();
+        }
         // Spawn a new CallData instance to serve new clients while we process
         // the one for this CallData. The instance will deallocate itself as
         // part of its FINISH state.
@@ -267,6 +285,8 @@ class ServerImpl final {
 ServerImpl* p_server;
 
 void sig_handler(int signum) {
+  grpc_stats_time_disable();
+  grpc_stats_time_print();
   p_server->PrintStatistics();
 
   if (signum == SIGINT) {

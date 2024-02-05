@@ -33,6 +33,23 @@ jobs:
           popd
           
           popd
+          
+          rm -rf HdrHistogram && git clone https://github.com/HdrHistogram/HdrHistogram.git
+          pushd HdrHistogram
+          
+          rm -rf debug && mkdir debug
+          pushd debug
+          cmake .. -DCMAKE_INSTALL_PREFIX=$DBG_PREFIX -DCMAKE_BUILD_TYPE=Debug
+          make -j8 install
+          popd
+          
+          rm -rf release && mkdir release
+          pushd release
+          cmake .. -DCMAKE_INSTALL_PREFIX=$REL_PREFIX -DCMAKE_BUILD_TYPE=Release
+          make -j8 install
+          popd
+          
+          popd
 
       - name: Build Debug
         run: |

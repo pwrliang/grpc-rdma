@@ -254,6 +254,7 @@ include(cmake/abseil-cpp.cmake)
 include(cmake/address_sorting.cmake)
 include(cmake/benchmark.cmake)
 include(cmake/cares.cmake)
+include(cmake/hdrhistorgram.cmake)
 include(cmake/ibverbs.cmake)
 include(cmake/protobuf.cmake)
 include(cmake/re2.cmake)
@@ -2164,6 +2165,7 @@ target_include_directories(grpc
   PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${_gRPC_ADDRESS_SORTING_INCLUDE_DIR}
+    ${_gRPC_HDRHISTOGRAM_INCLUDE_DIR}
     ${_gRPC_IBVERBS_INCLUDE_DIR}
     ${_gRPC_RE2_INCLUDE_DIR}
     ${_gRPC_SSL_INCLUDE_DIR}
@@ -2177,6 +2179,7 @@ target_link_libraries(grpc
   ${_gRPC_BASELIB_LIBRARIES}
   ${_gRPC_ZLIB_LIBRARIES}
   ${_gRPC_CARES_LIBRARIES}
+  ${_gRPC_HDRHISTOGRAM_LIBRARIES}
   ${_gRPC_ADDRESS_SORTING_LIBRARIES}
   ${_gRPC_RE2_LIBRARIES}
   ${_gRPC_UPB_LIBRARIES}
@@ -2722,6 +2725,7 @@ target_include_directories(grpc_unsecure
   PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${_gRPC_ADDRESS_SORTING_INCLUDE_DIR}
+    ${_gRPC_HDRHISTOGRAM_INCLUDE_DIR}
     ${_gRPC_IBVERBS_INCLUDE_DIR}
     ${_gRPC_RE2_INCLUDE_DIR}
     ${_gRPC_SSL_INCLUDE_DIR}
@@ -2735,6 +2739,7 @@ target_link_libraries(grpc_unsecure
   ${_gRPC_BASELIB_LIBRARIES}
   ${_gRPC_ZLIB_LIBRARIES}
   ${_gRPC_CARES_LIBRARIES}
+  ${_gRPC_HDRHISTOGRAM_LIBRARIES}
   ${_gRPC_ADDRESS_SORTING_LIBRARIES}
   ${_gRPC_RE2_LIBRARIES}
   ${_gRPC_UPB_LIBRARIES}

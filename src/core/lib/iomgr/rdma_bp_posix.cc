@@ -177,7 +177,7 @@ static void call_read_cb(grpc_rdma* rdma, grpc_error_handle error) {
 #define MAX_READ_IOVEC 4
 
 static void rdma_do_read(grpc_rdma* rdma) {
-  GRPCProfiler profiler(GRPC_STATS_TIME_TRANSPORT_DO_READ, 0);
+  GRPCProfiler profiler(GRPC_STATS_TIME_TRANSPORT_DO_READ);
 
   struct iovec iov[MAX_READ_IOVEC];
   ssize_t read_bytes;
@@ -381,7 +381,7 @@ static void rdma_read(grpc_endpoint* ep, grpc_slice_buffer* incoming_buffer,
 #endif
 
 static bool rdma_flush(grpc_rdma* rdma, grpc_error_handle* error) {
-  GRPCProfiler profiler(GRPC_STATS_TIME_TRANSPORT_FLUSH, 0);
+  GRPCProfiler profiler(GRPC_STATS_TIME_TRANSPORT_FLUSH);
   struct iovec iov[MAX_WRITE_IOVEC];
   msg_iovlen_type iov_size;
   ssize_t sent_length;

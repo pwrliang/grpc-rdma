@@ -1,114 +1,92 @@
-#include "include/grpcpp/stats_time.h"
-#include <grpc/support/sync.h>
+#include <grpcpp/get_clock.h>
+#include <atomic>
+#include <memory>
 #include <mutex>
+#include <vector>
+
 #include "include/grpc/impl/codegen/log.h"
 #include "include/grpcpp/get_clock.h"
+#include "include/grpcpp/stats_time.h"
 #include "src/core/lib/debug/VariadicTable.h"
-thread_local grpc_stats_time_data* grpc_stats_time_storage = nullptr;
-bool grpc_stats_time_enabled = false;
-std::vector<grpc_stats_time_data*> grpc_stats_time_vec;
-std::mutex grpc_stats_time_mtx;
-std::atomic_int32_t profiler_thread_id(100);
+#include "src/core/lib/gpr/env.h"
 
-GRPCProfiler::GRPCProfiler(grpc_stats_time op, int group)
-    : op_(op), group_(group), begin_(get_cycles()) {}
+std::atomic_bool grpc_stats_time_enabled;
+thread_local int grpc_stats_time_slot = -1;
+std::mutex grpc_stats_time_mu;
+std::vector<std::unique_ptr<grpc_stats_time_data>> grpc_stats_time_storage;
+
+GRPCProfiler::GRPCProfiler(grpc_stats_time op)
+    : op_(op), begin_(get_cycles()) {}
 
 GRPCProfiler::~GRPCProfiler() {
-  grpc_stats_time_add(op_, (get_cycles() - begin_), group_);
+  grpc_stats_time_add(op_, (get_cycles() - begin_));
 }
 
-void grpc_stats_time_init(int thread_id) {
-  auto* unit = getenv("GRPC_PROFILING");
+grpc_stats_time_unit grpc_stats_time_get_unit() {
+  grpc_stats_time_unit u = GRPC_STATS_TIME_MICRO;
+  auto* unit = gpr_getenv("GRPC_PROFILING_UNIT");
 
   if (unit != nullptr) {
-    if (grpc_stats_time_storage != nullptr) {
-      return;
-    }
-    std::lock_guard<std::mutex> lg(grpc_stats_time_mtx);
     auto s_unit = std::string(unit);
 
-    GPR_ASSERT(thread_id < 100);
-    grpc_stats_time_storage = new grpc_stats_time_data();
-    grpc_stats_time_storage->thread_id = thread_id;
-
     if (s_unit == "micro") {
-      grpc_stats_time_storage->unit = GRPC_STATS_TIME_MICRO;
+      u = GRPC_STATS_TIME_MICRO;
     } else if (s_unit == "milli") {
-      grpc_stats_time_storage->unit = GRPC_STATS_TIME_MILLI;
+      u = GRPC_STATS_TIME_MILLI;
     } else if (s_unit == "s") {
-      grpc_stats_time_storage->unit = GRPC_STATS_TIME_SEC;
+      u = GRPC_STATS_TIME_SEC;
     } else {
       printf("Invalid profiling time unit: %s\n", unit);
       exit(1);
     }
-
-    for (int i = 0; i < GRPC_STATS_TIME_MAX_OP_SIZE; i++) {
-      grpc_stats_time_storage->stats_per_op.push_back(
-          new grpc_stats_time_entry());
-    }
-    grpc_stats_time_vec.push_back(grpc_stats_time_storage);
   }
+
+  return u;
 }
 
-void grpc_stats_time_init() {
-  auto* unit = getenv("GRPC_PROFILING");
+void grpc_stats_time_init(int slot) {
+  grpc_stats_time_slot = slot;
+  auto storage = std::make_unique<grpc_stats_time_data>();
 
-  if (unit != nullptr) {
-    if (grpc_stats_time_storage != nullptr) {
-      return;
-    }
-    std::lock_guard<std::mutex> lg(grpc_stats_time_mtx);
-    auto s_unit = std::string(unit);
+  storage->slot = slot;
 
-    grpc_stats_time_storage = new grpc_stats_time_data();
-    grpc_stats_time_storage->thread_id = profiler_thread_id++;
-
-    if (s_unit == "micro") {
-      grpc_stats_time_storage->unit = GRPC_STATS_TIME_MICRO;
-    } else if (s_unit == "milli") {
-      grpc_stats_time_storage->unit = GRPC_STATS_TIME_MILLI;
-    } else if (s_unit == "s") {
-      grpc_stats_time_storage->unit = GRPC_STATS_TIME_SEC;
-    } else {
-      printf("Invalid profiling time unit: %s\n", unit);
-      exit(1);
-    }
-
-    for (int i = 0; i < GRPC_STATS_TIME_MAX_OP_SIZE; i++) {
-      grpc_stats_time_storage->stats_per_op.push_back(
-          new grpc_stats_time_entry());
-    }
-    grpc_stats_time_vec.push_back(grpc_stats_time_storage);
+  for (int i = 0; i < GRPC_STATS_TIME_MAX_OP_SIZE; i++) {
+    storage->stats_per_op[i].clear();
   }
+  std::lock_guard<std::mutex> lg(grpc_stats_time_mu);
+  grpc_stats_time_storage.push_back(std::move(storage));
+}
+
+void grpc_stats_time_shutdown() {
+  std::lock_guard<std::mutex> lg(grpc_stats_time_mu);
+  printf("Shutdown profiler\n");
+  grpc_stats_time_disable();
+  grpc_stats_time_storage.clear();
 }
 
 void grpc_stats_time_print();
-
-void grpc_stats_time_shutdown() {
-  if (grpc_stats_time_storage != nullptr) {
-    for (int i = 0; i < GRPC_STATS_TIME_MAX_OP_SIZE; i++) {
-      delete grpc_stats_time_storage->stats_per_op[i];
-    }
-    delete grpc_stats_time_storage;
-    grpc_stats_time_storage = nullptr;
-  }
-}
 
 void grpc_stats_time_enable() { grpc_stats_time_enabled = true; }
 
 void grpc_stats_time_disable() { grpc_stats_time_enabled = false; }
 
-void grpc_stats_time_add_custom(grpc_stats_time op, long long time) {
-  if (grpc_stats_time_storage != nullptr && grpc_stats_time_enabled) {
-    grpc_stats_time_storage->stats_per_op[op]->add(time);
-    grpc_stats_time_storage->stats_per_op[op]->scale = false;
+void grpc_stats_time_add(grpc_stats_time op, int64_t val) {
+  if (grpc_stats_time_enabled && grpc_stats_time_slot != -1) {
+    auto* storage = grpc_stats_time_storage[grpc_stats_time_slot].get();
+
+    GPR_ASSERT(val < GRPC_PROFILING_MAX_VALUE);
+    storage->stats_per_op[op].add(val);
+    storage->stats_per_op[op].scale = true;
   }
 }
 
-void grpc_stats_time_add(grpc_stats_time op, cycles_t cycles, int group) {
-  if (grpc_stats_time_storage != nullptr && grpc_stats_time_enabled) {
-    grpc_stats_time_storage->stats_per_op[op]->add(cycles);
-    grpc_stats_time_storage->stats_per_op[op]->group = group;
+void grpc_stats_time_add_custom(grpc_stats_time op, int64_t val) {
+  if (grpc_stats_time_enabled && grpc_stats_time_slot != -1) {
+    auto* storage = grpc_stats_time_storage[grpc_stats_time_slot].get();
+
+    GPR_ASSERT(val < GRPC_PROFILING_MAX_VALUE);
+    storage->stats_per_op[op].add(val);
+    storage->stats_per_op[op].scale = false;
   }
 }
 
@@ -198,98 +176,85 @@ std::string grpc_stats_time_op_to_str(int op) {
 }
 
 void grpc_stats_time_print(std::ostream& os) {
-  int no_cpu_freq_fail = 0;
-  double mhz = get_cpu_mhz(no_cpu_freq_fail);
-  std::lock_guard<std::mutex> lg(grpc_stats_time_mtx);
+  double mhz = grpc_stats_time_get_cpu_mhz();
 
-  for (auto time_storage : grpc_stats_time_vec) {
-    int scale;
-    std::string unit;
-    bool has_data = false;
+  int scale;
+  std::string unit;
 
-    switch (time_storage->unit) {
-      case GRPC_STATS_TIME_MICRO: {
-        unit = "us";
-        scale = 1;
-        break;
-      }
-      case GRPC_STATS_TIME_MILLI: {
-        unit = "ms";
-        scale = 1000;
-        break;
-      }
-      case GRPC_STATS_TIME_SEC: {
-        unit = "s";
-        scale = 1000 * 1000;
-        break;
-      }
+  switch (grpc_stats_time_get_unit()) {
+    case GRPC_STATS_TIME_MICRO: {
+      unit = "us";
+      scale = 1;
+      break;
     }
-
-    VariadicTable<std::string, size_t, int64_t, double, double> vt(
-        {"Name", "Count", "Time (" + unit + ")", "Time Avg (us)",
-         "Time Max (" + unit + ")"});
-    vt.setColumnPrecision({0, 0, 0, 2, 2});
-    vt.setColumnFormat(
-        {VariadicTableColumnFormat::AUTO, VariadicTableColumnFormat::AUTO,
-         VariadicTableColumnFormat::FIXED, VariadicTableColumnFormat::FIXED,
-         VariadicTableColumnFormat::FIXED});
-    int max_group_id = -1;
-    for (int op = 0; op < GRPC_STATS_TIME_MAX_OP_SIZE; op++) {
-      max_group_id =
-          std::max(max_group_id, time_storage->stats_per_op[op]->group);
+    case GRPC_STATS_TIME_MILLI: {
+      unit = "ms";
+      scale = 1000;
+      break;
     }
-    std::vector<int64_t> total_count;
-    std::vector<double> total_time, max_time;
-    total_count.resize(max_group_id + 1, 0);
-    total_time.resize(max_group_id + 1, 0);
-    max_time.resize(max_group_id + 1, 0);
-
-    for (int op = 0; op < GRPC_STATS_TIME_MAX_OP_SIZE; op++) {
-      auto& time_entry = *time_storage->stats_per_op[op];
-      std::string suffix = "";
-
-      auto count = time_entry.count;
-      int group = time_entry.group;
-
-      if (count > 0) {
-        double curr_max_time;
-        double time, time_in_micro;
-
-        if (time_entry.scale) {
-          curr_max_time = time_entry.max_time / mhz / scale;
-          time_in_micro = time_entry.duration / mhz;
-          time = time_in_micro / scale;
-        } else {
-          suffix = " (not time)";
-          curr_max_time = time_entry.max_time;
-          time_in_micro = time = time_entry.duration;
-        }
-
-        if (group != -1) {
-          suffix += " (group " + std::to_string(time_entry.group) + ")";
-          total_count[group] += time_entry.count;
-          total_time[group] += time;
-          max_time[group] = std::max(max_time[group], curr_max_time);
-        }
-
-        vt.addRow(grpc_stats_time_op_to_str(op) + suffix, time_entry.count,
-                  time, time_in_micro / count, curr_max_time);
-        has_data = true;
-      }
-    }
-
-    for (int group = 0; group <= max_group_id; group++) {
-      if (total_count[group] > 0) {
-        vt.addRow("Group " + std::to_string(group), total_count[group],
-                  total_time[group], total_time[group] / total_count[group],
-                  max_time[group]);
-      }
-    }
-    if (has_data) {
-      os << "TID: " << time_storage->thread_id << std::endl;
-      vt.print(os);
+    case GRPC_STATS_TIME_SEC: {
+      unit = "s";
+      scale = 1000 * 1000;
+      break;
     }
   }
+
+  os << "=================================Profiling "
+        "Result================================="
+     << std::endl;
+  os << "Unit " << unit << std::endl;
+  os << "Frequency " << mhz << " mhz" << std::endl;
+
+  for (auto& storage : grpc_stats_time_storage) {
+    if (storage != nullptr) {
+      bool has_data = false;
+      VariadicTable<std::string, size_t, double, double, double, double, double>
+          vt({"Name", "Count", "Mean", "P50", "P95", "P99", "MAX"});
+      vt.setColumnPrecision({0, 0, 2, 2, 2, 2, 2});
+      vt.setColumnFormat(
+          {VariadicTableColumnFormat::AUTO, VariadicTableColumnFormat::AUTO,
+           VariadicTableColumnFormat::FIXED, VariadicTableColumnFormat::FIXED,
+           VariadicTableColumnFormat::FIXED, VariadicTableColumnFormat::FIXED,
+           VariadicTableColumnFormat::FIXED});
+
+      for (int op = 0; op < GRPC_STATS_TIME_MAX_OP_SIZE; op++) {
+        auto& time_entry = storage->stats_per_op[op];
+        std::string suffix = "";
+        auto count = time_entry.count;
+
+        auto mean_val = hdr_mean(time_entry.histogram_);
+        auto p50 = hdr_value_at_percentile(time_entry.histogram_, 0.5);
+        auto p95 = hdr_value_at_percentile(time_entry.histogram_, 0.95);
+        auto p99 = hdr_value_at_percentile(time_entry.histogram_, 0.99);
+        auto max_val = hdr_max(time_entry.histogram_);
+
+        if (count > 0) {
+          if (time_entry.scale) {
+            mean_val = mean_val / mhz / scale;
+            p50 = p50 / mhz / scale;
+            p95 = p95 / mhz / scale;
+            p99 = p99 / mhz / scale;
+            max_val = max_val / mhz / scale;
+          } else {
+            suffix = " (custom)";
+          }
+
+          vt.addRow(grpc_stats_time_op_to_str(op) + suffix, time_entry.count,
+                    mean_val, p50, p95, p99, max_val);
+          has_data = true;
+        }
+      }
+
+      if (has_data) {
+        os << "Slot: " << storage->slot << std::endl;
+        vt.print(os);
+      }
+    }
+  }
+
+  os << "======================================================================"
+        "============"
+     << std::endl;
 }
 
 void grpc_stats_time_print() { grpc_stats_time_print(std::cout); }

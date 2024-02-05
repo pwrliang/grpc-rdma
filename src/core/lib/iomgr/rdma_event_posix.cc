@@ -165,7 +165,7 @@ static void call_read_cb(grpc_rdma* rdma, grpc_error_handle error) {
 #define MAX_READ_IOVEC 1024
 
 static void rdma_do_read(grpc_rdma* rdma) {
-  GRPCProfiler profiler(GRPC_STATS_TIME_TRANSPORT_DO_READ, 0);
+  GRPCProfiler profiler(GRPC_STATS_TIME_TRANSPORT_DO_READ);
   struct msghdr msg;
   struct iovec iov[MAX_READ_IOVEC];
   size_t iov_len = rdma->incoming_buffer->count;
@@ -310,7 +310,7 @@ static void rdma_read(grpc_endpoint* ep, grpc_slice_buffer* incoming_buffer,
 #define MAX_WRITE_IOVEC 1000
 
 static bool rdma_flush(grpc_rdma* rdma, grpc_error_handle* error) {
-  GRPCProfiler profiler(GRPC_STATS_TIME_TRANSPORT_FLUSH, 0);
+  GRPCProfiler profiler(GRPC_STATS_TIME_TRANSPORT_FLUSH);
   struct msghdr msg;
   struct iovec iov[MAX_WRITE_IOVEC];
   size_t iov_size;
@@ -380,7 +380,7 @@ static bool rdma_flush(grpc_rdma* rdma, grpc_error_handle* error) {
       }
     }
 
-    grpc_stats_time_add_custom(GRPC_STATS_TIME_SEND_SIZE, sent_length);
+//    grpc_stats_time_add_custom(GRPC_STATS_TIME_SEND_SIZE, sent_length);
 
     if (outgoing_slice_idx == rdma->outgoing_buffer->count) {
       *error = GRPC_ERROR_NONE;
