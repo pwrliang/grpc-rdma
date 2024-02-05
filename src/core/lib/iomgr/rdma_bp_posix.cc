@@ -374,10 +374,10 @@ static void rdma_read(grpc_endpoint* ep, grpc_slice_buffer* incoming_buffer,
   }
 }
 
-#if defined(IOV_MAX) && IOV_MAX < 260
+#if defined(IOV_MAX) && IOV_MAX < 128
 #define MAX_WRITE_IOVEC IOV_MAX
 #else
-#define MAX_WRITE_IOVEC 260
+#define MAX_WRITE_IOVEC 128
 #endif
 
 static bool rdma_flush(grpc_rdma* rdma, grpc_error_handle* error) {
@@ -415,10 +415,7 @@ static bool rdma_flush(grpc_rdma* rdma, grpc_error_handle* error) {
     }
     GPR_ASSERT(iov_size > 0);
 
-    GRPC_STATS_INC_TCP_WRITE_SIZE(sending_length);
-    GRPC_STATS_INC_TCP_WRITE_IOV_SIZE(iov_size);
-
-    sent_length = pair->Send(iov[0].iov_base, iov[0].iov_len);
+    sent_length = pair->Send(iov, iov_size);
 
     if (sent_length == 0) {
       auto status = pair->get_status();
@@ -460,6 +457,7 @@ static bool rdma_flush(grpc_rdma* rdma, grpc_error_handle* error) {
         trailing -= slice_length;
       }
     }
+
     if (outgoing_slice_idx == rdma->outgoing_buffer->count) {
       *error = GRPC_ERROR_NONE;
       grpc_slice_buffer_reset_and_unref(rdma->outgoing_buffer);

@@ -117,6 +117,8 @@ class PairPollable {
 
   uint64_t Send(void* buf, uint64_t size);
 
+  uint64_t Send(iovec* iov, uint64_t iov_size);
+
   uint64_t Recv(void* buf, uint64_t capacity);
 
   uint64_t GetReadableSize() const;
@@ -156,7 +158,6 @@ class PairPollable {
 
   std::atomic_int pending_write_num_data_;
   std::atomic_int pending_write_num_status_;
-
 
   RingBufferPollable ring_buf_;
 

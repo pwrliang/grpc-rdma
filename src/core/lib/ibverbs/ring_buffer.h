@@ -3,6 +3,8 @@
 #define GRPC_SRC_CORE_LIB_IBVERBS_RING_BUFFER_H
 #include <infiniband/verbs.h>
 
+#include <sys/uio.h>
+
 #include <atomic>
 #include <cassert>
 #include <climits>
@@ -45,7 +47,7 @@ class RingBufferPollable {
   // header,footer,an extra alignment to indicate the buffer is full
 
  public:
-  static constexpr uint64_t reserved_space = 3 * alignment;
+  static constexpr uint64_t reserved_space = 3ul * alignment;
 
   RingBufferPollable();
 
@@ -81,7 +83,37 @@ class RingBufferPollable {
     *reinterpret_cast<uint64_t*>(buf) = size;
     memcpy(buf + alignment, src_buf, size);
     *reinterpret_cast<uint64_t*>(buf + alignment + round_up(size)) = footer_tag;
-    return 2 * alignment + round_up(size);
+    return 2ul * alignment + round_up(size);
+  }
+
+  static uint64_t EncodeBuffer(char* buf, uint64_t payload_size_limit,
+                               iovec* iov, uint64_t iov_size,
+                               uint64_t& encoded_payload_size) {
+    uint64_t offset = alignment;
+    encoded_payload_size = 0;
+
+    for (int i = 0; i < iov_size; i++) {
+      uint64_t remain = 0;
+
+      if (payload_size_limit > offset - alignment) {
+        remain = payload_size_limit - (offset - alignment);
+      }
+
+      auto len_roundup = round_up(iov[i].iov_len);
+
+      if (remain < len_roundup) {
+        break;
+      }
+
+      auto len = std::min(iov[i].iov_len, remain);
+      memcpy(buf + offset, iov[i].iov_base, len);
+      offset += len;
+      encoded_payload_size += len;
+    }
+
+    *reinterpret_cast<uint64_t*>(buf) = offset - alignment;
+    *reinterpret_cast<uint64_t*>(buf + round_up(offset)) = footer_tag;
+    return alignment + round_up(offset);
   }
 
   uint64_t GetWriteRequests(uint64_t size, uint64_t tail,
