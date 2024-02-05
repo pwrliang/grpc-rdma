@@ -174,7 +174,7 @@ static void call_read_cb(grpc_rdma* rdma, grpc_error_handle error) {
   grpc_core::Closure::Run(DEBUG_LOCATION, cb, error);
 }
 
-#define MAX_READ_IOVEC 1024
+#define MAX_READ_IOVEC 4
 
 static void rdma_do_read(grpc_rdma* rdma) {
   GRPCProfiler profiler(GRPC_STATS_TIME_TRANSPORT_DO_READ, 0);
@@ -304,7 +304,7 @@ static void rdma_read_allocation_done(void* rdmap, grpc_error_handle error) {
 
 static void rdma_continue_read(grpc_rdma* rdma) {
   GRPCProfiler profiler(GRPC_STATS_TIME_TRANSPORT_CONTINUE_READ);
-  size_t target_read_size = std::max(1024ul, rdma->pair->GetReadableSize());
+  size_t target_read_size = std::max(256ul, rdma->pair->GetReadableSize());
 
   if (rdma->incoming_buffer->length == 0 &&
       rdma->incoming_buffer->count < MAX_READ_IOVEC) {
