@@ -3,7 +3,7 @@
 
 rm -f IPs.txt
 
-hosts=(p0148 p0149 p0150 p0151 p0171 p0172 p0173 p0174 p0175)
+hosts=(p0038 p0039 p0098 p0099 p0109 p0126 p0127 p0129 p0130)
 
 for host in ${hosts[*]}; do
   ip=$(ssh -q $host "/usr/sbin/ip -f inet addr show ib0 | sed -En -e 's/.*inet ([0-9.]+).*/\1/p'")

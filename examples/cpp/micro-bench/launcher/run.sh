@@ -17,6 +17,7 @@ CONCURRENT=1
 REQ_SIZE=64
 RESP_SIZE=4096
 NUMA="false"
+PROFILING="false"
 OVERWRITE=0
 N_WARMUP=10000
 
@@ -70,6 +71,10 @@ for i in "$@"; do
     N_WARMUP="${i#*=}"
     shift
     ;;
+  --profiling=*)
+    PROFILING="${i#*=}"
+    shift
+    ;;
   --overwrite)
     OVERWRITE=1
     shift
@@ -83,7 +88,7 @@ for i in "$@"; do
 done
 
 function kill_server() {
-#  ssh "$SERVER" 'ps aux | pgrep mb_server | xargs kill -USR1 2>/dev/null'
+  ssh "$SERVER" 'ps aux | pgrep mb_server | xargs kill -USR1 2>/dev/null'
   ssh "$SERVER" 'ps aux | pgrep mb_server | xargs kill -9 2>/dev/null && while [[ $(ps aux | pgrep mb_server) ]]; do sleep 1; done || true'
 }
 
@@ -96,7 +101,8 @@ function start_server() {
     -cqs=$CQS \
     -threads=$SERVER_THREADS \
     -resp=$RESP_SIZE \
-    -numa=$NUMA |& tee "$1" &
+    -numa=$NUMA \
+    -profiling=$PROFILING |& tee "$1" &
 }
 
 if [[ ! -f "$MB_HOME/$SERVER_PROGRAM" ]]; then
@@ -152,5 +158,6 @@ else
 fi
 
 unset GRPC_PLATFORM_TYPE
-unset GRPC_BP_TIMEOUT
-unset GRPC_BP_YIELD
+unset GRPC_PROFILING
+unset GRPC_RDMA_BUSY_POLLING_TIMEOUT_US
+unset GRPC_RDMA_POLLING_THREAD

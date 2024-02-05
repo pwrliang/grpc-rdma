@@ -43,7 +43,8 @@ ABSL_FLAG(uint16_t, port, 50051, "Server port for the service");
 ABSL_FLAG(uint32_t, threads, 1, "Number of threads");
 ABSL_FLAG(uint32_t, cqs, 1, "Number of CQs");
 ABSL_FLAG(uint32_t, resp, 1, "Reply size in bytes");
-ABSL_FLAG(bool, numa, false, "Enable NUMA");
+ABSL_FLAG(bool, numa, false, "Whether bind thread to NUMA node");
+ABSL_FLAG(bool, profiling, false, "Enable Profiling");
 
 using grpc::Server;
 using grpc::ServerAsyncResponseWriter;
@@ -67,7 +68,8 @@ class ServerImpl final {
   }
 
   // There is no shutdown handling in this code.
-  void Run(uint16_t port, uint32_t n_cqs, uint32_t n_threads, bool numa) {
+  void Run(uint16_t port, uint32_t n_cqs, uint32_t n_threads, uint32_t numa,
+           bool profiling) {
     std::string server_address = absl::StrFormat("0.0.0.0:%d", port);
 
     ServerBuilder builder;
@@ -99,27 +101,15 @@ class ServerImpl final {
     curr_cq_ = 0;
     // Proceed to the server's main loop.
     for (uint32_t tid = 0; tid < n_threads; tid++) {
-      ths_.push_back(std::thread([this, tid, numa, n_threads]() {
-        if (numa) {
-          //          cpu_set_t cpuset;
-          //          int num_cores = sysconf(_SC_NPROCESSORS_ONLN);
-          //          int cpu_id = tid % num_cores;
-          //
-          //          CPU_ZERO(&cpuset);
-          //          CPU_SET(cpu_id, &cpuset);
-          //          int r_val = pthread_setaffinity_np(pthread_self(),
-          //          sizeof(cpu_set_t),
-          //                                             &cpuset);
-          //          if (r_val != 0) {
-          //            printf("Set affinity failed, %s\n", strerror(r_val));
-          //            exit(1);
-          //          }
+      ths_.push_back(std::thread([this, tid, numa, n_threads, profiling]() {
+        if (numa > 0) {
           if (numa_available() >= 0) {
-            auto nodes = numa_max_node();
+            auto nodes = numa_max_node() + 1;
+
             nodemask_t mask;
 
             nodemask_zero(&mask);
-            nodemask_set(&mask, 0);
+            nodemask_set(&mask, tid % nodes);
             numa_bind(&mask);
           } else {
             printf("NUMA is not available\n");
@@ -129,7 +119,10 @@ class ServerImpl final {
 
         pthread_setname_np(pthread_self(),
                            ("work_th" + std::to_string(tid)).c_str());
-        grpc_stats_time_init(tid);
+        if (profiling) {
+          grpc_stats_time_init(tid);
+        }
+
         HandleRpcs(tid);
       }));
     }
@@ -298,13 +291,15 @@ int main(int argc, char** argv) {
   absl::ParseCommandLine(argc, argv);
   ServerImpl server;
 
-  p_server = &server;
-
-  signal(SIGUSR1, sig_handler);
-  signal(SIGINT, sig_handler);
+  if (absl::GetFlag(FLAGS_profiling)) {
+    p_server = &server;
+    signal(SIGUSR1, sig_handler);
+    signal(SIGINT, sig_handler);
+  }
 
   server.Run(absl::GetFlag(FLAGS_port), absl::GetFlag(FLAGS_cqs),
-             absl::GetFlag(FLAGS_threads), absl::GetFlag(FLAGS_numa));
+             absl::GetFlag(FLAGS_threads), absl::GetFlag(FLAGS_numa),
+             absl::GetFlag(FLAGS_profiling));
 
   return 0;
 }

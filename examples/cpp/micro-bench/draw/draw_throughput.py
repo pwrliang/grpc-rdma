@@ -18,11 +18,11 @@ def rpc_throughput(mode, n_clients, numa):
     return np.array(tp_list)
 
 
-n_clients = (1, 2, 4, 8, 16, 32, 64, 128)  #
+n_clients = (1, 2, 4, 8, 16, 32, 64, )  #
 
 fig, axs = plt.subplots(nrows=1, ncols=1, figsize=(5, 4))
 x = np.arange(len(n_clients))  # the label locations
-numa = "false"
+numa = "true"
 tcp_tp = rpc_throughput('TCP', n_clients, numa)
 event_tp = rpc_throughput('RDMA_EVENT', n_clients, numa)
 bp_tp = rpc_throughput('RDMA_BP', n_clients, numa)
@@ -34,12 +34,12 @@ ax1 = axs
 patterns = ['', '\\\\', '\\\\--', '..', '..--']
 light_colors = ['#6C87EA', 'lightcoral', '#FF3333', 'lemonchiffon', '#FFDF33', 'powderblue', '#33FFFF', ]
 dataset = []
-# dataset.append((tcp_tp, 'gRPC-IPoIB'))
-# dataset.append((event_tp, 'EVENT'))
-# dataset.append((bp_tp, 'BP'))
-# dataset.append((bpev_tp, 'BPEV'))
-dataset.append((bp_tp_numa_true, "BP-NUMA"))
-dataset.append((bp_tp_numa_false, "BP"))
+dataset.append((tcp_tp, 'gRPC-IPoIB'))
+dataset.append((event_tp, 'EVENT'))
+dataset.append((bp_tp, 'BP'))
+dataset.append((bpev_tp, 'BPEV'))
+# dataset.append((bp_tp_numa_true, "BP-NUMA"))
+# dataset.append((bp_tp_numa_false, "BP"))
 idx = 1
 width = 0.2  # the width of the bars
 for data, label in dataset:

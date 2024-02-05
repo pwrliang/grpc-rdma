@@ -3,7 +3,7 @@ import re
 
 "squeue -o %N"
 
-nodelist = "p[0148-0151,0171-0175]"
+nodelist = "p[0038-0039,0098-0099,0109,0126-0127,0129-0130]"
 output = []
 
 m = re.match(r"^(\w+)\[(.*?)]$", nodelist)

@@ -1,7 +1,7 @@
 set -e
 export RDMA_VERBOSITY=ERROR
-#export MB_HOME=/users/PAS0350/geng161/.clion/grpc-rdma/examples/cpp/micro-bench/cmake-build-release-pitzer02
-export MB_HOME=/home/geng.161/.clion/grpc-rdma/examples/cpp/micro-bench/cmake-build-release-mri
+export MB_HOME=/users/PAS0350/geng161/.clion/grpc-rdma/examples/cpp/micro-bench/cmake-build-release-pitzer02
+#export MB_HOME=/home/geng.161/.clion/grpc-rdma/examples/cpp/micro-bench/cmake-build-release-mri
 
 hostfile_template="hosts"
 hostfile_template=$(realpath "$hostfile_template")
@@ -21,13 +21,13 @@ function set_hostfile() {
 }
 
 function throughput() {
-  clients=(1 2 4 8 16 32 64 128)
+  clients=(1 2 4 8 16 32 64)
   server_thread=64
   req=32
   resp=8
   rpcs=10000000
   concurrent=1
-  numa="false"
+  numa="true"
 
   for grp_mode in "${GRPC_MODES[@]}"; do
     for n_clients in "${clients[@]}"; do
@@ -40,7 +40,8 @@ function throughput() {
         --resp=$resp \
         --rpcs=$rpcs \
         --concurrent=$concurrent \
-        --numa=$numa
+        --numa=$numa \
+        --polling-timeout=500
     done
   done
 }
@@ -53,7 +54,7 @@ function adhoc() {
   rpcs=10000000
   concurrent=1
   duration=10
-  numa="true"
+  numa="false"
   grp_mode="RDMA_BPEV"
   n_clients=64
 

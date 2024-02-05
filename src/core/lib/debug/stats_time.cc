@@ -55,7 +55,6 @@ void grpc_stats_time_init(int slot) {
   }
   std::lock_guard<std::mutex> lg(grpc_stats_time_mu);
   grpc_stats_time_storage.push_back(std::move(storage));
-  printf("Init slot %d\n", slot);
 }
 
 void grpc_stats_time_shutdown() {

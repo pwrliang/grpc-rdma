@@ -210,7 +210,7 @@ int main(int argc, char** argv) {
 
   if (numa) {
     if (numa_available() >= 0) {
-      auto nodes = numa_max_node();
+      auto nodes = numa_max_node() + 1;
       nodemask_t mask;
 
       nodemask_zero(&mask);
