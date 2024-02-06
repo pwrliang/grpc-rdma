@@ -23,25 +23,30 @@ function set_hostfile() {
 function throughput() {
   clients=(1 2 4 8 16 32 64)
   server_thread=64
+  cqs=$server_thread
   req=32
   resp=8
   rpcs=10000000
+  duration=10
   concurrent=1
-  numa="true"
 
-  for grp_mode in "${GRPC_MODES[@]}"; do
-    for n_clients in "${clients[@]}"; do
-      set_hostfile "$n_clients"
+  for numa in true false; do
+    for grp_mode in "${GRPC_MODES[@]}"; do
+      for n_clients in "${clients[@]}"; do
+        set_hostfile "$n_clients"
 
-      export GRPC_PLATFORM_TYPE=$grp_mode
-      export LOG_NAME="${grp_mode}_tput_cli_${n_clients}_numa_${numa}"
-      ./run.sh --server-thread=$server_thread \
-        --req=$req \
-        --resp=$resp \
-        --rpcs=$rpcs \
-        --concurrent=$concurrent \
-        --numa=$numa \
-        --polling-timeout=500
+        export GRPC_PLATFORM_TYPE=$grp_mode
+        export LOG_NAME="${grp_mode}_tput_cli_${n_clients}_numa_${numa}"
+        ./run.sh --server-thread=$server_thread \
+          --cqs=$cqs \
+          --req=$req \
+          --resp=$resp \
+          --rpcs=$rpcs \
+          --concurrent=$concurrent \
+          --duration=$duration \
+          --numa=$numa \
+          --polling-timeout=500
+      done
     done
   done
 }

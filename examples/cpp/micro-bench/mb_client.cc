@@ -61,15 +61,15 @@ class GreeterClient {
   explicit GreeterClient(std::shared_ptr<Channel> channel)
       : stub_(Greeter::NewStub(channel)) {
     // Initialise the histogram
-    hdr_init(1,                                 // Minimum value
-             INT64_C(60 * 1000 * 1000 * 1000),  // Maximum value
-             3,                                 // Number of significant figures
-             &histogram_);                      // Pointer to initialise
-    send_bytes_ = 0;
+    hdr_init(1,                                  // Minimum value
+             INT64_C(60L * 1000 * 1000 * 1000),  // Maximum value
+             3,             // Number of significant figures
+             &histogram_);  // Pointer to initialise
+    tx_bytes_ = 0;
     received_rpcs_ = 0;
     last_ts_ = std::chrono::high_resolution_clock::now();
-    last_send_bytes_ = 0;
-    last_rpcs_ = 0;
+    last_tx_bytes_ = 0;
+    last_received_rpcs_ = 0;
   }
 
   // Assembles the client's payload and sends it to the server.
@@ -78,7 +78,7 @@ class GreeterClient {
     HelloRequest request;
     request.mutable_name()->resize(req_size);
 
-    send_bytes_ += req_size;
+    tx_bytes_ += req_size;
 
     // Call object to store rpc data
     AsyncClientCall* call = new AsyncClientCall;
@@ -104,24 +104,21 @@ class GreeterClient {
 
   // Loop while listening for completed responses.
   // Prints out the response from the server.
-  bool AsyncCompleteRpc(bool record = true) {
+  bool AsyncCompleteRpc() {
     void* got_tag;
     bool ok = false;
 
     if (cq_.Next(&got_tag, &ok)) {
-      // The tag in this example is the memory location of the call object
       AsyncClientCall* call = static_cast<AsyncClientCall*>(got_tag);
-      auto now = std::chrono::high_resolution_clock::now();
-      auto rtt_us = std::chrono::duration_cast<std::chrono::nanoseconds>(
-                        now - call->issue_ts)
-                        .count();
-      if (record) {
-        hdr_record_value(histogram_, rtt_us);
-        received_rpcs_++;
-      }
       GPR_ASSERT(ok);
       GPR_ASSERT(call->status.ok());
-
+      auto now = std::chrono::high_resolution_clock::now();
+      auto rtt_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                        now - call->issue_ts)
+                        .count();
+      hdr_record_value(histogram_, rtt_ns);
+      received_rpcs_++;
+      rx_bytes_ += call->reply.ByteSizeLong();
       // Once we're complete, deallocate the call object.
       delete call;
     }
@@ -138,13 +135,26 @@ class GreeterClient {
     if (past_sec >= interval_sec) {
       char host[256];
       gethostname(host, 255);
-      printf("Host %s Rank %d, Rate %.2f RPCs/s, Bandwidth %.2f Mb/s\n", host,
-             rank, (received_rpcs_ - last_rpcs_) / past_sec,
-             8e-6 * (send_bytes_ - last_send_bytes_) / past_sec);
+
+      auto lat_us_mean = hdr_mean(histogram_) / 1000.0;
+      auto lat_us_50 = hdr_value_at_percentile(histogram_, 0.5) / 1000.0;
+      auto lat_us_95 = hdr_value_at_percentile(histogram_, 0.95) / 1000.0;
+      auto lat_us_99 = hdr_value_at_percentile(histogram_, 0.99) / 1000.0;
+      auto lat_us_max = hdr_max(histogram_) / 1000.0;
+
+      printf(
+          "Host %s, Rank %d, Rate %.2f RPCs/s, TX Bandwidth %.2f Mb/s, RX "
+          "Bandwidth %.2f Mb/s, RTT (us) mean "
+          "%.2f, P50 %.2f, P95 %.2f, P99 %.2f, max %.2f\n",
+          host, rank, (received_rpcs_ - last_received_rpcs_) / past_sec,
+          8e-6 * (tx_bytes_ - last_tx_bytes_) / past_sec,
+          8e-6 * (rx_bytes_ - last_rx_bytes_) / past_sec, lat_us_mean,
+          lat_us_50, lat_us_95, lat_us_99, lat_us_max);
 
       last_ts_ = now;
-      last_send_bytes_ = send_bytes_;
-      last_rpcs_ = received_rpcs_;
+      last_tx_bytes_ = tx_bytes_;
+      last_rx_bytes_ = rx_bytes_;
+      last_received_rpcs_ = received_rpcs_;
     }
   }
 
@@ -165,6 +175,22 @@ class GreeterClient {
     std::chrono::time_point<std::chrono::high_resolution_clock> issue_ts;
   };
 
+  void ClearStatistics() {
+    hdr_reset(histogram_);
+    tx_bytes_ = 0;
+    rx_bytes_ = 0;
+    received_rpcs_ = 0;
+    last_ts_ = std::chrono::high_resolution_clock::now();
+    last_tx_bytes_ = 0;
+    last_rx_bytes_ = 0;
+    last_received_rpcs_ = 0;
+  }
+
+  uint64_t get_tx_bytes() const { return tx_bytes_; }
+
+  uint64_t get_rx_bytes() const { return rx_bytes_; }
+
+ private:
   // Out of the passed in Channel comes the stub, stored here, our view of the
   // server's exposed services.
   std::unique_ptr<Greeter::Stub> stub_;
@@ -173,12 +199,12 @@ class GreeterClient {
   // gRPC runtime.
   CompletionQueue cq_;
   struct hdr_histogram* histogram_;
-  uint64_t send_bytes_;
+  uint64_t tx_bytes_, rx_bytes_;
   uint64_t received_rpcs_;
 
   std::chrono::time_point<std::chrono::high_resolution_clock> last_ts_;
-  uint64_t last_send_bytes_;
-  uint64_t last_rpcs_;
+  uint64_t last_tx_bytes_, last_rx_bytes_;
+  uint64_t last_received_rpcs_;
 };
 
 int main(int argc, char** argv) {
@@ -228,11 +254,16 @@ int main(int argc, char** argv) {
 
   for (int i = 0; i < warmup; i++) {
     greeter.SayHello(req, true);
-    greeter.AsyncCompleteRpc(false);
+    greeter.AsyncCompleteRpc();
   }
+
+  // Make sure every client runs together
   MPI_Barrier(MPI_COMM_WORLD);
 
+  greeter.ClearStatistics();
+
   auto t_begin = std::chrono::high_resolution_clock::now();
+  double past_sec;
   uint32_t n_send = 0, n_recv = 0;
 
   // Prepost some RPCs
@@ -240,46 +271,40 @@ int main(int argc, char** argv) {
     greeter.SayHello(req);
   }
 
-  while (n_recv < rpcs) {
-    if (n_recv < rpcs && greeter.AsyncCompleteRpc()) {
+  while (n_recv < n_send) {
+    if (greeter.AsyncCompleteRpc()) {
       n_recv++;
     }
 
-    if (n_send < rpcs) {
+    past_sec = std::chrono::duration_cast<std::chrono::milliseconds>(
+                   std::chrono::high_resolution_clock::now() - t_begin)
+                   .count() /
+               1000.0;
+
+    if (n_send < rpcs && past_sec < duration) {
       greeter.SayHello(req);
       n_send++;
     }
     greeter.PrintStatistics(rank, report_interval);
-
-    if (std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::high_resolution_clock::now() - t_begin)
-            .count() >= duration * 1000) {
-      break;
-    }
   }
 
-  auto pending_rpcs = n_send - n_recv;
-  while (pending_rpcs-- > 0) {
-    greeter.AsyncCompleteRpc();
-  }
+  double rpc_rate = n_recv / past_sec;
+  double tx_bandwidth = greeter.get_tx_bytes() / past_sec * 8e-6;
+  double rx_bandwidth = greeter.get_rx_bytes() / past_sec * 8e-6;
+  double total_rpc_rate, total_tx_bandwidth, total_rx_bandwidth;
 
-  uint32_t total_rpcs;
-  MPI_Reduce(&n_send, &total_rpcs, 1, MPI_UINT32_T, MPI_SUM, 0, MPI_COMM_WORLD);
+  MPI_Reduce(&rpc_rate, &total_rpc_rate, 1, MPI_DOUBLE, MPI_SUM, 0,
+             MPI_COMM_WORLD);
+  MPI_Reduce(&tx_bandwidth, &total_tx_bandwidth, 1, MPI_DOUBLE, MPI_SUM, 0,
+             MPI_COMM_WORLD);
+  MPI_Reduce(&rx_bandwidth, &total_rx_bandwidth, 1, MPI_DOUBLE, MPI_SUM, 0,
+             MPI_COMM_WORLD);
 
   if (rank == 0) {
-    auto time_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                       std::chrono::high_resolution_clock::now() - t_begin)
-                       .count();
-    auto lat_us_50 = hdr_value_at_percentile(greeter.histogram_, 0.5) / 1000.0;
-    auto lat_us_95 = hdr_value_at_percentile(greeter.histogram_, 0.95) / 1000.0;
-    auto lat_us_99 = hdr_value_at_percentile(greeter.histogram_, 0.99) / 1000.0;
-    auto lat_us_max = hdr_max(greeter.histogram_) / 1000.0;
-
     printf(
-        "Result: Duration %ld ms, Total RPCs %u, Rate: %.3f RPCs/s, "
-        "Median, %.2f us, P95 %.2f us, P99 %.2f us, Max %.2f us\n",
-        time_ms, total_rpcs, total_rpcs / (time_ms / 1000.0f), lat_us_50,
-        lat_us_95, lat_us_99, lat_us_max);
+        "Aggregated RPC Rate %.2f RPCs/s, Aggregated TX Bandwidth %.2f Mb/s"
+        " RX Bandwidth %.2f Mb/s\n",
+        total_rpc_rate, total_tx_bandwidth, total_rx_bandwidth);
   }
 
   MPI_Finalize();
