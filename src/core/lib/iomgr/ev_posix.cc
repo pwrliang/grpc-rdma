@@ -34,6 +34,7 @@
 #include "src/core/lib/gpr/useful.h"
 #include "src/core/lib/gprpp/global_config.h"
 #include "src/core/lib/iomgr/ev_epoll1_linux.h"
+#include "src/core/lib/iomgr/ev_epoll1_rdma_bpev_linux.h"
 #include "src/core/lib/iomgr/ev_epollex_linux.h"
 #include "src/core/lib/iomgr/ev_epollex_rdma_bp_linux.h"
 #include "src/core/lib/iomgr/ev_epollex_rdma_bpev_linux.h"
@@ -142,6 +143,7 @@ static event_engine_factory g_factories[] = {
     {"epollex_rdma_event", grpc_init_epollex_rdma_event_linux},
     {"epollex_rdma_bp", grpc_init_epollex_rdma_bp_linux},
     {"epollex_rdma_bpev", grpc_init_epollex_rdma_bpev_linux},
+    {"epoll1_rdma_bpev", grpc_init_epoll1_rdma_linux},
     {ENGINE_TAIL_CUSTOM, nullptr},
 };
 
@@ -227,6 +229,7 @@ void grpc_event_engine_init(void) {
     GPR_GLOBAL_CONFIG_SET(grpc_poll_strategy, "epollex_rdma_event");
   } else if (type == IOMGR_RDMA_BPEV) {
     GPR_GLOBAL_CONFIG_SET(grpc_poll_strategy, "epollex_rdma_bpev");
+//    GPR_GLOBAL_CONFIG_SET(grpc_poll_strategy, "epoll1_rdma_bpev");
   }
   grpc_core::UniquePtr<char> value = GPR_GLOBAL_CONFIG_GET(grpc_poll_strategy);
 
