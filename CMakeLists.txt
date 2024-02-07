@@ -1931,6 +1931,7 @@ add_library(grpc
   src/core/lib/iomgr/error_cfstream.cc
   src/core/lib/iomgr/ev_apple.cc
   src/core/lib/iomgr/ev_epoll1_linux.cc
+  src/core/lib/iomgr/ev_epoll1_rdma_bpev_linux.cc
   src/core/lib/iomgr/ev_epollex_linux.cc
   src/core/lib/iomgr/ev_epollex_rdma_event_linux.cc
   src/core/lib/iomgr/ev_epollex_rdma_bp_linux.cc
@@ -2571,6 +2572,7 @@ add_library(grpc_unsecure
   src/core/lib/iomgr/error_cfstream.cc
   src/core/lib/iomgr/ev_apple.cc
   src/core/lib/iomgr/ev_epoll1_linux.cc
+  src/core/lib/iomgr/ev_epoll1_rdma_bpev_linux.cc
   src/core/lib/iomgr/ev_epollex_linux.cc
   src/core/lib/iomgr/ev_epollex_rdma_event_linux.cc
   src/core/lib/iomgr/ev_epollex_rdma_bp_linux.cc
