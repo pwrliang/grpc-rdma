@@ -20,7 +20,6 @@
 #include <set>
 #include <sstream>
 #include <thread>
-#include "grpcpp/get_clock.h"
 #include "rdma_conn.h"
 
 #include "grpc/impl/codegen/log.h"
@@ -83,43 +82,6 @@ class RingBuffer {
   uint8_t* buf_;
   size_t head_;
   size_t garbage_;
-};
-
-class RingBufferBP : public RingBuffer {
- public:
-  explicit RingBufferBP(size_t capacity) : RingBuffer(capacity) {
-    GPR_ASSERT(capacity_ > 33);  // ensure get_max_send_size() > 0
-  }
-
-  size_t CheckMessageLength() const { return checkMessageLength(head_); }
-
-  size_t CheckFirstMessageLength() const {
-    return checkFirstMesssageLength(head_);
-  }
-
-  bool Read(msghdr* msg, size_t& expected_lens) override;
-
-  size_t get_sendbuf_size() const override {
-    /*
-     * BP: garbage max R/2 - 1, minimum free size = R - 8 - (R/2 - 1)
-     */
-    return capacity_ / 2 - 7;
-  }
-
-  size_t get_max_send_size() const override {
-    return get_sendbuf_size() - sizeof(size_t) - 1;
-  }
-
- protected:
-  // reset buf first then update head. Otherswise new head may read the old data
-  // from unupdated space.
-  size_t resetBufAndUpdateHead(size_t lens);
-
-  uint8_t checkTail(size_t head, size_t mlen) const;
-
-  size_t checkFirstMesssageLength(size_t head) const;
-
-  size_t checkMessageLength(size_t head) const;
 };
 
 class RingBufferEvent : public RingBuffer {

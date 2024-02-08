@@ -358,9 +358,7 @@ static bool rdma_flush(grpc_rdma* rdma, grpc_error_handle* error) {
     }
     ssize_t sent_length;
 
-    cycles_t begin_cycles = get_cycles();
     int err = rdma->rdmasr->Send(&msg, &sent_length);
-    cycles_t t_cycles = get_cycles() - begin_cycles;
 
     if (sent_length < 0) {
       if (err == EAGAIN) {
