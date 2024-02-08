@@ -496,7 +496,9 @@ void PairPollable::handleCompletion(ibv_wc* wc) {
        << wc->opcode << " status " << wc->status;
     error_ = ss.str();
     status_ = PairStatus::kError;
+#ifndef NDEBUG
     gpr_log(GPR_ERROR, "%s", error_.c_str());
+#endif
     return;
   }
 

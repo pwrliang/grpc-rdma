@@ -26,6 +26,10 @@ class Poller {
     curr_ = 0;
   }
 
+  ~Poller() {
+    Shutdown();
+  }
+
  public:
   static Poller& Get() {
     static Poller poller;
