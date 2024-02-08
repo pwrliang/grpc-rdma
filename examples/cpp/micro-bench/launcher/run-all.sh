@@ -22,46 +22,48 @@ function set_hostfile() {
 
 function throughput() {
   clients=(1 2 4 8 16 32 64)
-  server_thread=64
+  server_thread=40
   cqs=$server_thread
   req=32
   resp=8
   rpcs=10000000
   duration=10
   concurrent=1
+  streaming="true"
+  numa="false"
 
-  for numa in true false; do
-    for grp_mode in "${GRPC_MODES[@]}"; do
-      for n_clients in "${clients[@]}"; do
-        set_hostfile "$n_clients"
+  for grp_mode in "${GRPC_MODES[@]}"; do
+    for n_clients in "${clients[@]}"; do
+      set_hostfile "$n_clients"
 
-        export GRPC_PLATFORM_TYPE=$grp_mode
-        export LOG_NAME="${grp_mode}_tput_cli_${n_clients}_numa_${numa}"
-        ./run.sh --server-thread=$server_thread \
-          --cqs=$cqs \
-          --req=$req \
-          --resp=$resp \
-          --rpcs=$rpcs \
-          --concurrent=$concurrent \
-          --duration=$duration \
-          --numa=$numa \
-          --polling-timeout=500
-      done
+      export GRPC_PLATFORM_TYPE=$grp_mode
+      export LOG_NAME="${grp_mode}_tput_cli_${n_clients}_numa_${numa}_concurrent_${concurrent}_streaming_${streaming}"
+      ./run.sh --server-thread=$server_thread \
+        --cqs=$cqs \
+        --req=$req \
+        --resp=$resp \
+        --rpcs=$rpcs \
+        --concurrent=$concurrent \
+        --duration=$duration \
+        --numa=$numa \
+        --polling-timeout=500 \
+        --streaming="$streaming"
     done
   done
 }
 
 function adhoc() {
-  server_thread=64
-  cqs=$server_thread
+  server_thread=40
+  cqs=64
   req=32
   resp=8
   rpcs=10000000
   concurrent=1
   duration=10
   numa="false"
-  grp_mode="RDMA_BPEV"
+  grp_mode="RDMA_BP"
   n_clients=64
+  streaming="true"
 
   set_hostfile "$n_clients"
   export GRPC_PLATFORM_TYPE="$grp_mode"
@@ -76,7 +78,8 @@ function adhoc() {
     --duration=$duration \
     --numa=$numa \
     --overwrite \
-    --polling-timeout=500
+    --polling-timeout=500 \
+    --streaming="$streaming"
 }
 
 for i in "$@"; do

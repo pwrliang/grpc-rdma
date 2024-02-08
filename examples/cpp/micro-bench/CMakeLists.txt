@@ -19,7 +19,7 @@
 
 cmake_minimum_required(VERSION 3.8)
 
-project(HelloWorld C CXX)
+project(Microbenchmark C CXX)
 
 include(../cmake/common.cmake)
 include(FindHdrHistogram.cmake)
@@ -30,36 +30,37 @@ endif ()
 message("protoc: ${_PROTOBUF_PROTOC}")
 
 # Proto file
-get_filename_component(hw_proto "../../protos/helloworld.proto" ABSOLUTE)
-get_filename_component(hw_proto_path "${hw_proto}" PATH)
+get_filename_component(mb_proto "../../protos/micro_benchmark.proto" ABSOLUTE)
+get_filename_component(mb_proto_path "${mb_proto}" PATH)
+
+message("mb_proto: ${mb_proto}, mb_proto_path: ${mb_proto_path}")
 
 # Generated sources
-set(hw_proto_srcs "${CMAKE_CURRENT_BINARY_DIR}/helloworld.pb.cc")
-set(hw_proto_hdrs "${CMAKE_CURRENT_BINARY_DIR}/helloworld.pb.h")
-set(hw_grpc_srcs "${CMAKE_CURRENT_BINARY_DIR}/helloworld.grpc.pb.cc")
-set(hw_grpc_hdrs "${CMAKE_CURRENT_BINARY_DIR}/helloworld.grpc.pb.h")
+set(mb_proto_srcs "${CMAKE_CURRENT_BINARY_DIR}/micro_benchmark.pb.cc")
+set(mb_proto_hdrs "${CMAKE_CURRENT_BINARY_DIR}/micro_benchmark.pb.h")
+set(mb_grpc_srcs "${CMAKE_CURRENT_BINARY_DIR}/micro_benchmark.grpc.pb.cc")
+set(mb_grpc_hdrs "${CMAKE_CURRENT_BINARY_DIR}/micro_benchmark.grpc.pb.h")
 add_custom_command(
-        OUTPUT "${hw_proto_srcs}" "${hw_proto_hdrs}" "${hw_grpc_srcs}" "${hw_grpc_hdrs}"
+        OUTPUT "${mb_proto_srcs}" "${mb_proto_hdrs}" "${mb_grpc_srcs}" "${mb_grpc_hdrs}"
         COMMAND ${_PROTOBUF_PROTOC}
         ARGS --grpc_out "${CMAKE_CURRENT_BINARY_DIR}"
         --cpp_out "${CMAKE_CURRENT_BINARY_DIR}"
-        -I "${hw_proto_path}" -I "/home/geng.161/.local/include" -I "/users/PAS0350/geng161/.local/include"
+        -I "${mb_proto_path}" -I "/home/geng.161/.local/include" -I "/users/PAS0350/geng161/.local/include"
         --plugin=protoc-gen-grpc="${_GRPC_CPP_PLUGIN_EXECUTABLE}"
-        "${hw_proto}"
-        DEPENDS "${hw_proto}")
+        "${mb_proto}"
+        DEPENDS "${mb_proto}")
 
 # Include generated *.pb.h files
 include_directories("${CMAKE_CURRENT_BINARY_DIR}")
 find_package(MPI REQUIRED)
 
-
-# hw_grpc_proto
-add_library(hw_grpc_proto
-        ${hw_grpc_srcs}
-        ${hw_grpc_hdrs}
-        ${hw_proto_srcs}
-        ${hw_proto_hdrs})
-target_link_libraries(hw_grpc_proto
+# mb_grpc_proto
+add_library(mb_grpc_proto
+        ${mb_grpc_srcs}
+        ${mb_grpc_hdrs}
+        ${mb_proto_srcs}
+        ${mb_proto_hdrs})
+target_link_libraries(mb_grpc_proto
         ${_REFLECTION}
         ${_GRPC_GRPCPP}
         ${_PROTOBUF_LIBPROTOBUF})
@@ -70,7 +71,7 @@ foreach (_target
     add_executable(${_target} "${_target}.cc")
     target_include_directories(${_target} PRIVATE ${MPI_CXX_INCLUDE_PATH} ${HdrHistogram_INCLUDE_DIRS})
     target_link_libraries(${_target}
-            hw_grpc_proto
+            mb_grpc_proto
             absl::flags
             absl::flags_parse
             ${_REFLECTION}

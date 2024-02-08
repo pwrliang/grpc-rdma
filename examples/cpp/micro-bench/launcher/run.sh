@@ -11,7 +11,8 @@ NP=$(awk '{ sum += $1 } END { print sum }' <(tail -n +2 "$HOSTS_PATH" | cut -d"=
 SERVER_THREADS=$(nproc)
 CQS=$SERVER_THREADS
 SERVER_PROGRAM="mb_server"
-N_RPCS=1000000
+N_RPCS=10000000
+STREAMING="false"
 DURATION=10
 CONCURRENT=1
 REQ_SIZE=64
@@ -20,6 +21,7 @@ NUMA="false"
 PROFILING="false"
 OVERWRITE=0
 N_WARMUP=10000
+
 
 for i in "$@"; do
   case $i in
@@ -33,6 +35,10 @@ for i in "$@"; do
     ;;
   --rpcs=*)
     N_RPCS="${i#*=}"
+    shift
+    ;;
+  --streaming=*)
+    STREAMING="${i#*=}"
     shift
     ;;
   --duration=*)
@@ -99,6 +105,7 @@ function start_server() {
     -n 1 -host "$SERVER" \
     "$MB_HOME"/$SERVER_PROGRAM \
     -cqs=$CQS \
+    -streaming=$STREAMING \
     -threads=$SERVER_THREADS \
     -resp=$RESP_SIZE \
     -numa=$NUMA \
@@ -138,6 +145,7 @@ else
       -hostfile $tmp_host \
       $MB_HOME/mb_client \
       -target=${SERVER}:50051 \
+      -streaming=$STREAMING \
       -req=$REQ_SIZE \
       -warmup=$N_WARMUP \
       -rpcs=$N_RPCS \
@@ -148,7 +156,7 @@ else
     eval "$cmd" 2>&1 | tee -a "${cli_log_path}.tmp"
     kill_server
 
-    row_count=$(grep -c "Result" <"${cli_log_path}.tmp")
+    row_count=$(grep -c "Aggregated" <"${cli_log_path}.tmp")
     if [[ $row_count -eq 1 ]]; then
       mv "${cli_log_path}.tmp" "${cli_log_path}"
       break
