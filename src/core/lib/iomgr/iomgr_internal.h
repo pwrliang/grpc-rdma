@@ -20,7 +20,7 @@
 #define GRPC_CORE_LIB_IOMGR_IOMGR_INTERNAL_H
 
 #include <grpc/support/port_platform.h>
-//#include <grpcpp/impl/codegen/call.h>
+// #include <grpcpp/impl/codegen/call.h>
 
 #include <stdbool.h>
 
@@ -42,9 +42,9 @@ typedef struct grpc_iomgr_platform_vtable {
                                            grpc_error_handle error);
 } grpc_iomgr_platform_vtable;
 
-// enum platform_t {IOMGR_TCP, IOMGR_RDMA_BP, IOMGR_RDMA_EVENT};
+enum platform_t { IOMGR_TCP, IOMGR_RDMA_BP, IOMGR_RDMA_BPEV, IOMGR_RDMA_EVENT };
 
-// platform_t grpc_check_iomgr_platform();
+platform_t grpc_check_iomgr_platform();
 
 void grpc_iomgr_register_object(grpc_iomgr_object* obj, const char* name);
 void grpc_iomgr_unregister_object(grpc_iomgr_object* obj);
