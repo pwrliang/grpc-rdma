@@ -551,6 +551,34 @@ grpc_cc_library(
 )
 
 grpc_cc_library(
+    name = "grpc_ibverbs",
+    srcs = [
+        "src/core/lib/ibverbs/address.cc",
+        "src/core/lib/ibverbs/buffer.cc",
+        "src/core/lib/ibverbs/config.cc",
+        "src/core/lib/ibverbs/device.cc",
+        "src/core/lib/ibverbs/memory_region.cc",
+        "src/core/lib/ibverbs/pair.cc",
+        "src/core/lib/ibverbs/poller.cc",
+        "src/core/lib/ibverbs/ring_buffer.cc",
+    ],
+    hdrs = [
+        "src/core/lib/ibverbs/address.h",
+        "src/core/lib/ibverbs/buffer.h",
+        "src/core/lib/ibverbs/config.h",
+        "src/core/lib/ibverbs/device.h",
+        "src/core/lib/ibverbs/memory_region.h",
+        "src/core/lib/ibverbs/pair.h",
+        "src/core/lib/ibverbs/poller.h",
+        "src/core/lib/ibverbs/ring_buffer.h",
+    ],
+    language = "c++",
+    external_deps = [
+        "libibverbs",
+    ]
+)
+
+grpc_cc_library(
     name = "gpr_base",
     srcs = [
         "src/core/lib/gpr/alloc.cc",
@@ -890,9 +918,7 @@ grpc_cc_library(
         "src/core/lib/json/json_util.cc",
         "src/core/lib/json/json_writer.cc",
         "src/core/lib/rdma/rdma_conn.cc",
-        "src/core/lib/rdma/rdma_sender_receiver_bp.cc",
         "src/core/lib/rdma/rdma_sender_receiver_event.cc",
-        "src/core/lib/rdma/rdma_sender_receiver_bpev.cc",
         "src/core/lib/rdma/rdma_utils.cc",
         "src/core/lib/rdma/ringbuffer.cc",
         "src/core/lib/slice/b64.cc",

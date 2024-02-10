@@ -4,6 +4,21 @@ load("//bazel:grpc_deps.bzl", "grpc_deps", "grpc_test_only_deps")
 
 grpc_deps()
 
+# libibverbs
+new_local_repository(
+    name = "libibverbs",
+    path = "/usr/lib64",
+    build_file_content = """
+cc_library(
+    name = "libibverbs",
+    srcs = [
+         "libibverbs.so",
+    ],
+    visibility = ["//visibility:public"],
+)
+""",
+)
+
 grpc_test_only_deps()
 
 load("//bazel:grpc_extra_deps.bzl", "grpc_extra_deps")

@@ -45,7 +45,8 @@
 #include <unistd.h>
 #include <stdio.h>
 #include <string.h>
-#include "include/grpcpp/get_clock.h"
+
+#include "src/core/lib/debug/get_clock.h"
 
 #ifndef DEBUG
 #define DEBUG 0
