@@ -1,4 +1,3 @@
-#include <grpcpp/get_clock.h>
 #include <atomic>
 #include <memory>
 #include <mutex>
@@ -6,9 +5,10 @@
 #include "absl/time/clock.h"
 
 #include "include/grpc/impl/codegen/log.h"
-#include "include/grpcpp/get_clock.h"
 #include "include/grpcpp/stats_time.h"
+
 #include "src/core/lib/debug/VariadicTable.h"
+#include "src/core/lib/debug/get_clock.h"
 #include "src/core/lib/gpr/env.h"
 
 std::atomic_bool grpc_stats_time_enabled;
