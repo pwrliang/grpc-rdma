@@ -26,9 +26,7 @@ class Poller {
     curr_ = 0;
   }
 
-  ~Poller() {
-    Shutdown();
-  }
+  ~Poller() { Shutdown(); }
 
  public:
   static Poller& Get() {
@@ -37,16 +35,18 @@ class Poller {
   }
 
   void Shutdown() {
-    running_ = false;
-    {
-      std::unique_lock<std::mutex> lk(mu_);
-      cv_.notify_all();
-    }
+    if (running_) {
+      running_ = false;
+      {
+        std::unique_lock<std::mutex> lk(mu_);
+        cv_.notify_all();
+      }
 
-    for (auto& th : threads_) {
-      th.join();
+      for (auto& th : threads_) {
+        th.join();
+      }
+      gpr_log(GPR_INFO, "Shutdown poller");
     }
-    gpr_log(GPR_INFO, "Shutdown poller");
   }
 
   void AddPollable(PairPollable* pollable);
