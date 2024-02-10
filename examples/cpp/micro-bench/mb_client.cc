@@ -41,6 +41,10 @@ ABSL_FLAG(uint32_t, rpcs, 1000000, "Number of evaluated RPCs");
 ABSL_FLAG(uint32_t, concurrent, 1, "Number of concurrent RPCs");
 ABSL_FLAG(uint32_t, duration, 10, "Duration of benchmark in second");
 ABSL_FLAG(uint32_t, report_interval, 1, "Report statistics interval in second");
+ABSL_FLAG(double, delay, 0, "Sending delay in ms");
+ABSL_FLAG(uint32_t, msg_per_stream, 1000,
+          "How many RPCs will be sent from a stream");
+ABSL_FLAG(bool, coalesce, true, "Enable the coalesce API");
 ABSL_FLAG(bool, streaming, false, "Streaming RPCs");
 ABSL_FLAG(bool, numa, false, "Enable NUMA");
 
@@ -119,6 +123,12 @@ struct Statistics {
   }
 };
 
+struct ClientConfig {
+  bool coalesce = true;
+  uint32_t messages_per_stream = 1000;
+  double delay_ms = 0;
+};
+
 class ClientRpcContext {
  public:
   ClientRpcContext() {}
@@ -131,8 +141,16 @@ class ClientRpcContext {
     return static_cast<ClientRpcContext*>(t);
   }
 
-  virtual void Start(CompletionQueue* cq) = 0;
+  virtual void Start(CompletionQueue* cq, const ClientConfig& config) = 0;
   virtual void TryCancel() = 0;
+
+  void InsertDelay(double delay_ms) {
+    auto begin = absl::Now();
+    double past;
+    do {
+      past = absl::ToDoubleMilliseconds(absl::Now() - begin);
+    } while (past < delay_ms);
+  }
 };
 
 template <class RequestType, class ResponseType>
@@ -145,8 +163,9 @@ class ClientRpcContextUnaryImpl : public ClientRpcContext {
         next_state_(State::READY),
         statistics_(statistics) {}
 
-  void Start(CompletionQueue* cq) override {
+  void Start(CompletionQueue* cq, const ClientConfig& config) override {
     cq_ = cq;
+    delay_ms_ = config.delay_ms;
     context_.set_wait_for_ready(true);
     RunNextState(true);
   }
@@ -156,6 +175,7 @@ class ClientRpcContextUnaryImpl : public ClientRpcContext {
       case State::READY:
         response_reader_ = stub_->PrepareAsyncUnaryCall(&context_, req_, cq_);
 
+        InsertDelay(delay_ms_);
         issue_ts_ = std::chrono::high_resolution_clock::now();
         statistics_.tx_bytes += req_.ByteSizeLong();
         statistics_.tx_rpcs++;
@@ -170,6 +190,7 @@ class ClientRpcContextUnaryImpl : public ClientRpcContext {
           auto rtt_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
                             now - issue_ts_)
                             .count();
+          rtt_ns -= delay_ms_ * 1000 * 1000;
           statistics_.rx_bytes += reply_.ByteSizeLong();
           statistics_.rx_rpcs++;
           hdr_record_value(statistics_.histogram, rtt_ns);
@@ -185,6 +206,7 @@ class ClientRpcContextUnaryImpl : public ClientRpcContext {
   void StartNewClone(CompletionQueue* cq) override {
     auto* clone = new ClientRpcContextUnaryImpl(stub_, req_, statistics_);
     clone->cq_ = cq;
+    clone->delay_ms_ = delay_ms_;
     clone->RunNextState(true);
   }
 
@@ -201,6 +223,7 @@ class ClientRpcContextUnaryImpl : public ClientRpcContext {
       response_reader_;
   std::chrono::time_point<std::chrono::high_resolution_clock> issue_ts_;
   Statistics& statistics_;
+  double delay_ms_;
 
   enum State { INVALID, READY, RESP_DONE };
   State next_state_;
@@ -210,21 +233,18 @@ template <class RequestType, class ResponseType>
 class ClientRpcContextStreamingImpl : public ClientRpcContext {
  public:
   ClientRpcContextStreamingImpl(BenchmarkService::Stub* stub,
-                                const RequestType& req, Statistics& statistics,
-                                int messages_per_stream, bool coalesce)
+                                const RequestType& req, Statistics& statistics)
       : stub_(stub),
         req_(req),
         next_state_(State::INVALID),
-        statistics_(statistics),
-        messages_per_stream_(messages_per_stream),
-        coalesce_(coalesce) {}
+        statistics_(statistics) {}
 
-  void Start(CompletionQueue* cq) override {
-    auto* clone = new ClientRpcContextStreamingImpl(
-        stub_, req_, statistics_, messages_per_stream_, coalesce_);
-
-    clone->context_.set_wait_for_ready(true);
-    clone->StartInternal(cq, messages_per_stream_);
+  void Start(CompletionQueue* cq, const ClientConfig& config) override {
+    delay_ms_ = config.delay_ms;
+    messages_per_stream_ = config.messages_per_stream;
+    coalesce_ = config.coalesce;
+    context_.set_wait_for_ready(true);
+    StartInternal(cq);
   }
 
   bool RunNextState(bool ok) override {
@@ -238,6 +258,8 @@ class ClientRpcContextStreamingImpl : public ClientRpcContext {
           if (!ok) {
             return false;
           }
+
+          InsertDelay(delay_ms_);
           issue_ts_ = std::chrono::high_resolution_clock::now();
           statistics_.tx_bytes += req_.ByteSizeLong();
           statistics_.tx_rpcs++;
@@ -264,6 +286,7 @@ class ClientRpcContextStreamingImpl : public ClientRpcContext {
           auto rtt_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
                             now - issue_ts_)
                             .count();
+          rtt_ns -= delay_ms_ * 1000 * 1000;
           statistics_.rx_bytes += reply_.ByteSizeLong();
           statistics_.rx_rpcs++;
           hdr_record_value(statistics_.histogram, rtt_ns);
@@ -297,9 +320,11 @@ class ClientRpcContextStreamingImpl : public ClientRpcContext {
   }
 
   void StartNewClone(CompletionQueue* cq) override {
-    auto* clone = new ClientRpcContextStreamingImpl(
-        stub_, req_, statistics_, messages_per_stream_, coalesce_);
-    clone->StartInternal(cq, messages_per_stream_);
+    auto* clone = new ClientRpcContextStreamingImpl(stub_, req_, statistics_);
+    clone->messages_per_stream_ = messages_per_stream_;
+    clone->coalesce_ = coalesce_;
+    clone->delay_ms_ = delay_ms_;
+    clone->StartInternal(cq);
   }
 
   void TryCancel() override { context_.TryCancel(); }
@@ -321,6 +346,7 @@ class ClientRpcContextStreamingImpl : public ClientRpcContext {
 
   std::chrono::time_point<std::chrono::high_resolution_clock> issue_ts_;
   Statistics& statistics_;
+  double delay_ms_;
 
   enum State {
     INVALID,
@@ -334,10 +360,9 @@ class ClientRpcContextStreamingImpl : public ClientRpcContext {
   };
   State next_state_;
 
-  void StartInternal(CompletionQueue* cq, int messages_per_stream) {
+  void StartInternal(CompletionQueue* cq) {
     cq_ = cq;
     next_state_ = State::STREAM_IDLE;
-    messages_per_stream_ = messages_per_stream;
     messages_issued_ = 0;
     if (coalesce_) {
       GPR_ASSERT(messages_per_stream_ != 0);
@@ -355,8 +380,8 @@ class ClientRpcContextStreamingImpl : public ClientRpcContext {
 
 class Client {
  public:
-  explicit Client(std::shared_ptr<Channel> channel)
-      : stub_(BenchmarkService::NewStub(channel)) {}
+  explicit Client(std::shared_ptr<Channel> channel, const ClientConfig& config)
+      : stub_(BenchmarkService::NewStub(channel)), config_(config) {}
 
   // Assembles the client's payload and sends it to the server.
   void UnaryCall(uint32_t req_size) {
@@ -365,18 +390,18 @@ class Client {
     }
     auto* ctx = new ClientRpcContextUnaryImpl<SimpleRequest, SimpleResponse>(
         stub_.get(), request_, statistics_);
-    ctx->Start(&cq_);
+    ctx->Start(&cq_, config_);
   }
 
   // Assembles the client's payload and sends it to the server.
-  void StreamingCall(uint32_t req_size, int msg_per_stream) {
+  void StreamingCall(uint32_t req_size) {
     if (request_.message().size() != req_size) {
       request_.mutable_message()->resize(req_size);
     }
     auto* ctx =
         new ClientRpcContextStreamingImpl<SimpleRequest, SimpleResponse>(
-            stub_.get(), request_, statistics_, msg_per_stream, true);
-    ctx->Start(&cq_);
+            stub_.get(), request_, statistics_);
+    ctx->Start(&cq_, config_);
   }
 
   bool AsyncCompleteRpc() {
@@ -398,10 +423,12 @@ class Client {
   Statistics& get_statistics() { return statistics_; }
 
  private:
-  SimpleRequest request_;
   std::unique_ptr<BenchmarkService::Stub> stub_;
+  uint32_t delay_ms_;
+  SimpleRequest request_;
   CompletionQueue cq_;
   Statistics statistics_;
+  ClientConfig config_;
 };
 
 int main(int argc, char** argv) {
@@ -424,12 +451,19 @@ int main(int argc, char** argv) {
   uint32_t report_interval = absl::GetFlag(FLAGS_report_interval);
   bool streaming = absl::GetFlag(FLAGS_streaming);
   bool numa = absl::GetFlag(FLAGS_numa);
+  ClientConfig config;
+
+  config.delay_ms = absl::GetFlag(FLAGS_delay);
+  config.coalesce = absl::GetFlag(FLAGS_coalesce);
+  config.messages_per_stream = absl::GetFlag(FLAGS_msg_per_stream);
 
   if (rank == 0) {
     printf(
-        "Req %u bytes, Warmup %u, RPCs %u, Concurrent %u, Duration %u secs, "
+        "Req %u bytes, Warmup %u, RPCs %u, Concurrent %u, Send Delay %.3f ms, "
+        "Duration %u secs, Streaming %d, Coalesce %d, msgs/stream %u, "
         "Report Interval %u secs\n",
-        req, warmup, rpcs, concurrent, duration, report_interval);
+        req, warmup, rpcs, concurrent, config.delay_ms, duration, streaming,
+        config.coalesce, config.messages_per_stream, report_interval);
   }
 
   if (numa) {
@@ -445,14 +479,13 @@ int main(int argc, char** argv) {
       exit(1);
     }
   }
-  // We indicate that the channel isn't authenticated (use of
-  // InsecureChannelCredentials()).
+
   Client greeter(
-      grpc::CreateChannel(target_str, grpc::InsecureChannelCredentials()));
+      grpc::CreateChannel(target_str, grpc::InsecureChannelCredentials()),
+      config);
   // Make sure every client runs together
   MPI_Barrier(MPI_COMM_WORLD);
   bool warmup_finish = false;
-  int32_t msg_pre_stream = 1000;
   auto& statistics = greeter.get_statistics();
 
 run:
@@ -467,7 +500,7 @@ run:
   // Prepost some RPCs
   for (; issued < concurrent; issued++) {
     if (streaming) {
-      greeter.StreamingCall(req, msg_pre_stream);
+      greeter.StreamingCall(req);
     } else {
       greeter.UnaryCall(req);
     }
@@ -492,7 +525,7 @@ run:
     if (issued < concurrent && statistics.tx_rpcs < rpcs &&
         past_sec < duration) {
       if (streaming) {
-        greeter.StreamingCall(req, msg_pre_stream);
+        greeter.StreamingCall(req);
       } else {
         greeter.UnaryCall(req);
       }
