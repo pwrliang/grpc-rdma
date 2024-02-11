@@ -16,23 +16,24 @@
  *
  */
 
+#include <numa.h>
+#include <numacompat1.h>
 #include <chrono>
 #include <iostream>
 #include <memory>
 #include <string>
-#include <thread>
 
 #include <grpc/grpc.h>
 #include <grpc/support/log.h>
 #include <grpcpp/alarm.h>
 #include <grpcpp/grpcpp.h>
-#include <numa.h>
-#include <numacompat1.h>
+
 #include "absl/flags/flag.h"
 #include "absl/flags/parse.h"
 #include "hdr/hdr_histogram.h"
 #include "mpi.h"
 
+#include "interarrival.h"
 #include "micro_benchmark.grpc.pb.h"
 
 ABSL_FLAG(std::string, target, "localhost:50051", "Server address");
@@ -43,6 +44,7 @@ ABSL_FLAG(uint32_t, concurrent, 1, "Number of concurrent RPCs");
 ABSL_FLAG(uint32_t, duration, 10, "Duration of benchmark in second");
 ABSL_FLAG(uint32_t, report_interval, 1, "Report statistics interval in second");
 ABSL_FLAG(double, delay, 0, "Sending delay in ms");
+ABSL_FLAG(bool, random_delay, false, "");
 ABSL_FLAG(uint32_t, msg_per_stream, 1000,
           "How many RPCs will be sent from a stream");
 ABSL_FLAG(bool, coalesce, true, "Enable the coalesce API");
@@ -128,6 +130,7 @@ struct ClientConfig {
   bool coalesce = true;
   uint32_t messages_per_stream = 1000;
   double delay_ms = 0;
+  bool random_delay;
 };
 
 class ClientRpcContext {
@@ -403,16 +406,29 @@ class Client {
  public:
   explicit Client(std::shared_ptr<Channel> channel, const ClientConfig& config)
       : stub_(BenchmarkService::NewStub(channel)), config_(config) {
-    next_issue_ = std::bind(&Client::NextIssueTime, this);
+    if (config_.random_delay || config_.delay_ms > 0) {
+      next_issue_ = std::bind(&Client::NextIssueTime, this);
+    } else {
+      next_issue_ = std::function<gpr_timespec()>();
+    }
+
     const auto now = gpr_now(GPR_CLOCK_MONOTONIC);
     next_time_ = now;
+    double offered_load = 1;
+    random_dist_ = absl::make_unique<ExpDist>(offered_load);
+    interarrival_timer_.init(*random_dist_);
   }
 
   gpr_timespec NextIssueTime() {
     auto result = next_time_;
-    next_time_ = gpr_time_add(
-        next_time_,
-        gpr_time_from_nanos(config_.delay_ms * 1000 * 1000, GPR_TIMESPAN));
+    double delay = config_.delay_ms * 1000 * 1000;
+
+    if (config_.random_delay) {
+      delay = interarrival_timer_.next();
+    }
+
+    next_time_ =
+        gpr_time_add(next_time_, gpr_time_from_nanos(delay, GPR_TIMESPAN));
     return result;
   }
 
@@ -463,6 +479,8 @@ class Client {
   ClientConfig config_;
   std::function<gpr_timespec()> next_issue_;
   gpr_timespec next_time_;
+  std::unique_ptr<RandomDistInterface> random_dist_;
+  InterarrivalTimer interarrival_timer_;
 };
 
 int main(int argc, char** argv) {
@@ -483,6 +501,7 @@ int main(int argc, char** argv) {
   uint32_t concurrent = absl::GetFlag(FLAGS_concurrent);
   uint32_t duration = absl::GetFlag(FLAGS_duration);
   uint32_t report_interval = absl::GetFlag(FLAGS_report_interval);
+  bool random_delay = absl::GetFlag(FLAGS_random_delay);
   bool streaming = absl::GetFlag(FLAGS_streaming);
   bool numa = absl::GetFlag(FLAGS_numa);
   ClientConfig config;
@@ -490,6 +509,7 @@ int main(int argc, char** argv) {
   config.delay_ms = absl::GetFlag(FLAGS_delay);
   config.coalesce = absl::GetFlag(FLAGS_coalesce);
   config.messages_per_stream = absl::GetFlag(FLAGS_msg_per_stream);
+  config.random_delay = random_delay;
 
   if (rank == 0) {
     printf(
