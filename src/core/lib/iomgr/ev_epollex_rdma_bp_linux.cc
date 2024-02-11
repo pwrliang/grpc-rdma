@@ -67,8 +67,8 @@
 #define MAX_EPOLL_EVENTS 100
 #define MAX_FDS_IN_CACHE 32
 
-// grpc_core::DebugOnlyTraceFlag grpc_trace_pollable_refcount(false,
-//                                                            "pollable_refcount");
+grpc_core::DebugOnlyTraceFlag grpc_trace_pollable_refcount_bp(
+    false, "pollable_refcount");
 
 /*******************************************************************************
  * pollable Declarations
@@ -246,8 +246,8 @@ struct grpc_fd {
 
   grpc_iomgr_object iomgr_object;
 
-  std::vector<pollable*>* polling_by = nullptr;
   grpc_core::ibverbs::PairPollable* pair = nullptr;
+  std::vector<pollable*>* polling_by = nullptr;
   gpr_mu rdma_mu;
 };
 
@@ -637,8 +637,10 @@ static grpc_error_handle pollable_create(pollable_type type, pollable** p) {
   }
 
   (*p)->type = type;
-  new (&(*p)->refs) grpc_core::RefCount(1, nullptr);
-
+  new (&(*p)->refs) grpc_core::RefCount(
+      1, GRPC_TRACE_FLAG_ENABLED(grpc_trace_pollable_refcount_bp)
+             ? "pollable_refcount"
+             : nullptr);
   gpr_mu_init(&(*p)->mu);
   (*p)->epfd = epfd;
   (*p)->owner_fd = nullptr;

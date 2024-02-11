@@ -255,6 +255,8 @@ uint64_t PairPollable::Recv(void* buf, uint64_t capacity) {
   return read_size;
 }
 
+bool PairPollable::HasMessage() const { return ring_buf_.HasMessage(); }
+
 uint64_t PairPollable::GetReadableSize() const {
   return status_ == PairStatus::kConnected ? ring_buf_.GetReadableSize() : 0;
 }

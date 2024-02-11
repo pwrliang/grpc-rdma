@@ -121,6 +121,8 @@ class PairPollable {
 
   uint64_t Recv(void* buf, uint64_t capacity);
 
+  bool HasMessage() const;
+
   uint64_t GetReadableSize() const;
 
   uint64_t GetWritableSize() const;

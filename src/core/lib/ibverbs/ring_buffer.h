@@ -65,6 +65,8 @@ class RingBufferPollable {
 
   bool IsReadable() const { return GetReadableSize() > 0; }
 
+  bool HasMessage() const;
+
   uint64_t GetReadableSize() const;
 
   uint64_t GetWritableSize(uint64_t head, uint64_t tail) const;

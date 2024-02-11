@@ -51,6 +51,17 @@ void RingBufferPollable::Init() {
   remain_ = 0;
 }
 
+bool RingBufferPollable::HasMessage() const {
+  uint64_t remain = remain_;
+  uint64_t head = head_;
+  if (remain > 0) {
+    return remain;
+  }
+  assert(head % alignment == 0);
+  auto* p_header = reinterpret_cast<std::atomic_uint64_t*>(buf_ + head);
+  return p_header->load() > 0;
+}
+
 uint64_t RingBufferPollable::GetReadableSize() const {
 retry:
   uint64_t remain = remain_;

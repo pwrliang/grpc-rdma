@@ -77,7 +77,7 @@ void Poller::poll(int poller_id) {
       switch (status) {
         case PairStatus::kConnected: {
           // N.B. Do not use GetWritableSize to trigger event, it slows down
-          trigger = pair->GetReadableSize() || pair->GetRemainWriteSize();
+          trigger = pair->HasMessage() || pair->GetRemainWriteSize();
           break;
         }
         case PairStatus::kHalfClosed:
