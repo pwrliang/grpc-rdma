@@ -240,7 +240,7 @@ struct grpc_pollset {
   grpc_pollset* next;
   grpc_pollset* prev;
 
-  std::unordered_set<void*>* fds;
+  std::vector<void*>* fds;
 };
 
 /*******************************************************************************
@@ -463,7 +463,8 @@ static void fd_orphan(grpc_fd* fd, grpc_closure* on_done, int* release_fd,
 
     while (true) {
       if (gpr_mu_trylock(&pollset->mu)) {
-        pollset->fds->erase(fd);
+        pollset->fds->erase(
+            std::remove(pollset->fds->begin(), pollset->fds->end(), fd));
         gpr_mu_unlock(&pollset->mu);
         break;
       }
@@ -614,7 +615,7 @@ static void pollset_init(grpc_pollset* pollset, gpr_mu** mu) {
   pollset->shutdown_closure = nullptr;
   pollset->begin_refs = 0;
   pollset->next = pollset->prev = nullptr;
-  pollset->fds = new std::unordered_set<void*>();
+  pollset->fds = new std::vector<void*>();
 }
 
 static void pollset_destroy(grpc_pollset* pollset) {
@@ -815,7 +816,7 @@ static grpc_error_handle do_epoll_wait(grpc_pollset* ps, grpc_millis deadline) {
     GRPC_SCHEDULING_START_BLOCKING_REGION;
   }
   int r = 0;
-#if 0
+#if 1
   int polling_timeout_us = g_epoll_set.polling_timeout_us;
   int64_t t_elapsed_us;
 
@@ -830,45 +831,44 @@ static grpc_error_handle do_epoll_wait(grpc_pollset* ps, grpc_millis deadline) {
 
     if (r <= 0) {
       r = 0;  // r < 0 if epoll_wait fails
-      if (gpr_mu_trylock(&ps->mu)) {
-        auto& fds = *ps->fds;
+      gpr_mu_lock(&ps->mu);
+      auto& fds = *ps->fds;
 
-        for (auto it = fds.begin(); it != fds.end() && r < MAX_EPOLL_EVENTS;
-             it++) {
-          grpc_fd* fd = static_cast<grpc_fd*>(*it);
+      for (auto it = fds.begin(); it != fds.end() && r < MAX_EPOLL_EVENTS;
+           it++) {
+        grpc_fd* fd = static_cast<grpc_fd*>(*it);
 
-          GPR_ASSERT(fd->pair != nullptr);
-          auto* pair = fd->pair;
-          auto status = pair->get_status();
+        GPR_ASSERT(fd->pair != nullptr);
+        auto* pair = fd->pair;
+        auto status = pair->get_status();
 
-          switch (status) {
-            case grpc_core::ibverbs::PairStatus::kConnected: {
-              if (pair->GetReadableSize()) {
-                g_epoll_set.events[r].events = EPOLLIN;
-                g_epoll_set.events[r].data.ptr = reinterpret_cast<void*>(fd);
-                r++;
-              }
-
-              // N.B. Do not use GetWritableSize to trigger event, it slows down
-              if (pair->GetRemainWriteSize() && r < MAX_EPOLL_EVENTS) {
-                g_epoll_set.events[r].events = EPOLLOUT;
-                g_epoll_set.events[r].data.ptr = reinterpret_cast<void*>(fd);
-                r++;
-              }
-              break;
-            }
-            case grpc_core::ibverbs::PairStatus::kHalfClosed:
-            case grpc_core::ibverbs::PairStatus::kError: {
-              // Generate an event, so do_read will handle connection close
+        switch (status) {
+          case grpc_core::ibverbs::PairStatus::kConnected: {
+            if (pair->GetReadableSize()) {
               g_epoll_set.events[r].events = EPOLLIN;
               g_epoll_set.events[r].data.ptr = reinterpret_cast<void*>(fd);
               r++;
-              break;
             }
+
+            // N.B. Do not use GetWritableSize to trigger event, it slows down
+            if (pair->GetRemainWriteSize() && r < MAX_EPOLL_EVENTS) {
+              g_epoll_set.events[r].events = EPOLLOUT;
+              g_epoll_set.events[r].data.ptr = reinterpret_cast<void*>(fd);
+              r++;
+            }
+            break;
+          }
+          case grpc_core::ibverbs::PairStatus::kHalfClosed:
+          case grpc_core::ibverbs::PairStatus::kError: {
+            // Generate an event, so do_read will handle connection close
+            g_epoll_set.events[r].events = EPOLLIN;
+            g_epoll_set.events[r].data.ptr = reinterpret_cast<void*>(fd);
+            r++;
+            break;
           }
         }
-        gpr_mu_unlock(&ps->mu);
       }
+      gpr_mu_unlock(&ps->mu);
     }
     t_elapsed_us = ToInt64Microseconds((absl::Now() - begin_poll_time));
   } while (r == 0 && t_elapsed_us < polling_timeout_us);
@@ -1382,7 +1382,7 @@ done:
 static void pollset_add_fd(grpc_pollset* pollset, grpc_fd* fd) {
   if (fd->pair != nullptr) {
     gpr_mu_lock(&pollset->mu);
-    pollset->fds->insert(fd);
+    pollset->fds->push_back(fd);
     gpr_mu_unlock(&pollset->mu);
 
     gpr_mu_lock(&fd->mu);
