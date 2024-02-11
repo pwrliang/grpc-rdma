@@ -217,7 +217,7 @@ static void rdma_do_read(grpc_rdma* rdma) {
         auto status = pair->get_status();
 
         if (status == grpc_core::ibverbs::PairStatus::kHalfClosed) {
-          gpr_log(GPR_INFO, "Half close");
+          gpr_log(GPR_INFO, "Half close, Pair %p", pair);
           grpc_slice_buffer_reset_and_unref(rdma->incoming_buffer);
           call_read_cb(
               rdma,
@@ -226,7 +226,7 @@ static void rdma_do_read(grpc_rdma* rdma) {
           RDMA_UNREF(rdma, "read");
           return;
         } else if (status == grpc_core::ibverbs::PairStatus::kError) {
-          gpr_log(GPR_INFO, "Half Error");
+          gpr_log(GPR_INFO, "Half Error, Pair %p", pair);
           grpc_slice_buffer_reset_and_unref(rdma->incoming_buffer);
           std::string err = "Pair error, " + rdma->pair->get_error();
           call_read_cb(
@@ -704,6 +704,7 @@ grpc_endpoint* grpc_rdma_bp_create(grpc_fd* em_fd,
     gpr_log(GPR_ERROR, "Connection failed");
     pair->Disconnect();  // Cleanup
     grpc_core::ibverbs::PairPool::Get().Putback(pair);
+    gpr_log(GPR_INFO, "Put a Pair %p", pair);
     delete rdma;
     return nullptr;
   }

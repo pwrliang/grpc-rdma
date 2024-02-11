@@ -438,8 +438,8 @@ void PairPollable::syncMemoryRegion(int buffer_id) {
   }
 }
 
-void PairPollable::initSendBuffer(int buffer_id, uint64_t size) {
-  auto& buffer = send_buffers_[buffer_id];
+void PairPollable::initSendBuffer(BufferType type, uint64_t size) {
+  auto& buffer = send_buffers_[type];
 
   if (buffer == nullptr) {
     buffer = std::make_unique<Buffer>(dev_->pd_, size);
@@ -448,8 +448,8 @@ void PairPollable::initSendBuffer(int buffer_id, uint64_t size) {
   memset(buffer->data(), 0, buffer->size());
 }
 
-void PairPollable::initRecvBuffer(int buffer_id, uint64_t size) {
-  auto& buffer = recv_buffers_[buffer_id];
+void PairPollable::initRecvBuffer(BufferType type, uint64_t size) {
+  auto& buffer = recv_buffers_[type];
 
   if (buffer == nullptr) {
     buffer = std::make_unique<Buffer>(dev_->pd_, size);
@@ -460,7 +460,7 @@ void PairPollable::initRecvBuffer(int buffer_id, uint64_t size) {
   auto mr = std::make_unique<MemoryRegion>(dev_->pd_);
   postReceiveMemoryRegion(mr.get());
   mr_posted_recv_.emplace(std::move(mr));
-  mr_peer_[buffer_id] = nullptr;  // this will be filled when the mr received
+  mr_peer_[type] = nullptr;  // this will be filled when the mr received
 }
 
 void PairPollable::sendMemoryRegion(int buffer_id, MemoryRegion* mr) {

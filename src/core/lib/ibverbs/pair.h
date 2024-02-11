@@ -185,9 +185,9 @@ class PairPollable {
 
   void closeQPs();
 
-  void initSendBuffer(int buffer_id, uint64_t size);
+  void initSendBuffer(BufferType type, uint64_t size);
 
-  void initRecvBuffer(int buffer_id, uint64_t size);
+  void initRecvBuffer(BufferType type, uint64_t size);
 
   void sendMemoryRegion(int buffer_id, MemoryRegion* mr);
 
