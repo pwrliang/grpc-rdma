@@ -45,6 +45,7 @@ ABSL_FLAG(uint32_t, duration, 10, "Duration of benchmark in second");
 ABSL_FLAG(uint32_t, report_interval, 1, "Report statistics interval in second");
 ABSL_FLAG(double, delay, 0, "Sending delay in ms");
 ABSL_FLAG(bool, random_delay, false, "");
+ABSL_FLAG(double, offered_load, 1.0, "");
 ABSL_FLAG(uint32_t, msg_per_stream, 1000,
           "How many RPCs will be sent from a stream");
 ABSL_FLAG(bool, coalesce, true, "Enable the coalesce API");
@@ -113,6 +114,83 @@ struct Statistics {
     }
   }
 
+  void PrintStatisticsAll(int my_rank) {
+    auto statistics = GatherStatistics(my_rank);
+
+    if (my_rank == 0) {
+      printf(
+          "RTT (us) mean "
+          "%.2f, P50 %.2f, P95 %.2f, P99 %.2f, max %.2f\n",
+          statistics[0] / 1000.0, statistics[1] / 1000.0,
+          statistics[2] / 1000.0, statistics[3] / 1000.0,
+          statistics[4] / 1000.0);
+    }
+  }
+
+  std::vector<int64_t> GatherStatistics(int my_rank) {
+    int n_procs;
+    MPI_Comm_size(MPI_COMM_WORLD, &n_procs);
+
+    std::vector<int64_t> local_vals, local_counts;
+    hdr_iter iter;
+    hdr_iter_init(&iter, histogram);
+
+    while (hdr_iter_next(&iter)) {
+      local_counts.push_back(iter.count);
+      local_vals.push_back(iter.value);
+    }
+
+    int n_vals = local_vals.size();
+    std::vector<int> size_list;
+
+    size_list.resize(n_procs);
+    MPI_Gather(&n_vals, 1, MPI_INT, size_list.data(), 1, MPI_INT, 0,
+               MPI_COMM_WORLD);
+
+    std::vector<int> displace;
+    int offset = 0;
+
+    for (int i = 0; i < n_procs; i++) {
+      displace.push_back(offset);
+      offset += size_list[i];
+    }
+    std::vector<int64_t> global_vals, global_counts;
+
+    global_vals.resize(offset);
+    global_counts.resize(offset);
+
+    MPI_Gatherv(local_vals.data(), n_vals, MPI_INT64_T, global_vals.data(),
+                size_list.data(), displace.data(), MPI_INT64_T, 0,
+                MPI_COMM_WORLD);
+    MPI_Gatherv(local_counts.data(), n_vals, MPI_INT64_T, global_counts.data(),
+                size_list.data(), displace.data(), MPI_INT64_T, 0,
+                MPI_COMM_WORLD);
+
+    std::vector<int64_t> statistics;
+
+    if (my_rank == 0) {
+      struct hdr_histogram* all_histogram;
+      hdr_init(1,                                  // Minimum value
+               INT64_C(60L * 1000 * 1000 * 1000),  // Maximum value
+               3,                // Number of significant figures
+               &all_histogram);  // Pointer to initialise
+
+      for (int i = 0; i < global_vals.size(); i++) {
+        hdr_record_values(all_histogram, global_vals[i], global_counts[i]);
+      }
+
+      statistics.push_back(hdr_mean(all_histogram));
+      statistics.push_back(hdr_value_at_percentile(all_histogram, 0.5));
+      statistics.push_back(hdr_value_at_percentile(all_histogram, 0.95));
+      statistics.push_back(hdr_value_at_percentile(all_histogram, 0.99));
+      statistics.push_back(hdr_max(all_histogram));
+
+      hdr_close(all_histogram);
+    }
+
+    return statistics;
+  }
+
   void Clear() {
     hdr_reset(histogram);
     tx_bytes = 0;
@@ -131,6 +209,7 @@ struct ClientConfig {
   uint32_t messages_per_stream = 1000;
   double delay_ms = 0;
   bool random_delay;
+  double offered_load = 1;
 };
 
 class ClientRpcContext {
@@ -414,8 +493,7 @@ class Client {
 
     const auto now = gpr_now(GPR_CLOCK_MONOTONIC);
     next_time_ = now;
-    double offered_load = 1;
-    random_dist_ = absl::make_unique<ExpDist>(offered_load);
+    random_dist_ = absl::make_unique<ExpDist>(config.offered_load);
     interarrival_timer_.init(*random_dist_);
   }
 
@@ -471,6 +549,10 @@ class Client {
 
   Statistics& get_statistics() { return statistics_; }
 
+  void Shutdown() {
+    cq_.Shutdown();
+  }
+
  private:
   std::unique_ptr<BenchmarkService::Stub> stub_;
   SimpleRequest request_;
@@ -502,14 +584,17 @@ int main(int argc, char** argv) {
   uint32_t duration = absl::GetFlag(FLAGS_duration);
   uint32_t report_interval = absl::GetFlag(FLAGS_report_interval);
   bool random_delay = absl::GetFlag(FLAGS_random_delay);
+  double offered_load = absl::GetFlag(FLAGS_offered_load);
   bool streaming = absl::GetFlag(FLAGS_streaming);
   bool numa = absl::GetFlag(FLAGS_numa);
+
   ClientConfig config;
 
   config.delay_ms = absl::GetFlag(FLAGS_delay);
   config.coalesce = absl::GetFlag(FLAGS_coalesce);
   config.messages_per_stream = absl::GetFlag(FLAGS_msg_per_stream);
   config.random_delay = random_delay;
+  config.offered_load = offered_load;
 
   if (rank == 0) {
     printf(
@@ -534,13 +619,13 @@ int main(int argc, char** argv) {
     }
   }
 
-  Client greeter(
+  Client client(
       grpc::CreateChannel(target_str, grpc::InsecureChannelCredentials()),
       config);
   // Make sure every client runs together
   MPI_Barrier(MPI_COMM_WORLD);
   bool warmup_finish = false;
-  auto& statistics = greeter.get_statistics();
+  auto& statistics = client.get_statistics();
 
 run:
   std::chrono::high_resolution_clock::time_point t_begin;
@@ -554,9 +639,9 @@ run:
   // Prepost some RPCs
   for (; issued < concurrent; issued++) {
     if (streaming) {
-      greeter.StreamingCall(req);
+      client.StreamingCall(req);
     } else {
-      greeter.UnaryCall(req);
+      client.UnaryCall(req);
     }
   }
 
@@ -567,7 +652,7 @@ run:
     }
 
     if (issued > 0) {
-      if (greeter.AsyncCompleteRpc()) {
+      if (client.AsyncCompleteRpc()) {
         issued--;
       }
     }
@@ -579,9 +664,9 @@ run:
     if (issued < concurrent && statistics.tx_rpcs < rpcs &&
         past_sec < duration) {
       if (streaming) {
-        greeter.StreamingCall(req);
+        client.StreamingCall(req);
       } else {
-        greeter.UnaryCall(req);
+        client.UnaryCall(req);
       }
       issued++;
     }
@@ -611,6 +696,9 @@ run:
         " RX Bandwidth %.2f Mb/s\n",
         total_rpc_rate, total_tx_bandwidth, total_rx_bandwidth);
   }
+  statistics.PrintStatisticsAll(rank);
+
+  client.Shutdown();
 
   MPI_Finalize();
   return 0;
