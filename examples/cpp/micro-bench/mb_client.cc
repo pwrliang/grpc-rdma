@@ -24,6 +24,7 @@
 
 #include <grpc/grpc.h>
 #include <grpc/support/log.h>
+#include <grpcpp/alarm.h>
 #include <grpcpp/grpcpp.h>
 #include <numa.h>
 #include <numacompat1.h>
@@ -143,31 +144,32 @@ class ClientRpcContext {
 
   virtual void Start(CompletionQueue* cq, const ClientConfig& config) = 0;
   virtual void TryCancel() = 0;
-
-  void InsertDelay(double delay_ms) {
-    auto begin = absl::Now();
-    double past;
-    do {
-      past = absl::ToDoubleMilliseconds(absl::Now() - begin);
-    } while (past < delay_ms);
-  }
 };
+
+void InsertDelay(double delay_ms) {
+  auto begin = absl::Now();
+  double past;
+  do {
+    past = absl::ToDoubleMilliseconds(absl::Now() - begin);
+  } while (past < delay_ms);
+}
 
 template <class RequestType, class ResponseType>
 class ClientRpcContextUnaryImpl : public ClientRpcContext {
  public:
   ClientRpcContextUnaryImpl(BenchmarkService::Stub* stub,
-                            const RequestType& req, Statistics& statistics)
+                            const RequestType& req,
+                            std::function<gpr_timespec()> next_issue,
+                            Statistics& statistics)
       : stub_(stub),
         req_(req),
         next_state_(State::READY),
+        next_issue_(std::move(next_issue)),
         statistics_(statistics) {}
 
   void Start(CompletionQueue* cq, const ClientConfig& config) override {
-    cq_ = cq;
-    delay_ms_ = config.delay_ms;
     context_.set_wait_for_ready(true);
-    RunNextState(true);
+    StartInternal(cq);
   }
 
   bool RunNextState(bool ok) override {
@@ -175,7 +177,6 @@ class ClientRpcContextUnaryImpl : public ClientRpcContext {
       case State::READY:
         response_reader_ = stub_->PrepareAsyncUnaryCall(&context_, req_, cq_);
 
-        InsertDelay(delay_ms_);
         issue_ts_ = std::chrono::high_resolution_clock::now();
         statistics_.tx_bytes += req_.ByteSizeLong();
         statistics_.tx_rpcs++;
@@ -190,7 +191,6 @@ class ClientRpcContextUnaryImpl : public ClientRpcContext {
           auto rtt_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
                             now - issue_ts_)
                             .count();
-          rtt_ns -= delay_ms_ * 1000 * 1000;
           statistics_.rx_bytes += reply_.ByteSizeLong();
           statistics_.rx_rpcs++;
           hdr_record_value(statistics_.histogram, rtt_ns);
@@ -204,10 +204,9 @@ class ClientRpcContextUnaryImpl : public ClientRpcContext {
   }
 
   void StartNewClone(CompletionQueue* cq) override {
-    auto* clone = new ClientRpcContextUnaryImpl(stub_, req_, statistics_);
-    clone->cq_ = cq;
-    clone->delay_ms_ = delay_ms_;
-    clone->RunNextState(true);
+    auto* clone =
+        new ClientRpcContextUnaryImpl(stub_, req_, next_issue_, statistics_);
+    clone->StartInternal(cq);
   }
 
   void TryCancel() override { context_.TryCancel(); }
@@ -223,24 +222,37 @@ class ClientRpcContextUnaryImpl : public ClientRpcContext {
       response_reader_;
   std::chrono::time_point<std::chrono::high_resolution_clock> issue_ts_;
   Statistics& statistics_;
-  double delay_ms_;
+  std::unique_ptr<grpc::Alarm> alarm_;
+  std::function<gpr_timespec()> next_issue_;
 
   enum State { INVALID, READY, RESP_DONE };
   State next_state_;
+
+  void StartInternal(grpc::CompletionQueue* cq) {
+    cq_ = cq;
+    if (!next_issue_) {
+      RunNextState(true);
+    } else {
+      alarm_ = std::make_unique<grpc::Alarm>();
+      alarm_->Set(cq_, next_issue_(), ClientRpcContext::tag(this));
+    }
+  }
 };
 
 template <class RequestType, class ResponseType>
 class ClientRpcContextStreamingImpl : public ClientRpcContext {
  public:
   ClientRpcContextStreamingImpl(BenchmarkService::Stub* stub,
-                                const RequestType& req, Statistics& statistics)
+                                const RequestType& req,
+                                std::function<gpr_timespec()> next_issue,
+                                Statistics& statistics)
       : stub_(stub),
         req_(req),
         next_state_(State::INVALID),
+        next_issue_(std::move(next_issue)),
         statistics_(statistics) {}
 
   void Start(CompletionQueue* cq, const ClientConfig& config) override {
-    delay_ms_ = config.delay_ms;
     messages_per_stream_ = config.messages_per_stream;
     coalesce_ = config.coalesce;
     context_.set_wait_for_ready(true);
@@ -251,15 +263,23 @@ class ClientRpcContextStreamingImpl : public ClientRpcContext {
     while (true) {
       switch (next_state_) {
         case State::STREAM_IDLE: {
-          next_state_ = State::READY_TO_WRITE;
-          break;
+          if (!next_issue_) {  // ready to issue
+            next_state_ = State::READY_TO_WRITE;
+          } else {
+            next_state_ = State::WAIT;
+          }
+          break;  // loop around, don't return
         }
+        case State::WAIT:
+          next_state_ = State::READY_TO_WRITE;
+          alarm_ = absl::make_unique<grpc::Alarm>();
+          alarm_->Set(cq_, next_issue_(), ClientRpcContext::tag(this));
+          return true;
         case State::READY_TO_WRITE: {
           if (!ok) {
             return false;
           }
 
-          InsertDelay(delay_ms_);
           issue_ts_ = std::chrono::high_resolution_clock::now();
           statistics_.tx_bytes += req_.ByteSizeLong();
           statistics_.tx_rpcs++;
@@ -286,7 +306,6 @@ class ClientRpcContextStreamingImpl : public ClientRpcContext {
           auto rtt_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
                             now - issue_ts_)
                             .count();
-          rtt_ns -= delay_ms_ * 1000 * 1000;
           statistics_.rx_bytes += reply_.ByteSizeLong();
           statistics_.rx_rpcs++;
           hdr_record_value(statistics_.histogram, rtt_ns);
@@ -320,10 +339,10 @@ class ClientRpcContextStreamingImpl : public ClientRpcContext {
   }
 
   void StartNewClone(CompletionQueue* cq) override {
-    auto* clone = new ClientRpcContextStreamingImpl(stub_, req_, statistics_);
+    auto* clone = new ClientRpcContextStreamingImpl(stub_, req_, next_issue_,
+                                                    statistics_);
     clone->messages_per_stream_ = messages_per_stream_;
     clone->coalesce_ = coalesce_;
-    clone->delay_ms_ = delay_ms_;
     clone->StartInternal(cq);
   }
 
@@ -343,10 +362,11 @@ class ClientRpcContextStreamingImpl : public ClientRpcContext {
   int messages_issued_;
   // Whether to use coalescing API.
   bool coalesce_;
+  std::unique_ptr<grpc::Alarm> alarm_;
+  std::function<gpr_timespec()> next_issue_;
 
   std::chrono::time_point<std::chrono::high_resolution_clock> issue_ts_;
   Statistics& statistics_;
-  double delay_ms_;
 
   enum State {
     INVALID,
@@ -370,6 +390,7 @@ class ClientRpcContextStreamingImpl : public ClientRpcContext {
     }
     stream_ = stub_->PrepareAsyncStreamingCall(&context_, cq);
     stream_->StartCall(ClientRpcContext::tag(this));
+
     if (coalesce_) {
       // When the initial metadata is corked, the tag will not come back and we
       // need to manually drive the state machine.
@@ -381,7 +402,19 @@ class ClientRpcContextStreamingImpl : public ClientRpcContext {
 class Client {
  public:
   explicit Client(std::shared_ptr<Channel> channel, const ClientConfig& config)
-      : stub_(BenchmarkService::NewStub(channel)), config_(config) {}
+      : stub_(BenchmarkService::NewStub(channel)), config_(config) {
+    next_issue_ = std::bind(&Client::NextIssueTime, this);
+    const auto now = gpr_now(GPR_CLOCK_MONOTONIC);
+    next_time_ = now;
+  }
+
+  gpr_timespec NextIssueTime() {
+    auto result = next_time_;
+    next_time_ = gpr_time_add(
+        next_time_,
+        gpr_time_from_nanos(config_.delay_ms * 1000 * 1000, GPR_TIMESPAN));
+    return result;
+  }
 
   // Assembles the client's payload and sends it to the server.
   void UnaryCall(uint32_t req_size) {
@@ -389,7 +422,7 @@ class Client {
       request_.mutable_message()->resize(req_size);
     }
     auto* ctx = new ClientRpcContextUnaryImpl<SimpleRequest, SimpleResponse>(
-        stub_.get(), request_, statistics_);
+        stub_.get(), request_, next_issue_, statistics_);
     ctx->Start(&cq_, config_);
   }
 
@@ -400,7 +433,7 @@ class Client {
     }
     auto* ctx =
         new ClientRpcContextStreamingImpl<SimpleRequest, SimpleResponse>(
-            stub_.get(), request_, statistics_);
+            stub_.get(), request_, next_issue_, statistics_);
     ctx->Start(&cq_, config_);
   }
 
@@ -424,11 +457,12 @@ class Client {
 
  private:
   std::unique_ptr<BenchmarkService::Stub> stub_;
-  uint32_t delay_ms_;
   SimpleRequest request_;
   CompletionQueue cq_;
   Statistics statistics_;
   ClientConfig config_;
+  std::function<gpr_timespec()> next_issue_;
+  gpr_timespec next_time_;
 };
 
 int main(int argc, char** argv) {
