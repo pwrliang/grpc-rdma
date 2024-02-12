@@ -9,6 +9,7 @@
 
 #include <grpc/support/log.h>
 #include "grpcpp/stats_time.h"
+#include "src/core/lib/ibverbs/config.h"
 #include "src/core/lib/ibverbs/ring_buffer.h"
 
 namespace grpc_core {
@@ -85,9 +86,11 @@ void PairPollable::Init() {
                                             IBV_QP_PORT | IBV_QP_ACCESS_FLAGS));
     // Clear queue, which can be nonempty if the last time connection fails
     mr_posted_recv_ = std::queue<std::unique_ptr<MemoryRegion>>();
+    auto recv_buf_size = Config::Get().get_ring_buffer_size_kb() * 1024;
+    auto send_buf_size = recv_buf_size / 2;
 
-    initSendBuffer(kDataBuffer, kSendBufSize);
-    initRecvBuffer(kDataBuffer, kRecvBufSize);
+    initSendBuffer(kDataBuffer, send_buf_size);
+    initRecvBuffer(kDataBuffer, recv_buf_size);
     initSendBuffer(kStatusBuffer, sizeof(status_report));
     initRecvBuffer(kStatusBuffer, sizeof(status_report));
 

@@ -1,3 +1,5 @@
+#include <grpc/support/log.h>
+
 #include "src/core/lib/ibverbs/config.h"
 
 namespace grpc_core {
@@ -33,6 +35,7 @@ void Config::init() {
 
   if (s_val != nullptr) {
     poller_thread_num_ = atoi(s_val);
+    GPR_ASSERT(poller_thread_num_ > 0);
   } else {
     poller_thread_num_ = 1;
   }
@@ -40,6 +43,7 @@ void Config::init() {
   s_val = gpr_getenv("GRPC_RDMA_BUSY_POLLING_TIMEOUT_US");
   if (s_val != nullptr) {
     busy_polling_timeout_us_ = atoi(s_val);
+    GPR_ASSERT(busy_polling_timeout_us_ >= 0);
   } else {
     busy_polling_timeout_us_ = 500;
   }
@@ -47,6 +51,7 @@ void Config::init() {
   s_val = gpr_getenv("GRPC_RDMA_POLLER_SLEEP_TIMEOUT_MS");
   if (s_val != nullptr) {
     poller_sleep_timeout_ms_ = atoi(s_val);
+    GPR_ASSERT(poller_sleep_timeout_ms_ >= 0);
   } else {
     poller_sleep_timeout_ms_ = 1000;
   }
@@ -54,6 +59,7 @@ void Config::init() {
   s_val = gpr_getenv("GRPC_RDMA_RING_BUFFER_SIZE_KB");
   if (s_val != nullptr) {
     ring_buffer_size_kb_ = atoll(s_val);
+    GPR_ASSERT(ring_buffer_size_kb_ > 0);
   } else {
     ring_buffer_size_kb_ = 4 * 1024;
   }
