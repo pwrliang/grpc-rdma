@@ -246,7 +246,7 @@ uint64_t PairPollable::Recv(void* buf, uint64_t capacity) {
   internal_read_size_ += internal_read_bytes;
   total_read_size_ += read_size;
 
-  if (internal_read_size_ >= kRecvBufSize / 2) {
+  if (internal_read_size_ >= ring_buf_.get_capacity() / 2) {
     auto* status_buf = send_buffers_[kStatusBuffer].get();
     auto* status = reinterpret_cast<status_report*>(status_buf->data());
 
