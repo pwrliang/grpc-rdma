@@ -136,8 +136,10 @@ struct Statistics {
     hdr_iter_init(&iter, histogram);
 
     while (hdr_iter_next(&iter)) {
-      local_counts.push_back(iter.count);
-      local_vals.push_back(iter.value);
+      if (iter.count > 0) {
+        local_counts.push_back(iter.count);
+        local_vals.push_back(iter.value);
+      }
     }
 
     int n_vals = local_vals.size();
@@ -175,7 +177,7 @@ struct Statistics {
                3,                // Number of significant figures
                &all_histogram);  // Pointer to initialise
 
-      for (int i = 0; i < global_vals.size(); i++) {
+      for (size_t i = 0; i < global_vals.size(); i++) {
         hdr_record_values(all_histogram, global_vals[i], global_counts[i]);
       }
 
@@ -549,9 +551,7 @@ class Client {
 
   Statistics& get_statistics() { return statistics_; }
 
-  void Shutdown() {
-    cq_.Shutdown();
-  }
+  void Shutdown() { cq_.Shutdown(); }
 
  private:
   std::unique_ptr<BenchmarkService::Stub> stub_;
@@ -661,8 +661,8 @@ run:
                    std::chrono::high_resolution_clock::now() - t_begin)
                    .count() /
                1000.0;
-    if (issued < concurrent && statistics.tx_rpcs < rpcs &&
-        past_sec < duration) {
+    if (issued < concurrent &&
+        (statistics.tx_rpcs < rpcs && past_sec < duration || !warmup_finish)) {
       if (streaming) {
         client.StreamingCall(req);
       } else {
@@ -671,7 +671,7 @@ run:
       issued++;
     }
     statistics.PrintStatistics(rank, report_interval);
-  } while (statistics.tx_rpcs < rpcs && past_sec < duration);
+  } while (statistics.tx_rpcs < rpcs && past_sec < duration || !warmup_finish);
 
   past_sec = std::chrono::duration_cast<std::chrono::milliseconds>(
                  std::chrono::high_resolution_clock::now() - t_begin)
