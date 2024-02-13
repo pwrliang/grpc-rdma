@@ -1013,14 +1013,13 @@ static grpc_error_handle pollable_process_events(grpc_pollset* pollset,
 
       // pair maybe null when fd is destroyed
       if (pair != nullptr) {
-        append_error(&error,
-                     grpc_wakeup_fd_consume_wakeup(pair->get_wakeup_fd()),
-                     err_desc);
-
         auto status = pair->get_status();
 
         if (status != grpc_core::ibverbs::PairStatus::kUninitialized &&
             status != grpc_core::ibverbs::PairStatus::kDisconnected) {
+          append_error(&error,
+                       grpc_wakeup_fd_consume_wakeup(pair->get_wakeup_fd()),
+                       err_desc);
           /* If half-closed, trigger read to free resources */
           if (pair->HasMessage() ||
               pair->get_status() ==
@@ -1102,40 +1101,40 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
 
   gpr_mu_lock(&p->rdma_mu);
   do {
-      auto& fds = *p->rdma_fds;
-      for (size_t i = 0; i < fds.size() && r < MAX_EPOLL_EVENTS; i++) {
-        auto* fd = fds[i];
+    auto& fds = *p->rdma_fds;
+    for (size_t i = 0; i < fds.size() && r < MAX_EPOLL_EVENTS; i++) {
+      auto* fd = fds[i];
 
-        GPR_ASSERT(fd->pair != nullptr);
-        auto* pair = fd->pair;
-        auto status = pair->get_status();
+      GPR_ASSERT(fd->pair != nullptr);
+      auto* pair = fd->pair;
+      auto status = pair->get_status();
 
-        switch (status) {
-          case grpc_core::ibverbs::PairStatus::kConnected: {
-            if (pair->HasMessage()) {
-              p->events[r].events = EPOLLIN;
-              p->events[r].data.ptr = reinterpret_cast<void*>(fd);
-              r++;
-            }
-
-            // N.B. Do not use GetWritableSize to trigger event, it slows down
-            if (pair->GetRemainWriteSize() && r < MAX_EPOLL_EVENTS) {
-              p->events[r].events = EPOLLOUT;
-              p->events[r].data.ptr = reinterpret_cast<void*>(fd);
-              r++;
-            }
-            break;
-          }
-          case grpc_core::ibverbs::PairStatus::kHalfClosed:
-          case grpc_core::ibverbs::PairStatus::kError: {
-            // Generate an event, so do_read will handle connection close
+      switch (status) {
+        case grpc_core::ibverbs::PairStatus::kConnected: {
+          if (pair->HasMessage()) {
             p->events[r].events = EPOLLIN;
             p->events[r].data.ptr = reinterpret_cast<void*>(fd);
             r++;
-            break;
           }
+
+          // N.B. Do not use GetWritableSize to trigger event, it slows down
+          if (pair->GetRemainWriteSize() && r < MAX_EPOLL_EVENTS) {
+            p->events[r].events = EPOLLOUT;
+            p->events[r].data.ptr = reinterpret_cast<void*>(fd);
+            r++;
+          }
+          break;
+        }
+        case grpc_core::ibverbs::PairStatus::kHalfClosed:
+        case grpc_core::ibverbs::PairStatus::kError: {
+          // Generate an event, so do_read will handle connection close
+          p->events[r].events = EPOLLIN;
+          p->events[r].data.ptr = reinterpret_cast<void*>(fd);
+          r++;
+          break;
         }
       }
+    }
     t_elapsed_us = ToInt64Microseconds((absl::Now() - begin_poll_time));
   } while (r == 0 && t_elapsed_us < polling_timeout_us);
   gpr_mu_unlock(&p->rdma_mu);
