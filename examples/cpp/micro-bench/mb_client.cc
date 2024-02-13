@@ -487,16 +487,20 @@ class Client {
  public:
   explicit Client(std::shared_ptr<Channel> channel, const ClientConfig& config)
       : stub_(BenchmarkService::NewStub(channel)), config_(config) {
+    const auto now = gpr_now(GPR_CLOCK_MONOTONIC);
+
+    next_issue_ = std::function<gpr_timespec()>();
+    next_time_ = now;
+    random_dist_ = absl::make_unique<ExpDist>(config.offered_load);
+    interarrival_timer_.init(*random_dist_);
+  }
+
+  void SetAlarm() {
     if (config_.random_delay || config_.delay_ms > 0) {
       next_issue_ = std::bind(&Client::NextIssueTime, this);
     } else {
       next_issue_ = std::function<gpr_timespec()>();
     }
-
-    const auto now = gpr_now(GPR_CLOCK_MONOTONIC);
-    next_time_ = now;
-    random_dist_ = absl::make_unique<ExpDist>(config.offered_load);
-    interarrival_timer_.init(*random_dist_);
   }
 
   gpr_timespec NextIssueTime() {
@@ -648,6 +652,7 @@ run:
   do {
     if (!warmup_finish && statistics.rx_rpcs >= warmup) {
       warmup_finish = true;
+      client.SetAlarm();
       goto run;
     }
 
