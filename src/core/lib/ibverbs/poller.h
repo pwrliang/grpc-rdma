@@ -21,7 +21,7 @@ class Poller {
     int n_pollers = Config::Get().get_poller_thread_num();
 
     for (int i = 0; i < n_pollers; i++) {
-      threads_.push_back(std::thread(&Poller::poll, this, i));
+      threads_.push_back(std::thread(&Poller::begin_polling, this, i));
     }
     curr_ = 0;
   }
@@ -64,7 +64,7 @@ class Poller {
 
   std::array<std::atomic_uint64_t, GRPC_IBVERBS_POLLER_CAPACITY> pairs_;
 
-  void poll(int poller_id);
+  void begin_polling(int poller_id);
 };
 }  // namespace ibverbs
 }  // namespace grpc_core

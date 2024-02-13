@@ -1013,16 +1013,16 @@ static grpc_error_handle pollable_process_events(grpc_pollset* pollset,
 
       // pair maybe null when fd is destroyed
       if (pair != nullptr) {
-        auto err = grpc_wakeup_fd_consume_wakeup(pair->get_wakeup_fd());
-        if (err != GRPC_ERROR_NONE) {
-          gpr_log(GPR_ERROR, "consume wakeup error");
-        }
+        append_error(&error,
+                     grpc_wakeup_fd_consume_wakeup(pair->get_wakeup_fd()),
+                     err_desc);
+
         auto status = pair->get_status();
 
         if (status != grpc_core::ibverbs::PairStatus::kUninitialized &&
             status != grpc_core::ibverbs::PairStatus::kDisconnected) {
           /* If half-closed, trigger read to free resources */
-          if (pair->GetReadableSize() ||
+          if (pair->HasMessage() ||
               pair->get_status() ==
                   grpc_core::ibverbs::PairStatus::kHalfClosed) {
             fd_become_readable(fd);
@@ -1089,7 +1089,8 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
     GRPC_SCHEDULING_START_BLOCKING_REGION;
   }
 
-  int r;
+  int r = 0;
+#if 1
   int polling_timeout_us = p->polling_timeout_us;
   int64_t t_elapsed_us;
 
@@ -1099,12 +1100,8 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
 
   auto begin_poll_time = absl::Now();
 
+  gpr_mu_lock(&p->rdma_mu);
   do {
-    r = epoll_wait(p->epfd, p->events, MAX_EPOLL_EVENTS, 0);
-
-    if (r <= 0) {
-      r = 0;  // r < 0 if epoll_wait fails
-      gpr_mu_lock(&p->rdma_mu);
       auto& fds = *p->rdma_fds;
       for (size_t i = 0; i < fds.size() && r < MAX_EPOLL_EVENTS; i++) {
         auto* fd = fds[i];
@@ -1115,7 +1112,7 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
 
         switch (status) {
           case grpc_core::ibverbs::PairStatus::kConnected: {
-            if (pair->GetReadableSize()) {
+            if (pair->HasMessage()) {
               p->events[r].events = EPOLLIN;
               p->events[r].data.ptr = reinterpret_cast<void*>(fd);
               r++;
@@ -1139,16 +1136,15 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
           }
         }
       }
-      gpr_mu_unlock(&p->rdma_mu);
-    }
     t_elapsed_us = ToInt64Microseconds((absl::Now() - begin_poll_time));
   } while (r == 0 && t_elapsed_us < polling_timeout_us);
+  gpr_mu_unlock(&p->rdma_mu);
 
   // Adjust timeout
   if (timeout > 0) {
     timeout = std::max(0l, timeout - t_elapsed_us / 1000);
   }
-
+#endif
   // Busy-polling timeout, switch to epoll
   if (r == 0) {
     if (timeout != 0) {

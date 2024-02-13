@@ -2,6 +2,7 @@
 #include <unistd.h>
 #include "absl/time/clock.h"
 
+#include <poll.h>
 #include <algorithm>
 namespace grpc_core {
 namespace ibverbs {
@@ -45,10 +46,10 @@ void Poller::RemovePollable(grpc_core::ibverbs::PairPollable* pollable) {
   n_pairs_--;
 }
 
-void Poller::poll(int poller_id) {
+void Poller::begin_polling(int poller_id) {
   absl::Time last_poll_time = absl::Now();
   auto poller_sleep_timeout = Config::Get().get_poller_sleep_timeout_ms();
-
+  struct pollfd fds[1];
   gpr_log(GPR_INFO, "Poller started");
 
   while (running_) {
@@ -71,29 +72,37 @@ void Poller::poll(int poller_id) {
     auto* pair = reinterpret_cast<PairPollable*>(pairs_[id].load());
 
     if (pair != nullptr) {
-      auto status = pair->get_status();
-      bool trigger;
+      auto wakeup_fd = pair->get_wakeup_fd();
+      fds[0].fd = wakeup_fd->read_fd;
+      fds[0].events = POLLIN;
 
-      switch (status) {
-        case PairStatus::kConnected: {
-          // N.B. Do not use GetWritableSize to trigger event, it slows down
-          trigger = pair->HasMessage() || pair->GetRemainWriteSize();
-          break;
+      int rn = poll(fds, 1, 0);
+
+      if (rn <= 0) {
+        auto status = pair->get_status();
+        bool trigger;
+
+        switch (status) {
+          case PairStatus::kConnected: {
+            // N.B. Do not use GetWritableSize to trigger event, it slows down
+            trigger = pair->HasMessage() || pair->GetRemainWriteSize();
+            break;
+          }
+          case PairStatus::kHalfClosed:
+          case PairStatus::kError: {
+            trigger = true;
+            break;
+          }
+          default:
+            trigger = false;
         }
-        case PairStatus::kHalfClosed:
-        case PairStatus::kError: {
-          trigger = true;
-          break;
-        }
-        default:
-          trigger = false;
-      }
 
-      if (trigger) {
-        auto err = grpc_wakeup_fd_wakeup(pair->get_wakeup_fd());
+        if (trigger) {
+          auto err = grpc_wakeup_fd_wakeup(wakeup_fd);
 
-        if (err != GRPC_ERROR_NONE) {
-          gpr_log(GPR_ERROR, "wakeup fd error, Pair %p", pair);
+          if (err != GRPC_ERROR_NONE) {
+            gpr_log(GPR_ERROR, "wakeup fd error, Pair %p", pair);
+          }
         }
       }
     }
