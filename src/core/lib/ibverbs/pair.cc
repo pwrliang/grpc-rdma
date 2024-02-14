@@ -238,7 +238,9 @@ uint64_t PairPollable::Send(iovec* iov, uint64_t iov_size) {
 
 uint64_t PairPollable::Recv(void* buf, uint64_t capacity) {
   GRPCProfiler profiler(GRPC_STATS_TIME_PAIR_RECV);
-  GPR_ASSERT(status_ == PairStatus::kConnected);
+  if (status_ != PairStatus::kConnected) {
+    return 0;
+  }
   ContentAssertion cassert(read_content_);
   uint64_t internal_read_bytes;
   auto read_size = ring_buf_.Read(buf, capacity, &internal_read_bytes);
