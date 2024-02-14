@@ -1112,15 +1112,19 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
 
       switch (status) {
         case grpc_core::ibverbs::PairStatus::kConnected: {
-          if (pair->HasMessage()) {
-            p->events[r].events = EPOLLIN;
-            p->events[r].data.ptr = reinterpret_cast<void*>(fd);
-            r++;
+          bool readable = pair->HasMessage();
+          bool writable = pair->GetRemainWriteSize() > 0;
+          uint32_t events = 0;
+
+          if (readable) {
+            events |= EPOLLIN;
+          }
+          if (writable) {
+            events |= EPOLLOUT;
           }
 
-          // N.B. Do not use GetWritableSize to trigger event, it slows down
-          if (pair->GetRemainWriteSize() && r < MAX_EPOLL_EVENTS) {
-            p->events[r].events = EPOLLOUT;
+          if (events) {
+            p->events[r].events = events;
             p->events[r].data.ptr = reinterpret_cast<void*>(fd);
             r++;
           }
