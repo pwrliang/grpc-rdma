@@ -64,7 +64,7 @@ PairPollable::PairPollable(const std::shared_ptr<Device>& dev)
 }
 
 PairPollable::~PairPollable() {
-  gpr_log(GPR_INFO, "Destroy Pair");
+  gpr_log(GPR_INFO, "Destroy Pair %p", this);
   IBVERBS_CHECK(error_, ibv_destroy_qp(qp_));
   IBVERBS_CHECK(error_, ibv_destroy_cq(cq_));
   grpc_wakeup_fd_destroy(&wakeup_fd_);

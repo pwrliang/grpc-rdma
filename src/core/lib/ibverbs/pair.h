@@ -216,7 +216,7 @@ class PairPollable {
       sprintf(msg,
               "PID %d Read %lu Write %lu Readable Size %lu Head %lu Remote "
               "Head %lu "
-              "Remote Tail %lu PendingWrite Data %d PendingWrite Status %d "
+              "Remote Tail %lu PendingComp Data %d PendingComp Status %d "
               "Status %d",
               getpid(), total_read_size_.load(), total_write_size_.load(),
               readable_size, ring_buf_.get_head(), remote_head, remote_tail_,
@@ -229,7 +229,7 @@ class PairPollable {
       }
       sleep(1);
     }
-    gpr_log(GPR_INFO, "Monitor Exits");
+    gpr_log(GPR_INFO, "Monitor Exits, Pair %p", this);
   }
 };
 

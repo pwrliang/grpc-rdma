@@ -510,20 +510,10 @@ static void fd_orphan(grpc_fd* fd, grpc_closure* on_done, int* release_fd,
     memset(&ev_fd, 0, sizeof(ev_fd));
     if (pollable_obj != nullptr) {  // For PO_FD.
       epoll_ctl(pollable_obj->epfd, EPOLL_CTL_DEL, fd->fd, &ev_fd);
-      if (fd->pair) {
-        epoll_ctl(pollable_obj->epfd, EPOLL_CTL_DEL,
-                  fd->pair->get_wakeup_fd()->read_fd, &ev_fd);
-      }
     }
-
     for (size_t i = 0; i < fd->pollset_fds.size(); ++i) {  // For PO_MULTI.
       const int epfd = fd->pollset_fds[i];
       epoll_ctl(epfd, EPOLL_CTL_DEL, fd->fd, &ev_fd);
-      if (fd->pair) {  // never reach here before, bugs may happen if you
-                       // reach here
-        epoll_ctl(epfd, EPOLL_CTL_DEL, fd->pair->get_wakeup_fd()->read_fd,
-                  &ev_fd);
-      }
     }
     *release_fd = fd->fd;
   } else {
@@ -532,11 +522,22 @@ static void fd_orphan(grpc_fd* fd, grpc_closure* on_done, int* release_fd,
   }
 
   if (fd->pair != nullptr) {
+    epoll_event ev_fd;
+    int wakeup_fd = fd->pair->get_wakeup_fd()->read_fd;
+
+    if (pollable_obj != nullptr) {
+      epoll_ctl(pollable_obj->epfd, EPOLL_CTL_DEL, wakeup_fd, &ev_fd);
+    }
+    for (size_t i = 0; i < fd->pollset_fds.size(); ++i) {
+      const int epfd = fd->pollset_fds[i];
+      epoll_ctl(epfd, EPOLL_CTL_DEL, wakeup_fd, &ev_fd);
+    }
+
     gpr_mu_lock(&fd->rdma_mu);
     auto pollables = *fd->polling_by;
     gpr_mu_unlock(&fd->rdma_mu);
 
-    for (auto p : pollables) {
+    for (auto* p : pollables) {
       gpr_mu_lock(&p->rdma_mu);
       p->rdma_fds->erase(
           std::remove(p->rdma_fds->begin(), p->rdma_fds->end(), fd),
@@ -722,10 +723,9 @@ static grpc_error_handle pollable_add_fd(pollable* p, grpc_fd* fd) {
       fd->polling_by->push_back(p);
 
       struct epoll_event wakeup_ep_ev;
-      wakeup_ep_ev.events =
-          static_cast<uint32_t>(EPOLLIN | EPOLLET | EPOLLEXCLUSIVE);
-      wakeup_ep_ev.data.ptr = reinterpret_cast<void*>(
-          reinterpret_cast<intptr_t>(reinterpret_cast<intptr_t>(fd) | 2));
+      wakeup_ep_ev.events = static_cast<uint32_t>(EPOLLIN | EPOLLET);
+      wakeup_ep_ev.data.ptr =
+          reinterpret_cast<void*>(2 | reinterpret_cast<intptr_t>(fd));
       int wakeup_fd = fd->pair->get_wakeup_fd()->read_fd;
 
       if (epoll_ctl(epfd, EPOLL_CTL_ADD, wakeup_fd, &wakeup_ep_ev) != 0) {
@@ -990,6 +990,7 @@ static grpc_error_handle pollable_process_events(grpc_pollset* pollset,
     handle_count = 1;
   }
   grpc_error_handle error = GRPC_ERROR_NONE;
+
   for (int i = 0; (drain || i < handle_count) &&
                   pollable_obj->event_cursor != pollable_obj->event_count;
        i++) {
@@ -1006,9 +1007,9 @@ static grpc_error_handle pollable_process_events(grpc_pollset* pollset,
               ~static_cast<intptr_t>(1) &
               reinterpret_cast<intptr_t>(data_ptr))),
           err_desc);
-    } else if ((reinterpret_cast<intptr_t>(data_ptr) & 2) == 2) {
-      grpc_fd* fd = reinterpret_cast<grpc_fd*>(
-          ~static_cast<intptr_t>(2) & reinterpret_cast<intptr_t>(ev->data.ptr));
+    } else if (2 & reinterpret_cast<intptr_t>(data_ptr)) {
+      grpc_fd* fd =
+          reinterpret_cast<grpc_fd*>(reinterpret_cast<intptr_t>(data_ptr) & ~2);
       auto* pair = fd->pair;
 
       // pair maybe null when fd is destroyed
