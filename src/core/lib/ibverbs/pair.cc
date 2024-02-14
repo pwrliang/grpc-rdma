@@ -89,6 +89,9 @@ void PairPollable::Init() {
     auto recv_buf_size = Config::Get().get_ring_buffer_size_kb() * 1024;
     auto send_buf_size = recv_buf_size / 2;
 
+    // used to check peer has the same size.
+    self_.addr_.ring_buffer_size = recv_buf_size;
+
     initSendBuffer(kDataBuffer, send_buf_size);
     initRecvBuffer(kDataBuffer, recv_buf_size);
     initSendBuffer(kStatusBuffer, sizeof(status_report));
@@ -124,6 +127,7 @@ bool PairPollable::Connect(const std::vector<char>& bytes) {
     peer_ = Address(bytes);
 
     GPR_ASSERT(peer_.addr_.tag == self_.addr_.tag);
+    GPR_ASSERT(peer_.addr_.ring_buffer_size == self_.addr_.ring_buffer_size);
 
     initQPs();
 

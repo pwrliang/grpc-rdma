@@ -9,7 +9,6 @@
 namespace grpc_core {
 namespace ibverbs {
 
-
 class Address {
  public:
   Address();
@@ -28,6 +27,7 @@ class Address {
     uint32_t psn;
     union ibv_gid ibv_gid;
     uint32_t tag;
+    uint64_t ring_buffer_size;
   } addr_;
 
   // Pair can access addr_ directly
