@@ -577,6 +577,8 @@ static bool rdma_can_track_err(grpc_endpoint* ep) {
   return addr.sa_family == AF_INET || addr.sa_family == AF_INET6;
 }
 
+// TODO: we may use grpc_fd_notify_on_read, refer
+// tcp_server_posix.cc::tcp_server_start
 int exchange_data(int fd, const char* buf_in, char* buf_out, const size_t sz) {
   size_t bytes_send = 0, bytes_recv = 0;
   if (fd < 3) {
