@@ -1037,13 +1037,9 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
 
   if (has_rdma_fds) {
     auto begin_poll_time = absl::Now();
-    absl::Time last_epoll_time;
 
     do {
-      if ((absl::Now() - last_epoll_time) > absl::Microseconds(1000)) {
-        r = epoll_wait(p->epfd, p->events, MAX_EPOLL_EVENTS, 0);
-        last_epoll_time = absl::Now();
-      }
+      r = epoll_wait(p->epfd, p->events, MAX_EPOLL_EVENTS, 0);
 
       if (r <= 0) {
         r = 0;  // r < 0 if epoll_wait fails
