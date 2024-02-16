@@ -1039,10 +1039,16 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
     auto begin_poll_time = absl::Now();
 
     do {
+      // we need to call epoll_wait to handle kick and new connection events
       r = epoll_wait(p->epfd, p->events, MAX_EPOLL_EVENTS, 0);
 
+      if (r < 0 && errno == EINTR) {
+        continue;
+      }
+
+      // r < 0, non-interrupt error
       if (r <= 0) {
-        r = 0;  // r < 0 if epoll_wait fails
+        r = 0;
         gpr_mu_lock(&p->rdma_mu);
         auto& fds = *p->rdma_fds;
         for (size_t i = 0; i < fds.size() && r < MAX_EPOLL_EVENTS; i++) {
@@ -1084,9 +1090,8 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
         }
         gpr_mu_unlock(&p->rdma_mu);
       }
-    } while ((r < 0 && errno == EINTR) ||
-             (r == 0 && (timeout == -1 || (absl::Now() - begin_poll_time) <
-                                              absl::Milliseconds(timeout))));
+    } while (r == 0 && (timeout == -1 || (absl::Now() - begin_poll_time) <
+                                             absl::Milliseconds(timeout)));
   } else {
     if (timeout != 0) {
       GRPC_SCHEDULING_START_BLOCKING_REGION;
