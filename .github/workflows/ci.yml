@@ -15,7 +15,7 @@ jobs:
       - name: Prepare Env
         run: |
 
-      - name: Prepare gRPC
+      - name: Prepare Dependencies
         run: |
           shopt -s expand_aliases
           alias my_srun='srun --nodes=1 --ntasks-per-node=1 --cpus-per-task=16 --partition=devel --job-name=rpc_ci'
@@ -56,20 +56,21 @@ jobs:
           
           popd
 
-      - name: Build Debug
+      - name: Build gRPC
         run: |
+          shopt -s expand_aliases
+          alias my_srun='srun --nodes=1 --ntasks-per-node=1 --cpus-per-task=16 --partition=devel --job-name=rpc_ci'
+
           rm -rf debug && mkdir debug
           pushd debug
           cmake .. -DCMAKE_INSTALL_PREFIX=$DBG_PREFIX -DCMAKE_BUILD_TYPE=Debug
-          make -j install
+          my_srun make -j install
           popd
 
-      - name: Build Release
-        run: |
           rm -rf release && mkdir release
           pushd release
           cmake .. -DCMAKE_INSTALL_PREFIX=$REL_PREFIX -DCMAKE_BUILD_TYPE=Release
-          make -j install
+          my_srun make -j install
           popd
 
       - name: Build Test Debug
