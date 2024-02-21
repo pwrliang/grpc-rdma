@@ -81,6 +81,8 @@ jobs:
         run: |
           pushd examples/cpp/micro-bench/launcher
           srun --nodes=2 --ntasks-per-node=1 --cpus-per-task=8 --partition=devel --job-name=rpc_ci sleep 3600 &
+          # Wait allocation done
+          sleep 10
           squeue -u $USER -o %N | tail -n 1 | xargs ./helper.sh
           popd
           
@@ -89,7 +91,6 @@ jobs:
         run: |
           pushd examples/cpp/micro-bench/launcher
           rm -f ./log/*
-          sleep 1000
           MB_HOME=$PWD/../debug GRPC_PLATFORM_TYPE="RDMA_BP" ./run-all.sh --throughput
           popd
 
