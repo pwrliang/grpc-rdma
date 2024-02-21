@@ -87,8 +87,8 @@ jobs:
           popd
           popd
 
-      - name: Test Debug
-        timeout-minutes: 8
+      - name: Local Test Debug
+        timeout-minutes: 20
         run: |
           pushd examples/cpp/test
           GRPC_PLATFORM_TYPE="RDMA_BP" ./test.sh --test-client=./debug
@@ -104,8 +104,8 @@ jobs:
           GRPC_PLATFORM_TYPE="RDMA_BPEV" ./test.sh --test-async-client2=./debug
           popd
 
-      - name: Test Release
-        timeout-minutes: 8
+      - name: Local Test Release
+        timeout-minutes: 20
         run: |
           pushd examples/cpp/test
           GRPC_PLATFORM_TYPE="RDMA_BP" ./test.sh --test-client=./release

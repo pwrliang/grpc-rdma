@@ -5,7 +5,7 @@ import sys
 nodelist = sys.argv[1]
 output = []
 
-m = re.match(r"^(\w+)\[(.*?)]$", nodelist)
+m = re.match(r"^(.*?)\[(.*?)]$", nodelist)
 if m is not None:
     prefix = m.groups()[0]
     node_ranges = m.groups()[1]
