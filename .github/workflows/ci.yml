@@ -27,14 +27,14 @@ jobs:
           rm -rf debug && mkdir debug
           pushd debug
           cmake .. -DCMAKE_INSTALL_PREFIX=$DBG_PREFIX -DCMAKE_BUILD_TYPE=Debug
-          my_srun make -j install
+          my_srun make -j16 install
           popd
           
           # Build absel in release mode
           rm -rf release && mkdir release
           pushd release
           cmake .. -DCMAKE_INSTALL_PREFIX=$REL_PREFIX -DCMAKE_BUILD_TYPE=Release
-          my_srun make -j install
+          my_srun make -j16 install
           popd
           
           popd
@@ -45,13 +45,13 @@ jobs:
           rm -rf debug && mkdir debug
           pushd debug
           cmake .. -DCMAKE_INSTALL_PREFIX=$DBG_PREFIX -DCMAKE_BUILD_TYPE=Debug
-          my_srun make -j install
+          my_srun make -j16 install
           popd
           
           rm -rf release && mkdir release
           pushd release
           cmake .. -DCMAKE_INSTALL_PREFIX=$REL_PREFIX -DCMAKE_BUILD_TYPE=Release
-          my_srun make -j install
+          my_srun make -j16 install
           popd
           
           popd
@@ -64,13 +64,13 @@ jobs:
           rm -rf debug && mkdir debug
           pushd debug
           cmake .. -DCMAKE_INSTALL_PREFIX=$DBG_PREFIX -DCMAKE_BUILD_TYPE=Debug
-          my_srun make -j install
+          my_srun make -j16 install
           popd
 
           rm -rf release && mkdir release
           pushd release
           cmake .. -DCMAKE_INSTALL_PREFIX=$REL_PREFIX -DCMAKE_BUILD_TYPE=Release
-          my_srun make -j install
+          my_srun make -j16 install
           popd
 
       - name: Build Test Debug
