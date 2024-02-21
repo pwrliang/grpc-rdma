@@ -17,11 +17,12 @@ DURATION=10
 CONCURRENT=1
 REQ_SIZE=64
 RESP_SIZE=4096
+DELAY=0
+RANDOM_DELAY="false"
 NUMA="false"
 PROFILING="false"
 OVERWRITE=0
 N_WARMUP=10000
-
 
 for i in "$@"; do
   case $i in
@@ -53,6 +54,14 @@ for i in "$@"; do
     RESP_SIZE="${i#*=}"
     shift
     ;;
+  --delay=*)
+    DELAY="${i#*=}"
+    shift
+    ;;
+  --random-delay=*)
+    RANDOM_DELAY="${i#*=}"
+    shift
+    ;;
   --concurrent=*)
     CONCURRENT="${i#*=}"
     shift
@@ -62,7 +71,7 @@ for i in "$@"; do
     shift
     ;;
   --polling-thread=*)
-    export GRPC_RDMA_POLLING_THREAD="${i#*=}"
+    export GRPC_RDMA_POLLER_THREAD_NUM="${i#*=}"
     shift
     ;;
   --ring-buffer-kb=*)
@@ -94,14 +103,27 @@ for i in "$@"; do
 done
 
 function kill_server() {
-  ssh "$SERVER" 'ps aux | pgrep mb_server | xargs kill -USR1 2>/dev/null'
-  ssh "$SERVER" 'ps aux | pgrep mb_server | xargs kill -9 2>/dev/null && while [[ $(ps aux | pgrep mb_server) ]]; do sleep 1; done || true'
+   ssh "$SERVER" "pkill -9 pidstat"
+  # Signal to print profiling results
+  ssh "$SERVER" 'pgrep mb_server | xargs kill -USR1 2>/dev/null'
+  # Kill Server
+  ssh "$SERVER" 'pgrep mb_server | xargs kill -9 2>/dev/null && while [[ $(ps aux | pgrep mb_server) ]]; do sleep 1; done || true'
 }
 
 function start_server() {
   kill_server
   echo "Start server on node $SERVER"
-  mpirun --bind-to none -q -x GRPC_PLATFORM_TYPE -x GRPC_RDMA_BUSY_POLLING_TIMEOUT_US -x GRPC_RDMA_POLLING_THREAD \
+
+  # Generate head
+  pidstat  -r -u -w -h 1 1 | grep '#' > "${server_stat_log_path}"
+  ssh "${SERVER}" "nohup sh -c 'pidstat  -r -u -w -h 1 | grep --line-buffered mb_server' >>${server_stat_log_path} 2>/dev/null &"
+  mpirun --bind-to none -q \
+    -x GRPC_PLATFORM_TYPE \
+    -x GRPC_RDMA_BUSY_POLLING_TIMEOUT_US \
+    -x GRPC_RDMA_POLLER_THREAD_NUM \
+    -x GRPC_RDMA_RING_BUFFER_SIZE_KB \
+    -x GRPC_VERBOSITY \
+    -x GRPC_TRACE \
     -n 1 -host "$SERVER" \
     "$MB_HOME"/$SERVER_PROGRAM \
     -cqs=$CQS \
@@ -121,6 +143,7 @@ LOG_PREFIX=$(realpath "$SCRIPT_DIR/logs/")
 mkdir -p "$LOG_PREFIX"
 
 server_log_path="${LOG_PREFIX}/server_${LOG_NAME}.log"
+server_stat_log_path="${LOG_PREFIX}/server_stat_${LOG_NAME}.log"
 cli_log_path="${LOG_PREFIX}/client_${LOG_NAME}.log"
 
 if [[ $OVERWRITE -eq 1 ]]; then
@@ -136,8 +159,14 @@ else
     tail -n +2 "$HOSTS_PATH" >"$tmp_host"
     echo "============================= Running $NP clients, server threads: $SERVER_THREADS, req: $REQ_SIZE, resp: $RESP_SIZE rpcs: $N_RPCS duration: $DURATION"
     start_server "$server_log_path"
+
     # Evaluate
-    cmd="mpirun --bind-to none -x GRPC_PLATFORM_TYPE -x GRPC_RDMA_BUSY_POLLING_TIMEOUT_US \
+    cmd="mpirun --bind-to none \
+      -x GRPC_PLATFORM_TYPE \
+      -x GRPC_RDMA_RING_BUFFER_SIZE_KB \
+      -x GRPC_RDMA_BUSY_POLLING_TIMEOUT_US \
+      -x GRPC_VERBOSITY \
+      -x GRPC_TRACE \
       --oversubscribe \
       -mca btl_tcp_if_include ib0 \
       -mca btl_openib_allow_ib true \
@@ -150,7 +179,10 @@ else
       -warmup=$N_WARMUP \
       -rpcs=$N_RPCS \
       -concurrent=$CONCURRENT \
-      -duration=$DURATION"
+      -duration=$DURATION \
+      -delay=$DELAY \
+      -report_interval=1 \
+      -random_delay=$RANDOM_DELAY"
 
     echo "$cmd" >"${cli_log_path}.tmp"
     eval "$cmd" 2>&1 | tee -a "${cli_log_path}.tmp"
