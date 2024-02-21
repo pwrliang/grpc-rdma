@@ -207,21 +207,27 @@ class PairPollable {
     auto* status_buf = recv_buffers_[kStatusBuffer].get();
     auto* status = reinterpret_cast<status_report*>(status_buf->data());
     char last_msg[1024];
+    char thread_name[1024];
+
+    std::sprintf(thread_name, "monitor_th_pair_%p", this);
+    pthread_setname_np(pthread_self(), thread_name);
 
     while (debugging_) {
       char msg[1024];
       auto remote_head = status->remote_head;
       auto readable_size = GetReadableSize();
+      auto remain_write_size = GetRemainWriteSize();
 
       sprintf(msg,
-              "PID %d Read %lu Write %lu Readable Size %lu Head %lu Remote "
+              "PID %d Read %lu Write %lu Readable %lu Remain Write %lu Head "
+              "%lu Remote "
               "Head %lu "
               "Remote Tail %lu PendingComp Data %d PendingComp Status %d "
               "Status %d",
               getpid(), total_read_size_.load(), total_write_size_.load(),
-              readable_size, ring_buf_.get_head(), remote_head, remote_tail_,
-              pending_write_num_data_.load(), pending_write_num_status_.load(),
-              get_status());
+              readable_size, remain_write_size, ring_buf_.get_head(),
+              remote_head, remote_tail_, pending_write_num_data_.load(),
+              pending_write_num_status_.load(), get_status());
 
       if (strcmp(last_msg, msg) != 0) {
         gpr_log(GPR_INFO, "Pair %p %s", this, msg);
