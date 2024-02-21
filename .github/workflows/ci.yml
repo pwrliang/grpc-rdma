@@ -14,11 +14,12 @@ jobs:
           submodules: true
       - name: Prepare Env
         run: |
-          shopt -s expand_aliases
-          alias my_srun='srun --nodes=1 --ntasks-per-node=1 --cpus-per-task=16 --partition=devel --job-name=rpc_ci'
 
       - name: Prepare gRPC
         run: |
+          shopt -s expand_aliases
+          alias my_srun='srun --nodes=1 --ntasks-per-node=1 --cpus-per-task=16 --partition=devel --job-name=rpc_ci'
+
           rm -rf $DBG_PREFIX $REL_PREFIX && mkdir -p $DBG_PREFIX $REL_PREFIX
           pushd third_party/abseil-cpp 
           
@@ -60,7 +61,7 @@ jobs:
           rm -rf debug && mkdir debug
           pushd debug
           cmake .. -DCMAKE_INSTALL_PREFIX=$DBG_PREFIX -DCMAKE_BUILD_TYPE=Debug
-          my_srun make -j install
+          make -j install
           popd
 
       - name: Build Release
@@ -68,7 +69,7 @@ jobs:
           rm -rf release && mkdir release
           pushd release
           cmake .. -DCMAKE_INSTALL_PREFIX=$REL_PREFIX -DCMAKE_BUILD_TYPE=Release
-          my_srun make -j install
+          make -j install
           popd
 
       - name: Build Test Debug
