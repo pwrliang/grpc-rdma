@@ -96,6 +96,9 @@ jobs:
       - name: Local Test Debug
         timeout-minutes: 20
         run: |
+          shopt -s expand_aliases
+          alias my_srun='srun --nodes=1 --ntasks-per-node=1 --cpus-per-task=16 --partition=devel --job-name=rpc_ci'
+          
           pushd examples/cpp/test
           GRPC_PLATFORM_TYPE="RDMA_BP" my_srun ./test.sh --test-client=./debug
           GRPC_PLATFORM_TYPE="RDMA_EVENT" my_srun ./test.sh --test-client=./debug
@@ -113,6 +116,9 @@ jobs:
       - name: Local Test Release
         timeout-minutes: 20
         run: |
+          shopt -s expand_aliases
+          alias my_srun='srun --nodes=1 --ntasks-per-node=1 --cpus-per-task=16 --partition=devel --job-name=rpc_ci'
+          
           pushd examples/cpp/test
           GRPC_PLATFORM_TYPE="RDMA_BP" my_srun ./test.sh --test-client=./release
           GRPC_PLATFORM_TYPE="RDMA_EVENT" my_srun ./test.sh --test-client=./release
