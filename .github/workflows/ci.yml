@@ -22,14 +22,14 @@ jobs:
           rm -rf debug && mkdir debug
           pushd debug
           cmake .. -DCMAKE_INSTALL_PREFIX=$DBG_PREFIX -DCMAKE_BUILD_TYPE=Debug
-          make -j8 install
+          my_srun make -j install
           popd
           
           # Build absel in release mode
           rm -rf release && mkdir release
           pushd release
           cmake .. -DCMAKE_INSTALL_PREFIX=$REL_PREFIX -DCMAKE_BUILD_TYPE=Release
-          make -j8 install
+          my_srun make -j install
           popd
           
           popd
@@ -40,13 +40,13 @@ jobs:
           rm -rf debug && mkdir debug
           pushd debug
           cmake .. -DCMAKE_INSTALL_PREFIX=$DBG_PREFIX -DCMAKE_BUILD_TYPE=Debug
-          make -j8 install
+          my_srun make -j install
           popd
           
           rm -rf release && mkdir release
           pushd release
           cmake .. -DCMAKE_INSTALL_PREFIX=$REL_PREFIX -DCMAKE_BUILD_TYPE=Release
-          make -j8 install
+          my_srun make -j install
           popd
           
           popd
@@ -56,7 +56,7 @@ jobs:
           rm -rf debug && mkdir debug
           pushd debug
           cmake .. -DCMAKE_INSTALL_PREFIX=$DBG_PREFIX -DCMAKE_BUILD_TYPE=Debug
-          make -j8 install
+          my_srun make -j install
           popd
 
       - name: Build Release
@@ -64,7 +64,7 @@ jobs:
           rm -rf release && mkdir release
           pushd release
           cmake .. -DCMAKE_INSTALL_PREFIX=$REL_PREFIX -DCMAKE_BUILD_TYPE=Release
-          make -j8 install
+          my_srun make -j install
           popd
 
       - name: Build Test Debug
@@ -91,34 +91,34 @@ jobs:
         timeout-minutes: 20
         run: |
           pushd examples/cpp/test
-          GRPC_PLATFORM_TYPE="RDMA_BP" srun --nodes=1 --ntasks-per-node=1 --cpus-per-task=16 --partition=devel --job-name=rpc_ci ./test.sh --test-client=./debug
-          GRPC_PLATFORM_TYPE="RDMA_EVENT" srun --nodes=1 --ntasks-per-node=1 --cpus-per-task=16 --partition=devel --job-name=rpc_ci ./test.sh --test-client=./debug
-          GRPC_PLATFORM_TYPE="RDMA_BPEV" srun --nodes=1 --ntasks-per-node=1 --cpus-per-task=16 --partition=devel --job-name=rpc_ci ./test.sh --test-client=./debug
+          GRPC_PLATFORM_TYPE="RDMA_BP" my_srun ./test.sh --test-client=./debug
+          GRPC_PLATFORM_TYPE="RDMA_EVENT" my_srun ./test.sh --test-client=./debug
+          GRPC_PLATFORM_TYPE="RDMA_BPEV" my_srun ./test.sh --test-client=./debug
           
-          GRPC_PLATFORM_TYPE="RDMA_BP" srun --nodes=1 --ntasks-per-node=1 --cpus-per-task=16 --partition=devel --job-name=rpc_ci ./test.sh --test-async-client=./debug
-          GRPC_PLATFORM_TYPE="RDMA_EVENT" srun --nodes=1 --ntasks-per-node=1 --cpus-per-task=16 --partition=devel --job-name=rpc_ci ./test.sh --test-async-client=./debug
-          GRPC_PLATFORM_TYPE="RDMA_BPEV" srun --nodes=1 --ntasks-per-node=1 --cpus-per-task=16 --partition=devel --job-name=rpc_ci ./test.sh --test-async-client=./debug
+          GRPC_PLATFORM_TYPE="RDMA_BP" my_srun ./test.sh --test-async-client=./debug
+          GRPC_PLATFORM_TYPE="RDMA_EVENT" my_srun ./test.sh --test-async-client=./debug
+          GRPC_PLATFORM_TYPE="RDMA_BPEV" my_srun ./test.sh --test-async-client=./debug
           
-          GRPC_PLATFORM_TYPE="RDMA_BP" srun --nodes=1 --ntasks-per-node=1 --cpus-per-task=16 --partition=devel --job-name=rpc_ci ./test.sh --test-async-client2=./debug
-          GRPC_PLATFORM_TYPE="RDMA_EVENT" srun --nodes=1 --ntasks-per-node=1 --cpus-per-task=16 --partition=devel --job-name=rpc_ci ./test.sh --test-async-client2=./debug
-          GRPC_PLATFORM_TYPE="RDMA_BPEV" srun --nodes=1 --ntasks-per-node=1 --cpus-per-task=16 --partition=devel --job-name=rpc_ci ./test.sh --test-async-client2=./debug
+          GRPC_PLATFORM_TYPE="RDMA_BP" my_srun ./test.sh --test-async-client2=./debug
+          GRPC_PLATFORM_TYPE="RDMA_EVENT" my_srun ./test.sh --test-async-client2=./debug
+          GRPC_PLATFORM_TYPE="RDMA_BPEV" my_srun ./test.sh --test-async-client2=./debug
           popd
 
       - name: Local Test Release
         timeout-minutes: 20
         run: |
           pushd examples/cpp/test
-          GRPC_PLATFORM_TYPE="RDMA_BP" srun --nodes=1 --ntasks-per-node=1 --cpus-per-task=16 --partition=devel --job-name=rpc_ci ./test.sh --test-client=./release
-          GRPC_PLATFORM_TYPE="RDMA_EVENT" srun --nodes=1 --ntasks-per-node=1 --cpus-per-task=16 --partition=devel --job-name=rpc_ci ./test.sh --test-client=./release
-          GRPC_PLATFORM_TYPE="RDMA_BPEV" srun --nodes=1 --ntasks-per-node=1 --cpus-per-task=16 --partition=devel --job-name=rpc_ci ./test.sh --test-client=./release
+          GRPC_PLATFORM_TYPE="RDMA_BP" my_srun ./test.sh --test-client=./release
+          GRPC_PLATFORM_TYPE="RDMA_EVENT" my_srun ./test.sh --test-client=./release
+          GRPC_PLATFORM_TYPE="RDMA_BPEV" my_srun ./test.sh --test-client=./release
           
-          GRPC_PLATFORM_TYPE="RDMA_BP" srun --nodes=1 --ntasks-per-node=1 --cpus-per-task=16 --partition=devel --job-name=rpc_ci ./test.sh --test-async-client=./release
-          GRPC_PLATFORM_TYPE="RDMA_EVENT" srun --nodes=1 --ntasks-per-node=1 --cpus-per-task=16 --partition=devel --job-name=rpc_ci ./test.sh --test-async-client=./release
-          GRPC_PLATFORM_TYPE="RDMA_BPEV" srun --nodes=1 --ntasks-per-node=1 --cpus-per-task=16 --partition=devel --job-name=rpc_ci ./test.sh --test-async-client=./release
+          GRPC_PLATFORM_TYPE="RDMA_BP" my_srun ./test.sh --test-async-client=./release
+          GRPC_PLATFORM_TYPE="RDMA_EVENT" my_srun ./test.sh --test-async-client=./release
+          GRPC_PLATFORM_TYPE="RDMA_BPEV" my_srun ./test.sh --test-async-client=./release
           
-          GRPC_PLATFORM_TYPE="RDMA_BP" srun --nodes=1 --ntasks-per-node=1 --cpus-per-task=16 --partition=devel --job-name=rpc_ci ./test.sh --test-async-client2=./release
-          GRPC_PLATFORM_TYPE="RDMA_EVENT" srun --nodes=1 --ntasks-per-node=1 --cpus-per-task=16 --partition=devel --job-name=rpc_ci ./test.sh --test-async-client2=./release
-          GRPC_PLATFORM_TYPE="RDMA_BPEV" srun --nodes=1 --ntasks-per-node=1 --cpus-per-task=16 --partition=devel --job-name=rpc_ci ./test.sh --test-async-client2=./release
+          GRPC_PLATFORM_TYPE="RDMA_BP" my_srun ./test.sh --test-async-client2=./release
+          GRPC_PLATFORM_TYPE="RDMA_EVENT" my_srun ./test.sh --test-async-client2=./release
+          GRPC_PLATFORM_TYPE="RDMA_BPEV" my_srun ./test.sh --test-async-client2=./release
           popd
 
       - name: Cleanup
