@@ -12,8 +12,12 @@ jobs:
       - uses: actions/checkout@v2
         with:
           submodules: true
+      - name: Prepare Env
+        run: |
+          shopt -s expand_aliases
+          alias my_srun='srun --nodes=1 --ntasks-per-node=1 --cpus-per-task=16 --partition=devel --job-name=rpc_ci'
 
-      - name: Prepare
+      - name: Prepare gRPC
         run: |
           rm -rf $DBG_PREFIX $REL_PREFIX && mkdir -p $DBG_PREFIX $REL_PREFIX
           pushd third_party/abseil-cpp 
