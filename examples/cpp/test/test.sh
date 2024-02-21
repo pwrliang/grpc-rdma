@@ -14,7 +14,7 @@ function start_server() {
 function start_client() {
   echo "Start start_client, mode: ${GRPC_PLATFORM_TYPE}"
   TEST_BUILD_ROOT=$1
-  mpirun --bind-to none -n $NP -output-filename client_log "$TEST_BUILD_ROOT"/greeter_client $PORT
+  mpirun --bind-to none --oversubscribe -n $NP -output-filename client_log "$TEST_BUILD_ROOT"/greeter_client $PORT
   echo "Killing $SERVER_PID"
   kill -9 $SERVER_PID
 }
@@ -29,7 +29,7 @@ function start_async_server() {
 function start_async_client() {
   echo "Start start_async_client, mode: ${GRPC_PLATFORM_TYPE}"
   TEST_BUILD_ROOT=$1
-  mpirun --bind-to none -n $NP -output-filename client_log "$TEST_BUILD_ROOT"/greeter_async_client $PORT
+  mpirun --bind-to none --oversubscribe -n $NP -output-filename client_log "$TEST_BUILD_ROOT"/greeter_async_client $PORT
   echo "Killing $SERVER_PID"
   kill -9 $SERVER_PID
 }
@@ -37,7 +37,7 @@ function start_async_client() {
 function start_async_client2() {
   echo "Start start_async_client2, mode: ${GRPC_PLATFORM_TYPE}"
   TEST_BUILD_ROOT=$1
-  mpirun --bind-to none -n $NP -output-filename client_log "$TEST_BUILD_ROOT"/greeter_async_client2 $PORT
+  mpirun --bind-to none --oversubscribe -n $NP -output-filename client_log "$TEST_BUILD_ROOT"/greeter_async_client2 $PORT
   echo "Killing $SERVER_PID"
   kill -9 $SERVER_PID
 }
