@@ -89,7 +89,7 @@ jobs:
         run: |
           pushd examples/cpp/micro-bench/launcher
           rm -f ./log/*
-          MB_HOME=$PWD/../debug GRPC_PLATFORM_TYPE="RDMA_BP" my_srun ./run-all.sh --throughput
+          MB_HOME=$PWD/../debug GRPC_PLATFORM_TYPE="RDMA_BP" ./run-all.sh --throughput
           popd
 
       - name: Cleanup
