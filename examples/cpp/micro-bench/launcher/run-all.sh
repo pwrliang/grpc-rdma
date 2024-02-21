@@ -13,7 +13,7 @@ if [[ ! -f "$hostfile_template" ]]; then
 fi
 
 # Available options: TCP RDMA_EVENT RDMA_BP RDMA_BPEV
-GRPC_MODES=(RDMA_BP RDMA_BPEV)
+GRPC_MODES=(TCP RDMA_EVENT RDMA_BP RDMA_BPEV)
 
 function set_hostfile() {
   name_prefix=$(basename "$hostfile_template")
@@ -23,7 +23,7 @@ function set_hostfile() {
 }
 
 function throughput() {
-  clients=(128)
+  clients=(1 2 4 8 16 32 64 128)
   server_thread=38
   cqs=$server_thread
   req=32
