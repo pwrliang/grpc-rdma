@@ -53,6 +53,7 @@ add_custom_command(
 # Include generated *.pb.h files
 include_directories("${CMAKE_CURRENT_BINARY_DIR}")
 find_package(MPI REQUIRED)
+find_package(absl REQUIRED)
 
 # mb_grpc_proto
 add_library(mb_grpc_proto
