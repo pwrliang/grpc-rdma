@@ -1,0 +1,10 @@
+
+Inactive Modules:
+  1) mvapich2
+
+
+Activating Modules:
+  1) mvapich2/2.3.6
+
+args: Args { connects: ["10.22.81.20"], port: 5000, log_level: "error", log_dir: None, log_latency: false, req_size: 1024, concurrency: 1, total_iters: 16384, warmup: 1000, duration: None, interval: None, provision_count: 1, num_client_threads: 1, num_server_threads: 1, transport: Rdma }
+Connected for thread 0

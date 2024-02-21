@@ -1,0 +1,2 @@
+Start server 5000
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }

@@ -1,0 +1,24 @@
+mpirun --bind-to none       -x GRPC_PLATFORM_TYPE       -x GRPC_RDMA_RING_BUFFER_SIZE_KB       -x GRPC_RDMA_BUSY_POLLING_TIMEOUT_US       -x GRPC_VERBOSITY       -x GRPC_TRACE       --oversubscribe       -mca btl_tcp_if_include ib0       -mca btl_openib_allow_ib true       -mca btl_openib_warn_default_gid_prefix 0       -hostfile /tmp/geng161_clients       /users/PAS0350/geng161/.clion/grpc-rdma/examples/cpp/micro-bench/cmake-build-release-pitzer02/mb_client       -target=10.22.81.28:50051       -streaming=true       -req=32       -warmup=10000       -rpcs=10000000       -concurrent=1       -duration=10       -delay=0       -report_interval=1       -random_delay=false
+[pitzer-login02.hpc.osc.edu:106776] Warning: could not find environment variable "GRPC_RDMA_RING_BUFFER_SIZE_KB"
+[pitzer-login02.hpc.osc.edu:106776] Warning: could not find environment variable "GRPC_VERBOSITY"
+[pitzer-login02.hpc.osc.edu:106776] Warning: could not find environment variable "GRPC_TRACE"
+
+Inactive Modules:
+  1) mvapich2
+
+
+Activating Modules:
+  1) mvapich2/2.3.6
+
+Req 32 bytes, Warmup 10000, RPCs 10000000, Concurrent 1, Send Delay 0.000 ms, Duration 10 secs, Streaming 1, Coalesce 1, msgs/stream 1000, Report Interval 1 secs
+Host p0022.ten.osc.edu, Rank 0, Rate 192968.44 RPCs/s, TX Bandwidth 52.49 Mb/s, RX Bandwidth 15.44 Mb/s, RTT (us) mean 10.27, P50 6.68, P95 6.71, P99 6.71, max 1421.31
+Host p0022.ten.osc.edu, Rank 0, Rate 263595.98 RPCs/s, TX Bandwidth 71.70 Mb/s, RX Bandwidth 21.09 Mb/s, RTT (us) mean 8.68, P50 6.66, P95 6.68, P99 6.68, max 1421.31
+Host p0022.ten.osc.edu, Rank 0, Rate 262974.49 RPCs/s, TX Bandwidth 71.53 Mb/s, RX Bandwidth 21.04 Mb/s, RTT (us) mean 8.26, P50 6.66, P95 6.67, P99 6.68, max 1421.31
+Host p0022.ten.osc.edu, Rank 0, Rate 263163.61 RPCs/s, TX Bandwidth 71.58 Mb/s, RX Bandwidth 21.05 Mb/s, RTT (us) mean 8.06, P50 6.66, P95 6.67, P99 6.67, max 1421.31
+Host p0022.ten.osc.edu, Rank 0, Rate 262397.00 RPCs/s, TX Bandwidth 71.37 Mb/s, RX Bandwidth 20.99 Mb/s, RTT (us) mean 7.95, P50 6.66, P95 6.67, P99 6.67, max 1421.31
+Host p0022.ten.osc.edu, Rank 0, Rate 263025.27 RPCs/s, TX Bandwidth 71.54 Mb/s, RX Bandwidth 21.04 Mb/s, RTT (us) mean 7.88, P50 6.66, P95 6.67, P99 6.67, max 1421.31
+Host p0022.ten.osc.edu, Rank 0, Rate 260567.48 RPCs/s, TX Bandwidth 70.87 Mb/s, RX Bandwidth 20.85 Mb/s, RTT (us) mean 7.84, P50 6.66, P95 6.67, P99 6.67, max 1421.31
+Host p0022.ten.osc.edu, Rank 0, Rate 261519.46 RPCs/s, TX Bandwidth 71.13 Mb/s, RX Bandwidth 20.92 Mb/s, RTT (us) mean 7.80, P50 6.66, P95 6.67, P99 6.67, max 1421.31
+Host p0022.ten.osc.edu, Rank 0, Rate 223442.63 RPCs/s, TX Bandwidth 60.78 Mb/s, RX Bandwidth 17.88 Mb/s, RTT (us) mean 7.91, P50 6.66, P95 6.68, P99 6.68, max 1421.31
+Aggregated RPC Rate 243982.00 RPCs/s, Aggregated TX Bandwidth 66.36 Mb/s RX Bandwidth 19.52 Mb/s
+RTT (us) mean 8.12, P50 6.66, P95 6.68, P99 6.68, max 1421.31

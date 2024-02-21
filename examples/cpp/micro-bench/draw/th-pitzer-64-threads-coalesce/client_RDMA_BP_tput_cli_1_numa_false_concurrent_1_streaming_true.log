@@ -1,0 +1,20 @@
+mpirun --bind-to none -x GRPC_PLATFORM_TYPE -x GRPC_RDMA_BUSY_POLLING_TIMEOUT_US       --oversubscribe       -mca btl_tcp_if_include ib0       -mca btl_openib_allow_ib true       -mca btl_openib_warn_default_gid_prefix 0       -hostfile /tmp/geng161_clients       /users/PAS0350/geng161/.clion/grpc-rdma/examples/cpp/micro-bench/cmake-build-release-pitzer02/mb_client       -target=10.22.81.44:50051       -streaming=true       -req=32       -warmup=10000       -rpcs=10000000       -concurrent=1       -duration=10
+
+Inactive Modules:
+  1) mvapich2
+
+
+Activating Modules:
+  1) mvapich2/2.3.6
+
+Req 32 bytes, Warmup 10000, RPCs 10000000, Concurrent 1, Duration 10 secs, Report Interval 1 secs
+Host p0046.ten.osc.edu, Rank 0, Rate 208071.56 RPCs/s, TX Bandwidth 56.60 Mb/s, RX Bandwidth 16.65 Mb/s, RTT (us) mean 9.54, P50 7.15, P95 7.16, P99 7.16, max 1208.32
+Host p0046.ten.osc.edu, Rank 0, Rate 218741.66 RPCs/s, TX Bandwidth 59.50 Mb/s, RX Bandwidth 17.50 Mb/s, RTT (us) mean 9.30, P50 7.16, P95 7.17, P99 7.17, max 1208.32
+Host p0046.ten.osc.edu, Rank 0, Rate 216200.63 RPCs/s, TX Bandwidth 58.81 Mb/s, RX Bandwidth 17.30 Mb/s, RTT (us) mean 9.26, P50 7.16, P95 7.17, P99 7.17, max 1252.35
+Host p0046.ten.osc.edu, Rank 0, Rate 256119.94 RPCs/s, TX Bandwidth 69.66 Mb/s, RX Bandwidth 20.49 Mb/s, RTT (us) mean 8.83, P50 7.16, P95 7.17, P99 7.18, max 1252.35
+Host p0046.ten.osc.edu, Rank 0, Rate 257116.34 RPCs/s, TX Bandwidth 69.94 Mb/s, RX Bandwidth 20.57 Mb/s, RTT (us) mean 8.58, P50 7.16, P95 7.18, P99 7.18, max 1252.35
+Host p0046.ten.osc.edu, Rank 0, Rate 257590.47 RPCs/s, TX Bandwidth 70.06 Mb/s, RX Bandwidth 20.61 Mb/s, RTT (us) mean 8.42, P50 7.16, P95 7.17, P99 7.18, max 1422.34
+Host p0046.ten.osc.edu, Rank 0, Rate 257362.59 RPCs/s, TX Bandwidth 70.00 Mb/s, RX Bandwidth 20.59 Mb/s, RTT (us) mean 8.31, P50 7.16, P95 7.18, P99 7.18, max 1422.34
+Host p0046.ten.osc.edu, Rank 0, Rate 256988.00 RPCs/s, TX Bandwidth 69.90 Mb/s, RX Bandwidth 20.56 Mb/s, RTT (us) mean 8.23, P50 7.16, P95 7.18, P99 7.18, max 1422.34
+Host p0046.ten.osc.edu, Rank 0, Rate 257114.98 RPCs/s, TX Bandwidth 69.94 Mb/s, RX Bandwidth 20.57 Mb/s, RTT (us) mean 8.17, P50 7.16, P95 7.18, P99 7.18, max 1422.34
+Aggregated RPC Rate 244289.10 RPCs/s, Aggregated TX Bandwidth 66.45 Mb/s RX Bandwidth 19.54 Mb/s

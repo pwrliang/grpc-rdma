@@ -1,0 +1,38 @@
+mpirun --bind-to none -x GRPC_PLATFORM_TYPE -x GRPC_RDMA_BUSY_POLLING_TIMEOUT_US       --oversubscribe       -mca btl_tcp_if_include ib0       -mca btl_openib_allow_ib true       -mca btl_openib_warn_default_gid_prefix 0       -hostfile /tmp/geng161_clients       /users/PAS0350/geng161/.clion/grpc-rdma/examples/cpp/micro-bench/cmake-build-release-pitzer02/mb_client       -target=10.22.81.30:50051       -streaming=true       -req=32       -warmup=10000       -rpcs=10000000       -concurrent=1       -duration=10       -delay=0       -random_delay=false
+
+Inactive Modules:
+  1) mvapich2
+
+
+Inactive Modules:
+  1) mvapich2
+
+
+Activating Modules:
+  1) mvapich2/2.3.6
+
+
+Activating Modules:
+  1) mvapich2/2.3.6
+
+Req 32 bytes, Warmup 10000, RPCs 10000000, Concurrent 1, Send Delay 0.000 ms, Duration 10 secs, Streaming 1, Coalesce 1, msgs/stream 1000, Report Interval 1 secs
+Host p0028.ten.osc.edu, Rank 0, Rate 95725.76 RPCs/s, TX Bandwidth 26.04 Mb/s, RX Bandwidth 7.66 Mb/s, RTT (us) mean 20.80, P50 17.50, P95 19.18, P99 19.21, max 494.08
+Host p0029.ten.osc.edu, Rank 1, Rate 88948.15 RPCs/s, TX Bandwidth 24.19 Mb/s, RX Bandwidth 7.12 Mb/s, RTT (us) mean 22.40, P50 17.26, P95 18.93, P99 19.09, max 574.98
+Host p0028.ten.osc.edu, Rank 0, Rate 71711.90 RPCs/s, TX Bandwidth 19.51 Mb/s, RX Bandwidth 5.74 Mb/s, RTT (us) mean 23.80, P50 18.53, P95 19.34, P99 19.36, max 591.87
+Host p0029.ten.osc.edu, Rank 1, Rate 62738.87 RPCs/s, TX Bandwidth 17.06 Mb/s, RX Bandwidth 5.02 Mb/s, RTT (us) mean 26.28, P50 17.44, P95 19.28, P99 19.31, max 994.82
+Host p0028.ten.osc.edu, Rank 0, Rate 79823.72 RPCs/s, TX Bandwidth 21.71 Mb/s, RX Bandwidth 6.39 Mb/s, RTT (us) mean 24.17, P50 17.66, P95 18.13, P99 18.19, max 591.87
+Host p0029.ten.osc.edu, Rank 1, Rate 72106.10 RPCs/s, TX Bandwidth 19.61 Mb/s, RX Bandwidth 5.77 Mb/s, RTT (us) mean 26.72, P50 18.29, P95 19.41, P99 19.42, max 994.82
+Host p0028.ten.osc.edu, Rank 0, Rate 72725.49 RPCs/s, TX Bandwidth 19.78 Mb/s, RX Bandwidth 5.82 Mb/s, RTT (us) mean 24.91, P50 17.63, P95 18.11, P99 18.16, max 591.87
+Host p0029.ten.osc.edu, Rank 1, Rate 66299.32 RPCs/s, TX Bandwidth 18.03 Mb/s, RX Bandwidth 5.30 Mb/s, RTT (us) mean 27.49, P50 18.29, P95 19.44, P99 19.45, max 994.82
+Host p0028.ten.osc.edu, Rank 0, Rate 72303.43 RPCs/s, TX Bandwidth 19.67 Mb/s, RX Bandwidth 5.78 Mb/s, RTT (us) mean 25.40, P50 17.60, P95 18.16, P99 18.22, max 591.87
+Host p0029.ten.osc.edu, Rank 1, Rate 76016.48 RPCs/s, TX Bandwidth 20.68 Mb/s, RX Bandwidth 6.08 Mb/s, RTT (us) mean 27.23, P50 17.15, P95 19.12, P99 19.25, max 994.82
+Host p0028.ten.osc.edu, Rank 0, Rate 74071.71 RPCs/s, TX Bandwidth 20.15 Mb/s, RX Bandwidth 5.93 Mb/s, RTT (us) mean 25.63, P50 17.57, P95 18.22, P99 18.30, max 601.60
+Host p0029.ten.osc.edu, Rank 1, Rate 79761.88 RPCs/s, TX Bandwidth 21.70 Mb/s, RX Bandwidth 6.38 Mb/s, RTT (us) mean 26.83, P50 16.57, P95 18.14, P99 18.29, max 994.82
+Host p0028.ten.osc.edu, Rank 0, Rate 74888.74 RPCs/s, TX Bandwidth 20.37 Mb/s, RX Bandwidth 5.99 Mb/s, RTT (us) mean 25.77, P50 17.47, P95 18.22, P99 18.30, max 846.34
+Host p0029.ten.osc.edu, Rank 1, Rate 78364.71 RPCs/s, TX Bandwidth 21.32 Mb/s, RX Bandwidth 6.27 Mb/s, RTT (us) mean 26.62, P50 16.18, P95 17.66, P99 17.76, max 994.82
+Host p0028.ten.osc.edu, Rank 0, Rate 70155.68 RPCs/s, TX Bandwidth 19.08 Mb/s, RX Bandwidth 5.61 Mb/s, RTT (us) mean 26.07, P50 17.36, P95 18.22, P99 18.32, max 846.34
+Host p0029.ten.osc.edu, Rank 1, Rate 73054.89 RPCs/s, TX Bandwidth 19.87 Mb/s, RX Bandwidth 5.84 Mb/s, RTT (us) mean 26.70, P50 16.09, P95 17.54, P99 17.65, max 994.82
+Host p0028.ten.osc.edu, Rank 0, Rate 70354.48 RPCs/s, TX Bandwidth 19.14 Mb/s, RX Bandwidth 5.63 Mb/s, RTT (us) mean 26.30, P50 17.39, P95 18.30, P99 18.41, max 1163.26
+Host p0029.ten.osc.edu, Rank 1, Rate 73937.86 RPCs/s, TX Bandwidth 20.11 Mb/s, RX Bandwidth 5.92 Mb/s, RTT (us) mean 26.73, P50 16.02, P95 17.42, P99 17.55, max 994.82
+Aggregated RPC Rate 152750.90 RPCs/s, Aggregated TX Bandwidth 41.55 Mb/s RX Bandwidth 12.22 Mb/s
+RTT (us) mean 26.09, P50 16.64, P95 17.95, P99 18.03, max 1163.26

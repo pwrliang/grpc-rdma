@@ -1,0 +1,9 @@
+
+Inactive Modules:
+  1) mvapich2
+
+
+Activating Modules:
+  1) mvapich2/2.3.6
+
+Server listening on 0.0.0.0:50051 CQs: 64 Threads: 64 NUMA: 0 Prepost: 1

@@ -1,0 +1,25 @@
+2024-01-28T15:11:45.197245Z  INFO rpc_bench_client: tokio_tracing initialized
+Connecting 10.22.81.8:5000
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+total iters 9223372036854775807 warmup 1000
+Run RPC 100000
+2024-01-28T15:11:51.522871Z  INFO rpc_bench_client: Thread 0, 155387.9611530097 rps, 0.03977931805517049 Gb/s
+Run RPC 200000
+Run RPC 300000
+2024-01-28T15:11:52.522915Z  INFO rpc_bench_client: Thread 0, 224028.94444082177 rps, 0.057351409776850375 Gb/s
+Run RPC 400000
+Run RPC 500000
+Run RPC 600000
+2024-01-28T15:11:53.522932Z  INFO rpc_bench_client: Thread 0, 224609.99842773002 rps, 0.05750015959749889 Gb/s
+Run RPC 700000
+Run RPC 800000
+2024-01-28T15:11:54.522950Z  INFO rpc_bench_client: Thread 0, 223765.94719123645 rps, 0.05728408248095654 Gb/s
+Run RPC 900000
+Run RPC 1000000
+2024-01-28T15:11:55.522972Z  INFO rpc_bench_client: Thread 0, 223569.9378475573 rps, 0.05723390408897467 Gb/s
+Run RPC 1100000
+Run RPC 1200000
+Run RPC 1300000
+total_bytes 42898816, warmup 1000 req size 32
+2024-01-28T15:11:56.522873Z  INFO rpc_bench_client: Thread 0, duration: 5.689175813s, bandwidth: 0.060278419804918056 Gb/s, rate: 0.23546 Mrps
+2024-01-28T15:11:56.527114Z  INFO rpc_bench_client: Thread 0, duration: 5.689175813s, avg: 135.879µs, min: 21.227µs, median: 141.301µs, p95: 155.96µs, p99: 162.606µs, max: 2.280479ms

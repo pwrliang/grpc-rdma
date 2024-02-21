@@ -1,0 +1,139 @@
+mpirun --bind-to none -x GRPC_PLATFORM_TYPE -x GRPC_RDMA_BUSY_POLLING_TIMEOUT_US       --oversubscribe       -mca btl_tcp_if_include ib0       -mca btl_openib_allow_ib true       -mca btl_openib_warn_default_gid_prefix 0       -hostfile /tmp/geng161_clients       /users/PAS0350/geng161/.clion/grpc-rdma/examples/cpp/micro-bench/cmake-build-release-pitzer02/mb_client       -target=10.22.81.44:50051       -streaming=false       -req=32       -warmup=10000       -rpcs=10000000       -concurrent=1       -duration=10
+
+Inactive Modules:
+  1) mvapich2
+
+
+Inactive Modules:
+  1) mvapich2
+
+
+Inactive Modules:
+  1) mvapich2
+
+
+Inactive Modules:
+  1) mvapich2
+
+
+Inactive Modules:
+  1) mvapich2
+
+
+Inactive Modules:
+  1) mvapich2
+
+
+Inactive Modules:
+  1) mvapich2
+
+
+Inactive Modules:
+  1) mvapich2
+
+
+Activating Modules:
+  1) mvapich2/2.3.6
+
+
+Activating Modules:
+  1) mvapich2/2.3.6
+
+
+Activating Modules:
+  1) mvapich2/2.3.6
+
+
+Activating Modules:
+  1) mvapich2/2.3.6
+
+
+Activating Modules:
+  1) mvapich2/2.3.6
+
+
+Activating Modules:
+  1) mvapich2/2.3.6
+
+
+Activating Modules:
+  1) mvapich2/2.3.6
+
+
+Activating Modules:
+  1) mvapich2/2.3.6
+
+Req 32 bytes, Warmup 10000, RPCs 10000000, Concurrent 1, Duration 10 secs, Report Interval 1 secs
+Host p0050.ten.osc.edu, Rank 2, Rate 24978.56 RPCs/s, TX Bandwidth 6.79 Mb/s, RX Bandwidth 2.00 Mb/s, RTT (us) mean 77.80, P50 39.10, P95 39.87, P99 39.94, max 437.76
+Host p0046.ten.osc.edu, Rank 0, Rate 23476.53 RPCs/s, TX Bandwidth 6.39 Mb/s, RX Bandwidth 1.88 Mb/s, RTT (us) mean 82.70, P50 39.26, P95 40.09, P99 40.16, max 756.74
+Host p0128.ten.osc.edu, Rank 7, Rate 23540.98 RPCs/s, TX Bandwidth 6.40 Mb/s, RX Bandwidth 1.88 Mb/s, RTT (us) mean 82.56, P50 41.25, P95 42.43, P99 42.53, max 523.77
+Host p0072.ten.osc.edu, Rank 3, Rate 21302.31 RPCs/s, TX Bandwidth 5.79 Mb/s, RX Bandwidth 1.70 Mb/s, RTT (us) mean 91.19, P50 43.62, P95 44.96, P99 45.05, max 488.70
+Host p0110.ten.osc.edu, Rank 5, Rate 23137.64 RPCs/s, TX Bandwidth 6.29 Mb/s, RX Bandwidth 1.85 Mb/s, RTT (us) mean 83.94, P50 41.66, P95 42.78, P99 42.81, max 506.62
+Host p0112.ten.osc.edu, Rank 6, Rate 25907.96 RPCs/s, TX Bandwidth 7.05 Mb/s, RX Bandwidth 2.07 Mb/s, RTT (us) mean 74.83, P50 39.17, P95 39.71, P99 39.74, max 422.40
+Host p0101.ten.osc.edu, Rank 4, Rate 21616.73 RPCs/s, TX Bandwidth 5.88 Mb/s, RX Bandwidth 1.73 Mb/s, RTT (us) mean 89.94, P50 42.08, P95 43.49, P99 43.55, max 511.23
+Host p0048.ten.osc.edu, Rank 1, Rate 21540.74 RPCs/s, TX Bandwidth 5.86 Mb/s, RX Bandwidth 1.72 Mb/s, RTT (us) mean 90.12, P50 41.47, P95 42.59, P99 42.72, max 569.86
+Host p0050.ten.osc.edu, Rank 2, Rate 27905.92 RPCs/s, TX Bandwidth 7.59 Mb/s, RX Bandwidth 2.23 Mb/s, RTT (us) mean 73.55, P50 37.15, P95 38.46, P99 38.53, max 689.66
+Host p0046.ten.osc.edu, Rank 0, Rate 22542.90 RPCs/s, TX Bandwidth 6.13 Mb/s, RX Bandwidth 1.80 Mb/s, RTT (us) mean 84.12, P50 40.03, P95 41.38, P99 41.50, max 1932.29
+Host p0128.ten.osc.edu, Rank 7, Rate 25253.83 RPCs/s, TX Bandwidth 6.87 Mb/s, RX Bandwidth 2.02 Mb/s, RTT (us) mean 79.67, P50 41.50, P95 42.66, P99 42.75, max 2134.01
+Host p0072.ten.osc.edu, Rank 3, Rate 23690.97 RPCs/s, TX Bandwidth 6.44 Mb/s, RX Bandwidth 1.90 Mb/s, RTT (us) mean 86.41, P50 42.08, P95 43.45, P99 43.52, max 2056.19
+Host p0110.ten.osc.edu, Rank 5, Rate 23816.74 RPCs/s, TX Bandwidth 6.48 Mb/s, RX Bandwidth 1.91 Mb/s, RTT (us) mean 82.58, P50 41.85, P95 43.04, P99 43.10, max 2449.41
+Host p0112.ten.osc.edu, Rank 6, Rate 23913.90 RPCs/s, TX Bandwidth 6.50 Mb/s, RX Bandwidth 1.91 Mb/s, RTT (us) mean 77.84, P50 39.26, P95 40.00, P99 40.06, max 715.77
+Host p0101.ten.osc.edu, Rank 4, Rate 20452.98 RPCs/s, TX Bandwidth 5.56 Mb/s, RX Bandwidth 1.64 Mb/s, RTT (us) mean 92.35, P50 42.59, P95 43.84, P99 43.90, max 826.88
+Host p0048.ten.osc.edu, Rank 1, Rate 22950.50 RPCs/s, TX Bandwidth 6.24 Mb/s, RX Bandwidth 1.84 Mb/s, RTT (us) mean 87.33, P50 40.96, P95 42.21, P99 42.27, max 769.02
+Host p0050.ten.osc.edu, Rank 2, Rate 28702.73 RPCs/s, TX Bandwidth 7.81 Mb/s, RX Bandwidth 2.30 Mb/s, RTT (us) mean 71.40, P50 36.90, P95 38.24, P99 38.34, max 689.66
+Host p0046.ten.osc.edu, Rank 0, Rate 24152.58 RPCs/s, TX Bandwidth 6.57 Mb/s, RX Bandwidth 1.93 Mb/s, RTT (us) mean 82.83, P50 39.84, P95 41.02, P99 41.12, max 1932.29
+Host p0128.ten.osc.edu, Rank 7, Rate 26358.73 RPCs/s, TX Bandwidth 7.17 Mb/s, RX Bandwidth 2.11 Mb/s, RTT (us) mean 77.42, P50 41.31, P95 42.40, P99 42.46, max 2134.01
+Host p0072.ten.osc.edu, Rank 3, Rate 22826.76 RPCs/s, TX Bandwidth 6.21 Mb/s, RX Bandwidth 1.83 Mb/s, RTT (us) mean 85.94, P50 42.08, P95 43.36, P99 43.45, max 2056.19
+Host p0110.ten.osc.edu, Rank 5, Rate 24194.65 RPCs/s, TX Bandwidth 6.58 Mb/s, RX Bandwidth 1.94 Mb/s, RTT (us) mean 81.78, P50 41.76, P95 42.91, P99 42.98, max 2449.41
+Host p0112.ten.osc.edu, Rank 6, Rate 23571.95 RPCs/s, TX Bandwidth 6.41 Mb/s, RX Bandwidth 1.89 Mb/s, RTT (us) mean 79.21, P50 39.62, P95 40.48, P99 40.58, max 1027.07
+Host p0101.ten.osc.edu, Rank 4, Rate 22532.90 RPCs/s, TX Bandwidth 6.13 Mb/s, RX Bandwidth 1.80 Mb/s, RTT (us) mean 90.21, P50 41.89, P95 43.26, P99 43.33, max 826.88
+Host p0048.ten.osc.edu, Rank 1, Rate 23167.68 RPCs/s, TX Bandwidth 6.30 Mb/s, RX Bandwidth 1.85 Mb/s, RTT (us) mean 86.21, P50 40.58, P95 41.89, P99 42.02, max 1540.10
+Host p0050.ten.osc.edu, Rank 2, Rate 26603.48 RPCs/s, TX Bandwidth 7.24 Mb/s, RX Bandwidth 2.13 Mb/s, RTT (us) mean 71.80, P50 37.25, P95 38.46, P99 38.53, max 690.17
+Host p0046.ten.osc.edu, Rank 0, Rate 24211.86 RPCs/s, TX Bandwidth 6.59 Mb/s, RX Bandwidth 1.94 Mb/s, RTT (us) mean 82.19, P50 39.97, P95 41.05, P99 41.15, max 1932.29
+Host p0128.ten.osc.edu, Rank 7, Rate 25652.64 RPCs/s, TX Bandwidth 6.98 Mb/s, RX Bandwidth 2.05 Mb/s, RTT (us) mean 76.94, P50 41.53, P95 42.75, P99 42.88, max 2134.01
+Host p0072.ten.osc.edu, Rank 3, Rate 22659.95 RPCs/s, TX Bandwidth 6.16 Mb/s, RX Bandwidth 1.81 Mb/s, RTT (us) mean 85.84, P50 41.76, P95 43.20, P99 43.30, max 2056.19
+Host p0110.ten.osc.edu, Rank 5, Rate 22850.10 RPCs/s, TX Bandwidth 6.22 Mb/s, RX Bandwidth 1.83 Mb/s, RTT (us) mean 82.60, P50 42.21, P95 43.55, P99 43.65, max 2449.41
+Host p0112.ten.osc.edu, Rank 6, Rate 24728.35 RPCs/s, TX Bandwidth 6.73 Mb/s, RX Bandwidth 1.98 Mb/s, RTT (us) mean 79.04, P50 39.58, P95 40.32, P99 40.41, max 1027.07
+Host p0101.ten.osc.edu, Rank 4, Rate 21998.64 RPCs/s, TX Bandwidth 5.98 Mb/s, RX Bandwidth 1.76 Mb/s, RTT (us) mean 89.81, P50 41.70, P95 43.01, P99 43.07, max 826.88
+Host p0048.ten.osc.edu, Rank 1, Rate 23261.10 RPCs/s, TX Bandwidth 6.33 Mb/s, RX Bandwidth 1.86 Mb/s, RTT (us) mean 85.54, P50 40.61, P95 41.92, P99 42.02, max 1540.10
+Host p0050.ten.osc.edu, Rank 2, Rate 26844.89 RPCs/s, TX Bandwidth 7.30 Mb/s, RX Bandwidth 2.15 Mb/s, RTT (us) mean 71.90, P50 37.53, P95 38.59, P99 38.69, max 781.31
+Host p0046.ten.osc.edu, Rank 0, Rate 25122.93 RPCs/s, TX Bandwidth 6.83 Mb/s, RX Bandwidth 2.01 Mb/s, RTT (us) mean 81.16, P50 39.65, P95 40.51, P99 40.61, max 1932.29
+Host p0128.ten.osc.edu, Rank 7, Rate 25573.87 RPCs/s, TX Bandwidth 6.96 Mb/s, RX Bandwidth 2.05 Mb/s, RTT (us) mean 76.74, P50 41.09, P95 42.11, P99 42.21, max 2134.01
+Host p0072.ten.osc.edu, Rank 3, Rate 21796.59 RPCs/s, TX Bandwidth 5.93 Mb/s, RX Bandwidth 1.74 Mb/s, RTT (us) mean 86.51, P50 41.41, P95 42.81, P99 42.88, max 2056.19
+Host p0110.ten.osc.edu, Rank 5, Rate 23109.53 RPCs/s, TX Bandwidth 6.29 Mb/s, RX Bandwidth 1.85 Mb/s, RTT (us) mean 82.91, P50 42.34, P95 43.74, P99 43.84, max 2449.41
+Host p0112.ten.osc.edu, Rank 6, Rate 24393.34 RPCs/s, TX Bandwidth 6.63 Mb/s, RX Bandwidth 1.95 Mb/s, RTT (us) mean 79.16, P50 39.58, P95 40.26, P99 40.32, max 1027.07
+Host p0101.ten.osc.edu, Rank 4, Rate 21722.26 RPCs/s, TX Bandwidth 5.91 Mb/s, RX Bandwidth 1.74 Mb/s, RTT (us) mean 89.64, P50 42.11, P95 43.42, P99 43.52, max 851.97
+Host p0048.ten.osc.edu, Rank 1, Rate 23809.11 RPCs/s, TX Bandwidth 6.48 Mb/s, RX Bandwidth 1.90 Mb/s, RTT (us) mean 84.71, P50 40.19, P95 41.60, P99 41.70, max 1540.10
+Host p0050.ten.osc.edu, Rank 2, Rate 28243.94 RPCs/s, TX Bandwidth 7.68 Mb/s, RX Bandwidth 2.26 Mb/s, RTT (us) mean 71.35, P50 37.70, P95 38.62, P99 38.69, max 951.29
+Host p0046.ten.osc.edu, Rank 0, Rate 24682.58 RPCs/s, TX Bandwidth 6.71 Mb/s, RX Bandwidth 1.97 Mb/s, RTT (us) mean 80.69, P50 39.65, P95 40.48, P99 40.54, max 1932.29
+Host p0128.ten.osc.edu, Rank 7, Rate 26347.00 RPCs/s, TX Bandwidth 7.17 Mb/s, RX Bandwidth 2.11 Mb/s, RTT (us) mean 76.22, P50 40.86, P95 41.76, P99 41.82, max 2134.01
+Host p0072.ten.osc.edu, Rank 3, Rate 21700.34 RPCs/s, TX Bandwidth 5.90 Mb/s, RX Bandwidth 1.74 Mb/s, RTT (us) mean 86.97, P50 41.25, P95 42.66, P99 42.75, max 2056.19
+Host p0110.ten.osc.edu, Rank 5, Rate 24507.63 RPCs/s, TX Bandwidth 6.67 Mb/s, RX Bandwidth 1.96 Mb/s, RTT (us) mean 82.27, P50 41.82, P95 43.07, P99 43.17, max 2449.41
+Host p0112.ten.osc.edu, Rank 6, Rate 25044.89 RPCs/s, TX Bandwidth 6.81 Mb/s, RX Bandwidth 2.00 Mb/s, RTT (us) mean 78.88, P50 39.55, P95 40.26, P99 40.29, max 1027.07
+Host p0101.ten.osc.edu, Rank 4, Rate 23346.61 RPCs/s, TX Bandwidth 6.35 Mb/s, RX Bandwidth 1.87 Mb/s, RTT (us) mean 88.46, P50 42.11, P95 43.49, P99 43.58, max 935.93
+Host p0048.ten.osc.edu, Rank 1, Rate 23922.67 RPCs/s, TX Bandwidth 6.51 Mb/s, RX Bandwidth 1.91 Mb/s, RTT (us) mean 84.10, P50 39.97, P95 41.34, P99 41.41, max 1540.10
+Host p0050.ten.osc.edu, Rank 2, Rate 28847.85 RPCs/s, TX Bandwidth 7.85 Mb/s, RX Bandwidth 2.31 Mb/s, RTT (us) mean 70.72, P50 37.85, P95 38.62, P99 38.66, max 951.29
+Host p0046.ten.osc.edu, Rank 0, Rate 25905.32 RPCs/s, TX Bandwidth 7.05 Mb/s, RX Bandwidth 2.07 Mb/s, RTT (us) mean 79.79, P50 39.52, P95 40.41, P99 40.48, max 1932.29
+Host p0128.ten.osc.edu, Rank 7, Rate 27248.88 RPCs/s, TX Bandwidth 7.41 Mb/s, RX Bandwidth 2.18 Mb/s, RTT (us) mean 75.41, P50 40.70, P95 41.60, P99 41.66, max 2134.01
+Host p0072.ten.osc.edu, Rank 3, Rate 24073.82 RPCs/s, TX Bandwidth 6.55 Mb/s, RX Bandwidth 1.93 Mb/s, RTT (us) mean 86.02, P50 40.99, P95 42.24, P99 42.34, max 2056.19
+Host p0110.ten.osc.edu, Rank 5, Rate 23062.97 RPCs/s, TX Bandwidth 6.27 Mb/s, RX Bandwidth 1.85 Mb/s, RTT (us) mean 82.53, P50 41.79, P95 43.01, P99 43.10, max 2449.41
+Host p0112.ten.osc.edu, Rank 6, Rate 26838.66 RPCs/s, TX Bandwidth 7.30 Mb/s, RX Bandwidth 2.15 Mb/s, RTT (us) mean 77.86, P50 39.52, P95 40.13, P99 40.16, max 1027.07
+Host p0101.ten.osc.edu, Rank 4, Rate 23961.60 RPCs/s, TX Bandwidth 6.52 Mb/s, RX Bandwidth 1.92 Mb/s, RTT (us) mean 87.33, P50 41.70, P95 43.01, P99 43.10, max 1101.82
+Host p0048.ten.osc.edu, Rank 1, Rate 22815.81 RPCs/s, TX Bandwidth 6.21 Mb/s, RX Bandwidth 1.83 Mb/s, RTT (us) mean 84.24, P50 39.87, P95 41.22, P99 41.31, max 1540.10
+Host p0050.ten.osc.edu, Rank 2, Rate 28120.49 RPCs/s, TX Bandwidth 7.65 Mb/s, RX Bandwidth 2.25 Mb/s, RTT (us) mean 70.50, P50 37.92, P95 38.62, P99 38.66, max 951.29
+Host p0046.ten.osc.edu, Rank 0, Rate 24411.63 RPCs/s, TX Bandwidth 6.64 Mb/s, RX Bandwidth 1.95 Mb/s, RTT (us) mean 79.77, P50 39.49, P95 40.32, P99 40.38, max 1932.29
+Host p0128.ten.osc.edu, Rank 7, Rate 26329.60 RPCs/s, TX Bandwidth 7.16 Mb/s, RX Bandwidth 2.11 Mb/s, RTT (us) mean 75.17, P50 40.80, P95 41.70, P99 41.76, max 2134.01
+Host p0072.ten.osc.edu, Rank 3, Rate 22395.65 RPCs/s, TX Bandwidth 6.09 Mb/s, RX Bandwidth 1.79 Mb/s, RTT (us) mean 86.12, P50 40.93, P95 42.11, P99 42.24, max 2056.19
+Host p0110.ten.osc.edu, Rank 5, Rate 23310.81 RPCs/s, TX Bandwidth 6.34 Mb/s, RX Bandwidth 1.86 Mb/s, RTT (us) mean 82.64, P50 41.73, P95 42.88, P99 42.98, max 2449.41
+Host p0112.ten.osc.edu, Rank 6, Rate 27182.51 RPCs/s, TX Bandwidth 7.39 Mb/s, RX Bandwidth 2.17 Mb/s, RTT (us) mean 76.93, P50 39.52, P95 40.09, P99 40.13, max 1027.07
+Host p0101.ten.osc.edu, Rank 4, Rate 23098.97 RPCs/s, TX Bandwidth 6.28 Mb/s, RX Bandwidth 1.85 Mb/s, RTT (us) mean 86.93, P50 41.53, P95 42.72, P99 42.85, max 1101.82
+Host p0048.ten.osc.edu, Rank 1, Rate 20648.94 RPCs/s, TX Bandwidth 5.62 Mb/s, RX Bandwidth 1.65 Mb/s, RTT (us) mean 85.37, P50 39.94, P95 41.28, P99 41.38, max 1540.10
+Host p0050.ten.osc.edu, Rank 2, Rate 27072.90 RPCs/s, TX Bandwidth 7.36 Mb/s, RX Bandwidth 2.17 Mb/s, RTT (us) mean 70.63, P50 37.98, P95 38.66, P99 38.69, max 951.29
+Host p0046.ten.osc.edu, Rank 0, Rate 23747.53 RPCs/s, TX Bandwidth 6.46 Mb/s, RX Bandwidth 1.90 Mb/s, RTT (us) mean 79.99, P50 39.39, P95 40.22, P99 40.29, max 1932.29
+Host p0128.ten.osc.edu, Rank 7, Rate 24710.23 RPCs/s, TX Bandwidth 6.72 Mb/s, RX Bandwidth 1.98 Mb/s, RTT (us) mean 75.56, P50 40.93, P95 41.89, P99 41.95, max 2134.01
+Host p0072.ten.osc.edu, Rank 3, Rate 22607.71 RPCs/s, TX Bandwidth 6.15 Mb/s, RX Bandwidth 1.81 Mb/s, RTT (us) mean 86.11, P50 40.90, P95 42.08, P99 42.17, max 2056.19
+Host p0110.ten.osc.edu, Rank 5, Rate 22601.84 RPCs/s, TX Bandwidth 6.15 Mb/s, RX Bandwidth 1.81 Mb/s, RTT (us) mean 83.00, P50 41.73, P95 42.88, P99 42.94, max 2449.41
+Host p0112.ten.osc.edu, Rank 6, Rate 27140.97 RPCs/s, TX Bandwidth 7.38 Mb/s, RX Bandwidth 2.17 Mb/s, RTT (us) mean 76.27, P50 39.42, P95 40.00, P99 40.03, max 1027.07
+Host p0101.ten.osc.edu, Rank 4, Rate 22870.99 RPCs/s, TX Bandwidth 6.22 Mb/s, RX Bandwidth 1.83 Mb/s, RTT (us) mean 86.71, P50 41.44, P95 42.62, P99 42.72, max 1101.82
+Host p0048.ten.osc.edu, Rank 1, Rate 22596.85 RPCs/s, TX Bandwidth 6.15 Mb/s, RX Bandwidth 1.81 Mb/s, RTT (us) mean 85.46, P50 39.90, P95 41.22, P99 41.31, max 1540.10
+Aggregated RPC Rate 194489.70 RPCs/s, Aggregated TX Bandwidth 52.90 Mb/s RX Bandwidth 15.56 Mb/s

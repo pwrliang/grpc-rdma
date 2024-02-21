@@ -1,0 +1,11 @@
+
+Inactive Modules:
+  1) mvapich2
+
+
+Activating Modules:
+  1) mvapich2/2.3.6
+
+args: Args { port: 5000, log_level: "error", log_dir: None, reply_size: 8, provision_count: 128, num_server_threads: 1, transport: Rdma }
+do something with listener_handle Handle(0)
+Error: Service(TryRecv(Disconnected))

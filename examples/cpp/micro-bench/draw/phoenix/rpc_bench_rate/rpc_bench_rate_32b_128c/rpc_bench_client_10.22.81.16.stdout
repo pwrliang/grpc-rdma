@@ -1,0 +1,54 @@
+2024-01-28T19:47:10.383737Z  INFO rpc_bench_client: tokio_tracing initialized
+Connecting 10.22.81.8:50116
+Connecting 10.22.81.8:50114
+Connecting 10.22.81.8:50115
+Connecting 10.22.81.8:50117
+Connecting 10.22.81.8:50118
+Connecting 10.22.81.8:50113
+Connecting 10.22.81.8:50119
+Connecting 10.22.81.8:50121
+Connecting 10.22.81.8:50120
+Connecting 10.22.81.8:50123
+Connecting 10.22.81.8:50122
+Connecting 10.22.81.8:50124
+Connecting 10.22.81.8:50125
+Connecting 10.22.81.8:50126
+Connecting 10.22.81.8:50112
+Connecting 10.22.81.8:50127
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+total iters 9223372036854775807 warmup 1000
+2024-01-28T19:47:28.730596Z  INFO rpc_bench_client: Thread 10, 8175.999533968026 rps, 0.002093055880695815 Gb/s
+2024-01-28T19:47:29.730645Z  INFO rpc_bench_client: Thread 10, 17128.99397059412 rps, 0.004385022456472096 Gb/s
+2024-01-28T19:47:30.730657Z  INFO rpc_bench_client: Thread 10, 43337.99458275068 rps, 0.011094526613184176 Gb/s
+2024-01-28T19:47:31.730673Z  INFO rpc_bench_client: Thread 10, 25155.99954719201 rps, 0.006439935884081155 Gb/s
+Run RPC 100000
+2024-01-28T19:47:32.730687Z  INFO rpc_bench_client: Thread 10, 33848.988863682665 rps, 0.008665341149102763 Gb/s
+2024-01-28T19:47:33.730697Z  INFO rpc_bench_client: Thread 10, 35030.99152250005 rps, 0.008967933829760013 Gb/s
+2024-01-28T19:47:34.730708Z  INFO rpc_bench_client: Thread 10, 21571.996634768526 rps, 0.005522431138500743 Gb/s
+2024-01-28T19:47:35.730717Z  INFO rpc_bench_client: Thread 10, 10455.999048504087 rps, 0.0026767357564170466 Gb/s
+Run RPC 200000
+2024-01-28T19:47:36.730726Z  INFO rpc_bench_client: Thread 10, 35682.99211405874 rps, 0.009134845981199038 Gb/s
+2024-01-28T19:47:37.730735Z  INFO rpc_bench_client: Thread 10, 29117.993943457263 rps, 0.00745420644952506 Gb/s
+2024-01-28T19:47:38.730751Z  INFO rpc_bench_client: Thread 10, 29182.990136149336 rps, 0.00747084547485423 Gb/s
+Run RPC 300000
+2024-01-28T19:47:39.730766Z  INFO rpc_bench_client: Thread 10, 37319.99477520073 rps, 0.009553918662451387 Gb/s
+2024-01-28T19:47:40.730777Z  INFO rpc_bench_client: Thread 10, 45664.98922306254 rps, 0.011690237241104013 Gb/s
+Run RPC 400000
+total_bytes 13848992, warmup 1000 req size 32
+2024-01-28T19:47:41.730571Z  INFO rpc_bench_client: Thread 10, duration: 13.135427729s, bandwidth: 0.008415099856699916 Gb/s, rate: 0.03287 Mrps
+2024-01-28T19:47:41.737744Z  INFO rpc_bench_client: Thread 10, duration: 13.135427729s, avg: 486.717µs, min: 10.817µs, median: 28.079µs, p95: 365.215µs, p99: 21.260927ms, max: 81.540095ms

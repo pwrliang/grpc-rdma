@@ -1,0 +1,12 @@
+Req 1 bytes, Warmup 10000, RPCs 10000000, Concurrent 1, Duration 10 secs, Report Interval 1 secs
+Rank 0, Rate 3427.94 RPCs/s, Bandwidth 0.00 Gb/s
+Rank 0, Rate 13455.97 RPCs/s, Bandwidth 0.00 Gb/s
+Rank 0, Rate 13483.24 RPCs/s, Bandwidth 0.00 Gb/s
+Rank 0, Rate 13394.27 RPCs/s, Bandwidth 0.00 Gb/s
+Rank 0, Rate 13379.95 RPCs/s, Bandwidth 0.00 Gb/s
+Rank 0, Rate 13404.91 RPCs/s, Bandwidth 0.00 Gb/s
+Rank 0, Rate 13517.47 RPCs/s, Bandwidth 0.00 Gb/s
+Rank 0, Rate 13541.13 RPCs/s, Bandwidth 0.00 Gb/s
+Rank 0, Rate 13527.67 RPCs/s, Bandwidth 0.00 Gb/s
+Rank 0, Rate 13531.21 RPCs/s, Bandwidth 0.00 Gb/s
+Result: Duration 10000 ms, Total RPCs 134667, Rate: 13466.700 RPCs/s, Median, 70.33 us, P95 70.53 us, P99 70.59 us, Max 1379.33 us

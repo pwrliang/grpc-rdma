@@ -1,0 +1,256 @@
+Start server 50001
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50003
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50002
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50004
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50005
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50007
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50008
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50000
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50006
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50014
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50017
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50009
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50013
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50010
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50015
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50012
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50011
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50016
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50018
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50019
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50020
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50022
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50021
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50023
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50024
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50025
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50026
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50027
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50029
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50028
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50030
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50031
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50032
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50033
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50034
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50064
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50056
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50054
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50052
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50060
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50050
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50061
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50058
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50049
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50037
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50062
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50063
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50048
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50046
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50042
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50044
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50040
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50038
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50036
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50059
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50053
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50047
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50055
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50051
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50043
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50039
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50035
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50065
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50057
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50045
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50041
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50066
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50068
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50067
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50069
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50070
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50071
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50072
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50073
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50074
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50075
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50076
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50077
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50078
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50079
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50080
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50081
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50084
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50082
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50083
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50124
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50120
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50121
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50095
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50122
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50094
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50100
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50092
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50096
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50106
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50098
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50107
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50118
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50125
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50102
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50090
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50104
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50110
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50114
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50116
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50108
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50112
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50086
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50123
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50088
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50117
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50089
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50085
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50115
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50111
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50126
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50099
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50109
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50097
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50103
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50105
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50091
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50087
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50127
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50119
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50093
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50113
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+Start server 50101
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }

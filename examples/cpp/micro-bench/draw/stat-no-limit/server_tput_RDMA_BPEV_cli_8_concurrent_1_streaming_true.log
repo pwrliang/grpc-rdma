@@ -1,0 +1,12 @@
+[pitzer-login02.hpc.osc.edu:162435] Warning: could not find environment variable "GRPC_RDMA_RING_BUFFER_SIZE_KB"
+[pitzer-login02.hpc.osc.edu:162435] Warning: could not find environment variable "GRPC_VERBOSITY"
+[pitzer-login02.hpc.osc.edu:162435] Warning: could not find environment variable "GRPC_TRACE"
+
+Inactive Modules:
+  1) mvapich2
+
+
+Activating Modules:
+  1) mvapich2/2.3.6
+
+Server listening on 0.0.0.0:50051 CQs: 38 Threads: 38 NUMA: 0 Prepost: 1

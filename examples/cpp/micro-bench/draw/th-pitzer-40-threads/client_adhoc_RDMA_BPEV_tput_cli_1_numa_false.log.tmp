@@ -1,0 +1,15 @@
+mpirun --bind-to none -x GRPC_PLATFORM_TYPE -x GRPC_RDMA_BUSY_POLLING_TIMEOUT_US       --oversubscribe       -mca btl_tcp_if_include ib0       -mca btl_openib_allow_ib true       -mca btl_openib_warn_default_gid_prefix 0       -hostfile /tmp/geng161_clients       /users/PAS0350/geng161/.clion/grpc-rdma/examples/cpp/micro-bench/cmake-build-release-pitzer02/mb_client       -target=10.22.81.20:50051       -streaming=true       -req=32       -warmup=10000       -rpcs=10000000       -concurrent=1       -duration=100       -delay=10
+
+Inactive Modules:
+  1) mvapich2
+
+
+Activating Modules:
+  1) mvapich2/2.3.6
+
+Req 32 bytes, Warmup 10000, RPCs 10000000, Concurrent 1, Send Delay 10.000 ms, Duration 100 secs, Streaming 1, Coalesce 1, msgs/stream 1000, Report Interval 1 secs
+Host p0014.ten.osc.edu, Rank 0, Rate 82.33 RPCs/s, TX Bandwidth 0.02 Mb/s, RX Bandwidth 0.01 Mb/s, RTT (us) mean 145293.31, P50 145358.85, P95 145358.85, P99 145358.85, max 145358.85
+Host p0014.ten.osc.edu, Rank 0, Rate 98.40 RPCs/s, TX Bandwidth 0.03 Mb/s, RX Bandwidth 0.01 Mb/s, RTT (us) mean 145293.31, P50 145358.85, P95 145358.85, P99 145358.85, max 145358.85
+Host p0014.ten.osc.edu, Rank 0, Rate 98.56 RPCs/s, TX Bandwidth 0.03 Mb/s, RX Bandwidth 0.01 Mb/s, RTT (us) mean 145293.31, P50 145358.85, P95 145358.85, P99 145358.85, max 145358.85
+Host p0014.ten.osc.edu, Rank 0, Rate 98.57 RPCs/s, TX Bandwidth 0.03 Mb/s, RX Bandwidth 0.01 Mb/s, RTT (us) mean 145293.31, P50 145358.85, P95 145358.85, P99 145358.85, max 145358.85
+Host p0014.ten.osc.edu, Rank 0, Rate 98.55 RPCs/s, TX Bandwidth 0.03 Mb/s, RX Bandwidth 0.01 Mb/s, RTT (us) mean 145293.31, P50 145358.85, P95 145358.85, P99 145358.85, max 145358.85

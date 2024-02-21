@@ -1,0 +1,10 @@
+[pitzer-login02.hpc.osc.edu:07908] Warning: could not find environment variable "GRPC_RDMA_POLLING_THREAD"
+
+Inactive Modules:
+  1) mvapich2
+
+
+Activating Modules:
+  1) mvapich2/2.3.6
+
+Server listening on 0.0.0.0:50051 CQs: 64 Threads: 64 NUMA: 0

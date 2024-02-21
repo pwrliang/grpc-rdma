@@ -1,0 +1,38 @@
+mpirun --bind-to none -x GRPC_PLATFORM_TYPE -x GRPC_RDMA_BUSY_POLLING_TIMEOUT_US       --oversubscribe       -mca btl_tcp_if_include ib0       -mca btl_openib_allow_ib true       -mca btl_openib_warn_default_gid_prefix 0       -hostfile /tmp/geng161_clients       /users/PAS0350/geng161/.clion/grpc-rdma/examples/cpp/micro-bench/cmake-build-release-pitzer02/mb_client       -target=10.22.81.30:50051       -streaming=true       -req=32       -warmup=10000       -rpcs=10000000       -concurrent=1       -duration=10       -delay=0       -random_delay=false
+
+Inactive Modules:
+  1) mvapich2
+
+
+Inactive Modules:
+  1) mvapich2
+
+
+Activating Modules:
+  1) mvapich2/2.3.6
+
+
+Activating Modules:
+  1) mvapich2/2.3.6
+
+Req 32 bytes, Warmup 10000, RPCs 10000000, Concurrent 1, Send Delay 0.000 ms, Duration 10 secs, Streaming 1, Coalesce 1, msgs/stream 1000, Report Interval 1 secs
+Host p0028.ten.osc.edu, Rank 0, Rate 99786.70 RPCs/s, TX Bandwidth 27.14 Mb/s, RX Bandwidth 7.98 Mb/s, RTT (us) mean 19.94, P50 9.69, P95 9.91, P99 9.93, max 1574.91
+Host p0029.ten.osc.edu, Rank 1, Rate 118601.40 RPCs/s, TX Bandwidth 32.26 Mb/s, RX Bandwidth 9.49 Mb/s, RTT (us) mean 16.79, P50 8.86, P95 8.95, P99 8.96, max 1559.55
+Host p0028.ten.osc.edu, Rank 0, Rate 115639.71 RPCs/s, TX Bandwidth 31.45 Mb/s, RX Bandwidth 9.25 Mb/s, RTT (us) mean 18.48, P50 9.93, P95 10.16, P99 10.18, max 1574.91
+Host p0029.ten.osc.edu, Rank 1, Rate 115052.81 RPCs/s, TX Bandwidth 31.29 Mb/s, RX Bandwidth 9.20 Mb/s, RTT (us) mean 17.04, P50 8.95, P95 9.09, P99 9.10, max 1559.55
+Host p0028.ten.osc.edu, Rank 0, Rate 119554.92 RPCs/s, TX Bandwidth 32.52 Mb/s, RX Bandwidth 9.56 Mb/s, RTT (us) mean 17.83, P50 9.73, P95 10.00, P99 10.02, max 1574.91
+Host p0029.ten.osc.edu, Rank 1, Rate 116957.94 RPCs/s, TX Bandwidth 31.81 Mb/s, RX Bandwidth 9.36 Mb/s, RTT (us) mean 17.04, P50 9.02, P95 9.21, P99 9.23, max 1559.55
+Host p0028.ten.osc.edu, Rank 0, Rate 131628.45 RPCs/s, TX Bandwidth 35.80 Mb/s, RX Bandwidth 10.53 Mb/s, RTT (us) mean 17.07, P50 9.68, P95 9.86, P99 9.88, max 1574.91
+Host p0029.ten.osc.edu, Rank 1, Rate 118883.39 RPCs/s, TX Bandwidth 32.34 Mb/s, RX Bandwidth 9.51 Mb/s, RTT (us) mean 16.97, P50 9.02, P95 9.21, P99 9.22, max 1559.55
+Host p0028.ten.osc.edu, Rank 0, Rate 114431.61 RPCs/s, TX Bandwidth 31.13 Mb/s, RX Bandwidth 9.15 Mb/s, RTT (us) mean 17.13, P50 9.70, P95 9.89, P99 9.89, max 1574.91
+Host p0029.ten.osc.edu, Rank 1, Rate 120955.77 RPCs/s, TX Bandwidth 32.90 Mb/s, RX Bandwidth 9.68 Mb/s, RTT (us) mean 16.86, P50 9.08, P95 9.29, P99 9.31, max 1559.55
+Host p0028.ten.osc.edu, Rank 0, Rate 110074.50 RPCs/s, TX Bandwidth 29.94 Mb/s, RX Bandwidth 8.81 Mb/s, RTT (us) mean 17.28, P50 9.71, P95 9.89, P99 9.91, max 1574.91
+Host p0029.ten.osc.edu, Rank 1, Rate 109905.66 RPCs/s, TX Bandwidth 29.89 Mb/s, RX Bandwidth 8.79 Mb/s, RTT (us) mean 17.05, P50 9.13, P95 9.38, P99 9.40, max 1619.97
+Host p0028.ten.osc.edu, Rank 0, Rate 108864.76 RPCs/s, TX Bandwidth 29.61 Mb/s, RX Bandwidth 8.71 Mb/s, RTT (us) mean 17.42, P50 9.74, P95 9.94, P99 9.96, max 1574.91
+Host p0029.ten.osc.edu, Rank 1, Rate 112230.67 RPCs/s, TX Bandwidth 30.53 Mb/s, RX Bandwidth 8.98 Mb/s, RTT (us) mean 17.14, P50 9.17, P95 9.47, P99 9.50, max 1619.97
+Host p0028.ten.osc.edu, Rank 0, Rate 110377.14 RPCs/s, TX Bandwidth 30.02 Mb/s, RX Bandwidth 8.83 Mb/s, RTT (us) mean 17.50, P50 9.78, P95 9.99, P99 10.01, max 1574.91
+Host p0029.ten.osc.edu, Rank 1, Rate 116123.30 RPCs/s, TX Bandwidth 31.59 Mb/s, RX Bandwidth 9.29 Mb/s, RTT (us) mean 17.14, P50 9.21, P95 9.57, P99 9.60, max 1619.97
+Host p0028.ten.osc.edu, Rank 0, Rate 131760.07 RPCs/s, TX Bandwidth 35.84 Mb/s, RX Bandwidth 10.54 Mb/s, RTT (us) mean 17.20, P50 9.74, P95 9.93, P99 9.94, max 1574.91
+Host p0029.ten.osc.edu, Rank 1, Rate 113323.35 RPCs/s, TX Bandwidth 30.82 Mb/s, RX Bandwidth 9.07 Mb/s, RTT (us) mean 17.19, P50 9.26, P95 9.65, P99 9.68, max 1619.97
+Aggregated RPC Rate 232097.20 RPCs/s, Aggregated TX Bandwidth 63.13 Mb/s RX Bandwidth 18.57 Mb/s
+RTT (us) mean 17.15, P50 9.58, P95 9.86, P99 9.88, max 1619.97

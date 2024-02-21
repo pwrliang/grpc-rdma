@@ -1,0 +1,6 @@
+Connecting 10.22.81.20:5000
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+total iters 16384 warmup 1000
+total_bytes 1112576, warmup 1000 req size 64 rcnt 17384
+Thread 0, duration: 152.346938ms, bandwidth: 0.055062531023761054 Gb/s, rate: 0.10754 Mrps
+Thread 0, duration: 152.346938ms, avg: 9.273µs, min: 6.531µs, median: 10.163µs, p95: 11.293µs, p99: 12.764µs, max: 125.921µs

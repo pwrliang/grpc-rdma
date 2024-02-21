@@ -1,0 +1,33 @@
+2024-01-28T19:47:10.224028Z  INFO rpc_bench_client: tokio_tracing initialized
+Connecting 10.22.81.8:50097
+Connecting 10.22.81.8:50099
+Connecting 10.22.81.8:50098
+Connecting 10.22.81.8:50101
+Connecting 10.22.81.8:50100
+Connecting 10.22.81.8:50103
+Connecting 10.22.81.8:50102
+Connecting 10.22.81.8:50105
+Connecting 10.22.81.8:50104
+Connecting 10.22.81.8:50106
+Connecting 10.22.81.8:50107
+Connecting 10.22.81.8:50108
+Connecting 10.22.81.8:50109
+Connecting 10.22.81.8:50110
+Connecting 10.22.81.8:50096
+Connecting 10.22.81.8:50111
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }

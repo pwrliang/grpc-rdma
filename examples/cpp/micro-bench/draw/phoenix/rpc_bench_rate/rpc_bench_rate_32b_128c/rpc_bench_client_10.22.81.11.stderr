@@ -1,0 +1,35 @@
+
+Inactive Modules:
+  1) mvapich2
+
+
+Activating Modules:
+  1) mvapich2/2.3.6
+
+Lmod has detected the following error: The following module(s) are unknown:
+"cuda/12.0.0"
+
+Please check the spelling or version number. Also try "module spider ..."
+It is also possible your cache file is out-of-date; it may help to try:
+  $ module --ignore-cache load "cuda/12.0.0"
+
+Also make sure that all modulefiles written in TCL start with the string
+#%Module
+
+
+
+args: Args { connects: ["10.22.81.8"], port: 50064, log_level: "info", log_dir: None, log_latency: false, req_size: 32, concurrency: 16, total_iters: 16384, warmup: 1000, duration: Some(20.0), interval: Some(1.0), provision_count: 1, num_client_threads: 16, num_server_threads: 16, transport: Rdma }
+Connected for thread 0
+Connected for thread 9
+Connected for thread 6
+Connected for thread 3
+Connected for thread 8
+Connected for thread 1
+Connected for thread 4
+Connected for thread 7
+Connected for thread 10
+Connected for thread 13
+Connected for thread 11
+Connected for thread 14
+Connected for thread 12
+Killed by signal 2.

@@ -1,0 +1,195 @@
+2024-01-28T19:47:10.338449Z  INFO rpc_bench_client: tokio_tracing initialized
+Connecting 10.22.81.8:50084
+Connecting 10.22.81.8:50082
+Connecting 10.22.81.8:50085
+Connecting 10.22.81.8:50083
+Connecting 10.22.81.8:50086
+Connecting 10.22.81.8:50081
+Connecting 10.22.81.8:50090
+Connecting 10.22.81.8:50088
+Connecting 10.22.81.8:50087
+Connecting 10.22.81.8:50089
+Connecting 10.22.81.8:50091
+Connecting 10.22.81.8:50092
+Connecting 10.22.81.8:50094
+Connecting 10.22.81.8:50080
+Connecting 10.22.81.8:50095
+Connecting 10.22.81.8:50093
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+mrpc register: Setting { transport: Rdma, nic_index: 0, core_id: None, module_config: None }
+total iters 9223372036854775807 warmup 1000
+total iters 9223372036854775807 warmup 1000
+total iters 9223372036854775807 warmup 1000
+total iters 9223372036854775807 warmup 1000
+total iters 9223372036854775807 warmup 1000
+total iters 9223372036854775807 warmup 1000
+total iters 9223372036854775807 warmup 1000
+2024-01-28T19:47:27.539034Z  INFO rpc_bench_client: Thread 4, 4091.99930026812 rps, 0.0010475518208686388 Gb/s
+2024-01-28T19:47:27.709038Z  INFO rpc_bench_client: Thread 15, 30227.995768080593 rps, 0.007738366916628632 Gb/s
+2024-01-28T19:47:27.965377Z  INFO rpc_bench_client: Thread 2, 15809.998166040212 rps, 0.004047359530506294 Gb/s
+2024-01-28T19:47:28.107321Z  INFO rpc_bench_client: Thread 1, 33149.98992240306 rps, 0.008486397420135183 Gb/s
+2024-01-28T19:47:28.539092Z  INFO rpc_bench_client: Thread 4, 18293.997310782397 rps, 0.004683263311560294 Gb/s
+2024-01-28T19:47:28.709066Z  INFO rpc_bench_client: Thread 15, 41042.984321579985 rps, 0.010507003986324476 Gb/s
+2024-01-28T19:47:28.787615Z  INFO rpc_bench_client: Thread 3, 2567.9999409360016 rps, 0.0006574079848796165 Gb/s
+2024-01-28T19:47:28.965409Z  INFO rpc_bench_client: Thread 2, 35635.997077848246 rps, 0.00912281525192915 Gb/s
+2024-01-28T19:47:29.055509Z  INFO rpc_bench_client: Thread 0, 4132.999834680007 rps, 0.0010580479576780817 Gb/s
+2024-01-28T19:47:29.107338Z  INFO rpc_bench_client: Thread 1, 64917.99545574032 rps, 0.01661900683666952 Gb/s
+2024-01-28T19:47:29.138076Z  INFO rpc_bench_client: Thread 10, 5732.9981138436215 rps, 0.001467647517143967 Gb/s
+Run RPC 100000
+Run RPC 100000
+2024-01-28T19:47:29.539110Z  INFO rpc_bench_client: Thread 4, 31947.99207689796 rps, 0.008178685971685877 Gb/s
+Run RPC 100000
+2024-01-28T19:47:29.709076Z  INFO rpc_bench_client: Thread 15, 52578.99390083671 rps, 0.013460222438614198 Gb/s
+2024-01-28T19:47:29.787631Z  INFO rpc_bench_client: Thread 3, 19328.997351927363 rps, 0.004948223322093405 Gb/s
+2024-01-28T19:47:29.965423Z  INFO rpc_bench_client: Thread 2, 75684.98652807239 rps, 0.019375356551186534 Gb/s
+2024-01-28T19:47:30.055528Z  INFO rpc_bench_client: Thread 0, 55157.9880307166 rps, 0.01412044493586345 Gb/s
+2024-01-28T19:47:30.107348Z  INFO rpc_bench_client: Thread 1, 72787.98820834591 rps, 0.018633724981336554 Gb/s
+2024-01-28T19:47:30.138101Z  INFO rpc_bench_client: Thread 10, 35953.99036433058 rps, 0.00920422153326863 Gb/s
+Run RPC 200000
+2024-01-28T19:47:30.539124Z  INFO rpc_bench_client: Thread 4, 23698.998293672124 rps, 0.006066943563180064 Gb/s
+Run RPC 100000
+2024-01-28T19:47:30.709087Z  INFO rpc_bench_client: Thread 15, 51915.98639801157 rps, 0.013290492517890962 Gb/s
+2024-01-28T19:47:30.787642Z  INFO rpc_bench_client: Thread 3, 15578.995497670303 rps, 0.003988222847403597 Gb/s
+2024-01-28T19:47:30.965438Z  INFO rpc_bench_client: Thread 2, 12744.997425510519 rps, 0.0032627193409306933 Gb/s
+2024-01-28T19:47:31.055539Z  INFO rpc_bench_client: Thread 0, 69208.9786144256 rps, 0.017717498525292957 Gb/s
+2024-01-28T19:47:31.107370Z  INFO rpc_bench_client: Thread 1, 71387.98286688411 rps, 0.018275323613922333 Gb/s
+2024-01-28T19:47:31.138118Z  INFO rpc_bench_client: Thread 10, 31591.99737786422 rps, 0.00808755132873324 Gb/s
+Run RPC 200000
+Run RPC 100000
+2024-01-28T19:47:31.539137Z  INFO rpc_bench_client: Thread 4, 23102.99360047077 rps, 0.005914366361720518 Gb/s
+2024-01-28T19:47:31.709098Z  INFO rpc_bench_client: Thread 15, 57272.995647252326 rps, 0.014661886885696597 Gb/s
+2024-01-28T19:47:31.787651Z  INFO rpc_bench_client: Thread 3, 23914.994427806298 rps, 0.006122238573518413 Gb/s
+2024-01-28T19:47:31.965449Z  INFO rpc_bench_client: Thread 2, 38589.99961410001 rps, 0.009879039901209603 Gb/s
+Run RPC 300000
+Run RPC 100000
+2024-01-28T19:47:32.055552Z  INFO rpc_bench_client: Thread 0, 21884.998577475093 rps, 0.005602559635833624 Gb/s
+2024-01-28T19:47:32.107380Z  INFO rpc_bench_client: Thread 1, 64438.99091410229 rps, 0.016496381674010185 Gb/s
+2024-01-28T19:47:32.138129Z  INFO rpc_bench_client: Thread 10, 30370.992285767963 rps, 0.007774974025156599 Gb/s
+Run RPC 200000
+2024-01-28T19:47:32.539147Z  INFO rpc_bench_client: Thread 4, 6863.998778208217 rps, 0.0017571836872213038 Gb/s
+Run RPC 300000
+2024-01-28T19:47:32.709108Z  INFO rpc_bench_client: Thread 15, 68517.99554633029 rps, 0.017540606859860555 Gb/s
+2024-01-28T19:47:32.787660Z  INFO rpc_bench_client: Thread 3, 26743.995105848895 rps, 0.006846462747097317 Gb/s
+Run RPC 200000
+2024-01-28T19:47:32.965460Z  INFO rpc_bench_client: Thread 2, 52245.98463968052 rps, 0.013374972067758213 Gb/s
+2024-01-28T19:47:33.055563Z  INFO rpc_bench_client: Thread 0, 66781.98971557358 rps, 0.017096189367186834 Gb/s
+2024-01-28T19:47:33.107390Z  INFO rpc_bench_client: Thread 1, 68781.9892012277 rps, 0.017608189235514295 Gb/s
+2024-01-28T19:47:33.138138Z  INFO rpc_bench_client: Thread 10, 27402.99945194001 rps, 0.007015167859696643 Gb/s
+Run RPC 100000
+Run RPC 400000
+2024-01-28T19:47:33.539157Z  INFO rpc_bench_client: Thread 4, 63265.97773037584 rps, 0.016196090298976215 Gb/s
+2024-01-28T19:47:33.709118Z  INFO rpc_bench_client: Thread 15, 65035.99043970941 rps, 0.01664921355256561 Gb/s
+2024-01-28T19:47:33.787669Z  INFO rpc_bench_client: Thread 3, 20652.994878057267 rps, 0.0052871666887826605 Gb/s
+Run RPC 200000
+2024-01-28T19:47:33.965470Z  INFO rpc_bench_client: Thread 2, 21799.993896001706 rps, 0.005580798437376438 Gb/s
+2024-01-28T19:47:34.055572Z  INFO rpc_bench_client: Thread 0, 6995.997712308748 rps, 0.0017909754143510396 Gb/s
+2024-01-28T19:47:34.107398Z  INFO rpc_bench_client: Thread 1, 72051.99020092934 rps, 0.01844530949143791 Gb/s
+2024-01-28T19:47:34.138149Z  INFO rpc_bench_client: Thread 10, 18995.99800542021 rps, 0.004862975489387574 Gb/s
+Run RPC 400000
+2024-01-28T19:47:34.539173Z  INFO rpc_bench_client: Thread 4, 96830.98528169024 rps, 0.024788732232112705 Gb/s
+2024-01-28T19:47:34.709129Z  INFO rpc_bench_client: Thread 15, 63892.99476077443 rps, 0.016356606658758256 Gb/s
+2024-01-28T19:47:34.787679Z  INFO rpc_bench_client: Thread 3, 19834.995834650872 rps, 0.005077758933670624 Gb/s
+Run RPC 300000
+2024-01-28T19:47:34.965481Z  INFO rpc_bench_client: Thread 2, 31298.99446007798 rps, 0.008012542581779964 Gb/s
+Run RPC 500000
+2024-01-28T19:47:35.055581Z  INFO rpc_bench_client: Thread 0, 40306.992865662265 rps, 0.01031859017360954 Gb/s
+2024-01-28T19:47:35.107408Z  INFO rpc_bench_client: Thread 1, 60503.992860528844 rps, 0.015489022172295384 Gb/s
+2024-01-28T19:47:35.138159Z  INFO rpc_bench_client: Thread 10, 22722.999454648012 rps, 0.0058170878603898924 Gb/s
+Run RPC 300000
+2024-01-28T19:47:35.539186Z  INFO rpc_bench_client: Thread 4, 56747.99886504002 rps, 0.014527487709450245 Gb/s
+2024-01-28T19:47:35.709138Z  INFO rpc_bench_client: Thread 15, 66077.99775334809 rps, 0.01691596742485711 Gb/s
+Run RPC 200000
+Run RPC 500000
+2024-01-28T19:47:35.787688Z  INFO rpc_bench_client: Thread 3, 21121.99486735525 rps, 0.0054072306860429445 Gb/s
+2024-01-28T19:47:35.965492Z  INFO rpc_bench_client: Thread 2, 11841.997619758478 rps, 0.0030315513906581707 Gb/s
+2024-01-28T19:47:36.055592Z  INFO rpc_bench_client: Thread 0, 70968.9960967052 rps, 0.018168063000756535 Gb/s
+2024-01-28T19:47:36.107417Z  INFO rpc_bench_client: Thread 1, 70073.98220120852 rps, 0.017938939443509383 Gb/s
+2024-01-28T19:47:36.138169Z  INFO rpc_bench_client: Thread 10, 40641.98577530497 rps, 0.010404348358478074 Gb/s
+Run RPC 300000
+Run RPC 600000
+2024-01-28T19:47:36.539195Z  INFO rpc_bench_client: Thread 4, 28156.996930887337 rps, 0.007208191214307159 Gb/s
+2024-01-28T19:47:36.709147Z  INFO rpc_bench_client: Thread 15, 67146.97790864427 rps, 0.017189626344612935 Gb/s
+2024-01-28T19:47:36.787696Z  INFO rpc_bench_client: Thread 3, 21462.998519053104 rps, 0.005494527620877595 Gb/s
+2024-01-28T19:47:36.965502Z  INFO rpc_bench_client: Thread 2, 39200.98753408596 rps, 0.010035452808726005 Gb/s
+2024-01-28T19:47:37.055602Z  INFO rpc_bench_client: Thread 0, 22250.9984869321 rps, 0.005696255612654618 Gb/s
+2024-01-28T19:47:37.107427Z  INFO rpc_bench_client: Thread 1, 73187.99634060019 rps, 0.01873612706319365 Gb/s
+2024-01-28T19:47:37.138178Z  INFO rpc_bench_client: Thread 10, 43137.98908608876 rps, 0.011043325206038722 Gb/s
+Run RPC 600000
+2024-01-28T19:47:37.539211Z  INFO rpc_bench_client: Thread 4, 39538.99355514405 rps, 0.010121982350116878 Gb/s
+2024-01-28T19:47:37.709158Z  INFO rpc_bench_client: Thread 15, 66773.9819042509 rps, 0.017094139367488232 Gb/s
+Run RPC 700000
+2024-01-28T19:47:37.787704Z  INFO rpc_bench_client: Thread 3, 21391.995336545016 rps, 0.005476350806155524 Gb/s
+Run RPC 400000
+2024-01-28T19:47:37.965513Z  INFO rpc_bench_client: Thread 2, 29764.990356143127 rps, 0.0076198375311726406 Gb/s
+2024-01-28T19:47:38.055612Z  INFO rpc_bench_client: Thread 0, 30667.99800658013 rps, 0.007851007489684514 Gb/s
+2024-01-28T19:47:38.107436Z  INFO rpc_bench_client: Thread 1, 74091.97414190102 rps, 0.018967545380326665 Gb/s
+Run RPC 200000
+2024-01-28T19:47:38.138187Z  INFO rpc_bench_client: Thread 10, 26287.994006337365 rps, 0.006729726465622366 Gb/s
+Run RPC 400000
+2024-01-28T19:47:38.539223Z  INFO rpc_bench_client: Thread 4, 26823.990343363475 rps, 0.006866941527901051 Gb/s
+Run RPC 700000
+2024-01-28T19:47:38.709168Z  INFO rpc_bench_client: Thread 15, 69940.98727074033 rps, 0.017904892741309523 Gb/s
+2024-01-28T19:47:38.787712Z  INFO rpc_bench_client: Thread 3, 22034.9970252754 rps, 0.005640959238470503 Gb/s
+Run RPC 300000
+2024-01-28T19:47:38.965524Z  INFO rpc_bench_client: Thread 2, 20751.992508530708 rps, 0.005312510082183861 Gb/s
+Run RPC 800000
+2024-01-28T19:47:39.055623Z  INFO rpc_bench_client: Thread 0, 37199.99899560003 rps, 0.009523199742873608 Gb/s
+2024-01-28T19:47:39.107445Z  INFO rpc_bench_client: Thread 1, 79268.98398766523 rps, 0.0202928599008423 Gb/s
+2024-01-28T19:47:39.138198Z  INFO rpc_bench_client: Thread 10, 30700.995486953663 rps, 0.007859454844660139 Gb/s
+Run RPC 400000
+2024-01-28T19:47:39.539232Z  INFO rpc_bench_client: Thread 4, 30500.99118521355 rps, 0.0078082537434146695 Gb/s
+2024-01-28T19:47:39.709175Z  INFO rpc_bench_client: Thread 15, 73820.99431578345 rps, 0.018898174544840565 Gb/s
+2024-01-28T19:47:39.787719Z  INFO rpc_bench_client: Thread 3, 22433.99441393539 rps, 0.005743102569967461 Gb/s
+2024-01-28T19:47:39.965532Z  INFO rpc_bench_client: Thread 2, 36808.997165707224 rps, 0.009423103274421049 Gb/s
+2024-01-28T19:47:40.055631Z  INFO rpc_bench_client: Thread 0, 37293.99444319483 rps, 0.009547262577457877 Gb/s
+2024-01-28T19:47:40.107452Z  INFO rpc_bench_client: Thread 1, 76685.99509209632 rps, 0.019631614743576657 Gb/s
+Run RPC 800000
+2024-01-28T19:47:40.138206Z  INFO rpc_bench_client: Thread 10, 35293.99682354029 rps, 0.009035263186826315 Gb/s
+Run RPC 900000
+2024-01-28T19:47:40.539240Z  INFO rpc_bench_client: Thread 4, 29574.993552651405 rps, 0.00757119834947876 Gb/s
+2024-01-28T19:47:40.709183Z  INFO rpc_bench_client: Thread 15, 61264.993444645705 rps, 0.0156838383218293 Gb/s
+2024-01-28T19:47:40.787726Z  INFO rpc_bench_client: Thread 3, 22866.999313990018 rps, 0.005853951824381445 Gb/s
+2024-01-28T19:47:40.965544Z  INFO rpc_bench_client: Thread 2, 44592.99866221004 rps, 0.011415807657525772 Gb/s
+Run RPC 500000
+Run RPC 500000
+2024-01-28T19:47:41.055640Z  INFO rpc_bench_client: Thread 0, 37694.99438344584 rps, 0.009649918562162137 Gb/s
+2024-01-28T19:47:41.107461Z  INFO rpc_bench_client: Thread 1, 21963.99819895215 rps, 0.005622783538931751 Gb/s
+2024-01-28T19:47:41.138217Z  INFO rpc_bench_client: Thread 10, 36459.99376534107 rps, 0.009333758403927313 Gb/s
+Run RPC 500000
+total_bytes 16695648, warmup 1000 req size 32
+2024-01-28T19:47:41.539030Z  INFO rpc_bench_client: Thread 4, duration: 14.384052509s, bandwidth: 0.009267846034112388 Gb/s, rate: 0.03620 Mrps
+2024-01-28T19:47:41.545485Z  INFO rpc_bench_client: Thread 4, duration: 14.384052509s, avg: 441.574µs, min: 10.229µs, median: 26.234µs, p95: 114.877µs, p99: 25.064575ms, max: 83.718655ms
+total_bytes 28000288, warmup 1000 req size 32
+2024-01-28T19:47:41.709038Z  INFO rpc_bench_client: Thread 15, duration: 14.703671946s, bandwidth: 0.01521703590924226 Gb/s, rate: 0.05944 Mrps
+2024-01-28T19:47:41.717719Z  INFO rpc_bench_client: Thread 15, duration: 14.703671946s, avg: 268.511µs, min: 10.417µs, median: 36.238µs, p95: 2.909103ms, p99: 4.474559ms, max: 364.898303ms
+Run RPC 400000
+total_bytes 9350176, warmup 1000 req size 32
+2024-01-28T19:47:41.787620Z  INFO rpc_bench_client: Thread 3, duration: 13.056083428s, bandwidth: 0.005709630182059833 Gb/s, rate: 0.02230 Mrps
+2024-01-28T19:47:41.794635Z  INFO rpc_bench_client: Thread 3, duration: 13.056083428s, avg: 717.363µs, min: 10.472µs, median: 47.944µs, p95: 510.895µs, p99: 20.227199ms, max: 31.043455ms
+total_bytes 18134080, warmup 1000 req size 32
+2024-01-28T19:47:41.965375Z  INFO rpc_bench_client: Thread 2, duration: 14.567355501s, bandwidth: 0.009941175664317303 Gb/s, rate: 0.03883 Mrps
+2024-01-28T19:47:41.972304Z  INFO rpc_bench_client: Thread 2, duration: 14.567355501s, avg: 411.857µs, min: 10.784µs, median: 27.039µs, p95: 122.517µs, p99: 23.972607ms, max: 134.265855ms
+total_bytes 16941120, warmup 1000 req size 32
+2024-01-28T19:47:42.055515Z  INFO rpc_bench_client: Thread 0, duration: 13.201081966s, bandwidth: 0.010247111588913832 Gb/s, rate: 0.04003 Mrps
+2024-01-28T19:47:42.061930Z  INFO rpc_bench_client: Thread 0, duration: 13.201081966s, avg: 399.421µs, min: 10.988µs, median: 26.339µs, p95: 150.535µs, p99: 20.156415ms, max: 61.412863ms
+total_bytes 29611808, warmup 1000 req size 32
+2024-01-28T19:47:42.107326Z  INFO rpc_bench_client: Thread 1, duration: 14.63381358s, bandwidth: 0.016170662739848844 Gb/s, rate: 0.06317 Mrps
+2024-01-28T19:47:42.113692Z  INFO rpc_bench_client: Thread 1, duration: 14.63381358s, avg: 253.22µs, min: 10.709µs, median: 33.046µs, p95: 142.622µs, p99: 3.616975ms, max: 105.732607ms
+2024-01-28T19:47:42.138226Z  INFO rpc_bench_client: Thread 10, 30098.992354855945 rps, 0.007705342042843122 Gb/s
+total_bytes 14762464, warmup 1000 req size 32
+2024-01-28T19:47:43.138077Z  INFO rpc_bench_client: Thread 10, duration: 14.419391445s, bandwidth: 0.008172585677383973 Gb/s, rate: 0.03192 Mrps
+2024-01-28T19:47:43.144640Z  INFO rpc_bench_client: Thread 10, duration: 14.419391445s, avg: 500.474µs, min: 10.243µs, median: 27.519µs, p95: 180.967µs, p99: 20.523903ms, max: 117.921279ms
