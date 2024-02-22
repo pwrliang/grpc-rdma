@@ -157,7 +157,7 @@ else
   while true; do
     tmp_host="/tmp/${USER}_clients"
     tail -n +2 "$HOSTS_PATH" >"$tmp_host"
-    echo "============================= Running $NP clients, server threads: $SERVER_THREADS, req: $REQ_SIZE, resp: $RESP_SIZE rpcs: $N_RPCS duration: $DURATION"
+    echo "============================= Running $GRPC_PLATFORM_TYPE, clients: $NP, server threads: $SERVER_THREADS, req: $REQ_SIZE, resp: $RESP_SIZE rpcs: $N_RPCS duration: $DURATION"
     start_server "$server_log_path"
 
     # Evaluate
