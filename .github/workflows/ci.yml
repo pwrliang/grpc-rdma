@@ -138,7 +138,7 @@ jobs:
         timeout-minutes: 20
         run: |
           pushd examples/cpp/micro-bench/launcher
-          rm -f ./log/*
+          rm -rf ./log
           MB_HOME=$PWD/../debug ./run-all.sh --throughput
           popd
 
@@ -146,7 +146,7 @@ jobs:
         timeout-minutes: 20
         run: |
           pushd examples/cpp/micro-bench/launcher
-          rm -f ./log/*
+          rm -rf ./log
           MB_HOME=$PWD/../release ./run-all.sh --throughput
           popd
 
