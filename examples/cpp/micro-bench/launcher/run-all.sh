@@ -48,7 +48,8 @@ function throughput() {
         --duration=$duration \
         --polling-timeout=100 \
         --streaming="$streaming" \
-        --polling-thread=2
+        --polling-thread=2 \
+        --overwrite
     done
   done
 }
