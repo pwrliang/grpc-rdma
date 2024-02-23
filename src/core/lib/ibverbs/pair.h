@@ -13,6 +13,8 @@
 #include <sstream>
 #include <vector>
 
+#include <grpc/slice.h>
+
 #include "src/core/lib/ibverbs/address.h"
 #include "src/core/lib/ibverbs/buffer.h"
 #include "src/core/lib/ibverbs/device.h"
@@ -115,6 +117,8 @@ class PairPollable {
 
   uint64_t Send(iovec* iov, uint64_t iov_size);
 
+  uint64_t Send(grpc_slice* slices, size_t slice_count, size_t byte_idx);
+
   uint64_t Recv(void* buf, uint64_t capacity);
 
   bool HasMessage() const;
@@ -200,6 +204,9 @@ class PairPollable {
   void handleCompletion(ibv_wc* wc);
 
   void postWrite(const rdma_write_request& req);
+
+  void postWrite(int wr_id, struct ibv_sge* sg_list, int num_seg,
+                 uint64_t remote_addr, uint32_t rkey);
 
   void updateStatus();
 

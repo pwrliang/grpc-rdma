@@ -16,6 +16,8 @@
 #include <memory>
 #include <vector>
 
+#include <grpc/slice.h>
+
 #include "src/core/lib/ibverbs/buffer.h"
 
 namespace grpc_core {
@@ -109,6 +111,42 @@ class RingBufferPollable {
       memcpy(buf + offset, iov[i].iov_base, len);
       offset += len;
       encoded_payload_size += len;
+    }
+
+    if (encoded_payload_size > 0) {
+      *reinterpret_cast<uint64_t*>(buf) = offset - alignment;
+      *reinterpret_cast<uint64_t*>(buf + round_up(offset)) = footer_tag;
+      return alignment + round_up(offset);
+    }
+    return 0;
+  }
+
+  static uint64_t EncodeBuffer(char* buf, uint64_t payload_size_limit,
+                               grpc_slice* slices, size_t slice_count,
+                               size_t byte_idx,
+                               uint64_t& encoded_payload_size) {
+    uint64_t offset = alignment;
+    encoded_payload_size = 0;
+
+    for (int i = 0; i < slice_count; i++) {
+      uint64_t remain = 0;
+
+      if (payload_size_limit > offset - alignment) {
+        remain = payload_size_limit - (offset - alignment);
+      }
+
+      if (remain < alignment) {  // reserve an alignment as we need to roundup
+        break;
+      }
+
+      auto slice_len = GRPC_SLICE_LENGTH(slices[i]) - byte_idx;
+      auto slice_ptr = GRPC_SLICE_START_PTR(slices[i]) + byte_idx;
+      auto len = std::min(slice_len, remain);
+
+      memcpy(buf + offset, slice_ptr, len);
+      offset += len;
+      encoded_payload_size += len;
+      byte_idx = 0;
     }
 
     if (encoded_payload_size > 0) {

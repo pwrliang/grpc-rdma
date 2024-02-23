@@ -379,8 +379,7 @@ static void rdma_read(grpc_endpoint* ep, grpc_slice_buffer* incoming_buffer,
 #else
 #define MAX_WRITE_IOVEC 128
 #endif
-
-static bool rdma_flush(grpc_rdma* rdma, grpc_error_handle* error) {
+static bool rdma_flush_old(grpc_rdma* rdma, grpc_error_handle* error) {
   GRPCProfiler profiler(GRPC_STATS_TIME_TRANSPORT_FLUSH);
   struct iovec iov[MAX_WRITE_IOVEC];
   msg_iovlen_type iov_size;
@@ -463,6 +462,59 @@ static bool rdma_flush(grpc_rdma* rdma, grpc_error_handle* error) {
       grpc_slice_buffer_reset_and_unref(rdma->outgoing_buffer);
       return true;
     }
+  }
+}
+
+static bool rdma_flush(grpc_rdma* rdma, grpc_error_handle* error) {
+  GRPCProfiler profiler(GRPC_STATS_TIME_TRANSPORT_FLUSH);
+  size_t outgoing_slice_idx = 0;
+  auto* pair = rdma->pair;
+  GPR_ASSERT(rdma->outgoing_buffer->count);
+  size_t sent_length =
+      pair->Send(rdma->outgoing_buffer->slices, rdma->outgoing_buffer->count,
+                 rdma->outgoing_byte_idx);
+
+  while (sent_length > 0) {
+    auto slice_len =
+        GRPC_SLICE_LENGTH(rdma->outgoing_buffer->slices[outgoing_slice_idx]) -
+        rdma->outgoing_byte_idx;
+
+    if (sent_length >= slice_len) {
+      sent_length -= slice_len;
+      outgoing_slice_idx++;
+      rdma->outgoing_byte_idx = 0;
+    } else {
+      rdma->outgoing_byte_idx += sent_length;
+      break;
+    }
+  }
+
+  if (rdma->outgoing_byte_idx > 0) {
+    auto status = pair->get_status();
+
+    if (status == grpc_core::ibverbs::PairStatus::kConnected) {
+      // unref all and forget about all slices that have been written to this
+      // point
+      for (size_t idx = 0; idx < outgoing_slice_idx; ++idx) {
+        grpc_slice_buffer_remove_first(rdma->outgoing_buffer);
+      }
+      return false;
+    } else if (status == grpc_core::ibverbs::PairStatus::kHalfClosed) {
+      *error = rdma_annotate_error(
+          GRPC_ERROR_CREATE_FROM_STATIC_STRING("Peer has been exited"), rdma);
+      grpc_slice_buffer_reset_and_unref(rdma->outgoing_buffer);
+      return true;
+    } else {
+      auto err = "RDMA Pair has an internal error, " + pair->get_error();
+      *error = rdma_annotate_error(
+          GRPC_ERROR_CREATE_FROM_STATIC_STRING(err.c_str()), rdma);
+      grpc_slice_buffer_reset_and_unref(rdma->outgoing_buffer);
+      return true;
+    }
+  } else {
+    *error = GRPC_ERROR_NONE;
+    grpc_slice_buffer_reset_and_unref(rdma->outgoing_buffer);
+    return true;
   }
 }
 

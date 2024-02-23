@@ -545,28 +545,22 @@ void PairPollable::handleCompletion(ibv_wc* wc) {
   }
 }
 
-void PairPollable::postWrite(const rdma_write_request& req) {
-  GPR_ASSERT(req.id != 0);
-  GPR_ASSERT(req.size != 0);
-  struct ibv_sge list;
-  list.addr = req.addr;
-  list.length = req.size;
-  list.lkey = req.lkey;
-
+void PairPollable::postWrite(int wr_id, struct ibv_sge* sg_list, int num_seg,
+                             uint64_t remote_addr, uint32_t rkey) {
   struct ibv_send_wr wr;
   memset(&wr, 0, sizeof(wr));
-  wr.wr_id = req.id;
-  wr.sg_list = &list;
-  wr.num_sge = 1;
+  wr.wr_id = wr_id;
+  wr.sg_list = sg_list;
+  wr.num_sge = num_seg;
   wr.opcode = IBV_WR_RDMA_WRITE;
   wr.send_flags = IBV_SEND_SIGNALED;
 
-  wr.wr.rdma.remote_addr = req.remote_addr;
-  wr.wr.rdma.rkey = req.rkey;
+  wr.wr.rdma.remote_addr = remote_addr;
+  wr.wr.rdma.rkey = rkey;
 
   struct ibv_send_wr* bad_wr;
 
-  switch (req.id) {
+  switch (wr_id) {
     case WR_ID_DATA:
       pending_write_num_data_++;
       break;
@@ -577,6 +571,16 @@ void PairPollable::postWrite(const rdma_write_request& req) {
       assert(false);
   }
   IBVERBS_CHECK(error_, ibv_post_send(qp_, &wr, &bad_wr));
+}
+void PairPollable::postWrite(const rdma_write_request& req) {
+  GPR_ASSERT(req.id != 0);
+  GPR_ASSERT(req.size != 0);
+  struct ibv_sge list;
+  list.addr = req.addr;
+  list.length = req.size;
+  list.lkey = req.lkey;
+
+  postWrite(req.id, &list, 1, req.remote_addr, req.rkey);
 }
 
 void PairPollable::updateStatus() {
@@ -599,5 +603,60 @@ void PairPollable::updateStatus() {
 }
 
 const std::string& PairPollable::get_error() const { return error_; }
+uint64_t PairPollable::Send(grpc_slice* slices, size_t slice_count,
+                            size_t byte_idx) {
+  GRPCProfiler profiler(GRPC_STATS_TIME_PAIR_SEND);
+  ContentAssertion cassert(write_content_);
+  auto* send_buf = send_buffers_[kDataBuffer].get();
+  const ibv_mr& peer = mr_peer_[kDataBuffer]->mr();
+  auto recv_buf_size = GetWritableSize();
+  auto send_buf_size = send_buf->size() - RingBufferPollable::reserved_space;
+  auto free_size = std::min(recv_buf_size, send_buf_size);
+  uint64_t payload_size = 0;
+
+  for (int i = 0; i < slice_count; i++) {
+    payload_size += GRPC_SLICE_LENGTH(slices[i]);
+  }
+
+  payload_size -= byte_idx;  // offset of the first slice
+
+  remain_write_size_ = payload_size > free_size ? payload_size - free_size : 0;
+
+  auto size = std::min(payload_size, free_size);
+
+  if (size == 0 || status_ != PairStatus::kConnected) {
+    return 0;
+  }
+
+  // Wait writing done to reuse send buffer
+  waitDataWrites();
+  uint64_t encoded_payload_size;
+  auto encoded_buffer_size = RingBufferPollable::EncodeBuffer(
+      send_buf->data(), free_size, slices, slice_count, byte_idx,
+      encoded_payload_size);
+
+  if (encoded_payload_size > 0) {
+    std::vector<ring_buffer_write_request> reqs;
+
+    assert(encoded_buffer_size <= send_buf->size());
+    remote_tail_ =
+        ring_buf_.GetWriteRequests(encoded_buffer_size, remote_tail_, reqs);
+
+    for (auto& req : reqs) {
+      rdma_write_request w_req;
+
+      w_req.id = WR_ID_DATA;
+      w_req.addr = (uint64_t)send_buf->data() + req.src_offset;
+      w_req.lkey = send_buf->get_mr()->lkey;
+      w_req.remote_addr = (uint64_t)peer.addr + req.dst_offset;
+      w_req.rkey = peer.rkey;
+      w_req.size = req.size;
+      postWrite(w_req);
+    }
+
+    total_write_size_ += size;
+  }
+  return encoded_payload_size;
+}
 }  // namespace ibverbs
 }  // namespace grpc_core
