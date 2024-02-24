@@ -1,3 +1,4 @@
+#ifdef GRPC_USE_IBVERBS
 #include <grpc/support/log.h>
 
 #include "src/core/lib/ibverbs/config.h"
@@ -95,3 +96,4 @@ void Config::init() {
 
 }  // namespace ibverbs
 }  // namespace grpc_core
+#endif

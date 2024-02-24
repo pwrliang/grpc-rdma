@@ -1,5 +1,6 @@
 #ifndef GRPC_SRC_CORE_LIB_IBVERBS_BUFFER_H
 #define GRPC_SRC_CORE_LIB_IBVERBS_BUFFER_H
+#ifdef GRPC_USE_IBVERBS
 #include <infiniband/verbs.h>
 
 #include <cstdint>
@@ -32,4 +33,5 @@ class Buffer {
 };
 }  // namespace ibverbs
 }  // namespace grpc_core
+#endif
 #endif  // GRPC_SRC_CORE_LIB_IBVERBS_BUFFER_H

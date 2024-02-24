@@ -5,15 +5,14 @@
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
  */
-#include "device.h"
-
-#include <fcntl.h>
-#include <poll.h>
+#ifdef GRPC_USE_IBVERBS
 
 #include <algorithm>
 #include <vector>
 
 #include <grpc/support/log.h>
+
+#include "src/core/lib/ibverbs/device.h"
 
 namespace grpc_core {
 namespace ibverbs {
@@ -83,14 +82,14 @@ Device::Device() {
   int rv;
 
   // Query and store device attributes
-  rv = ibv_query_device(context_, &deviceAttr_);
+  rv = ibv_query_device(context_, &device_attr_);
   if (rv != 0) {
     gpr_log(GPR_ERROR, "ibv_query_device: %s", strerror(errno));
   }
   GPR_ASSERT(rv == 0);
 
   // Query and store port attributes
-  rv = ibv_query_port(context_, config.get_port_num(), &portAttr_);
+  rv = ibv_query_port(context_, config.get_port_num(), &port_attr_);
   if (rv != 0) {
     gpr_log(GPR_ERROR, "ibv_query_port: %s", strerror(errno));
   }
@@ -100,6 +99,8 @@ Device::Device() {
   pd_ = ibv_alloc_pd(context_);
   GPR_ASSERT(pd_);
 }
+
+ibv_pd* Device::get_pd() const { return pd_; }
 
 Device::~Device() {
   int rv;
@@ -112,3 +113,4 @@ Device::~Device() {
 }
 }  // namespace ibverbs
 }  // namespace grpc_core
+#endif

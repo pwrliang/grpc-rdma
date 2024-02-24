@@ -1,8 +1,9 @@
-#include "src/core/lib/ibverbs/ring_buffer.h"
-
+#ifdef GRPC_USE_IBVERBS
 #include <thread>
 
 #include <grpc/support/log.h>
+
+#include "src/core/lib/ibverbs/ring_buffer.h"
 
 namespace grpc_core {
 namespace ibverbs {
@@ -252,3 +253,4 @@ uint64_t RingBufferPollable::get_head() const { return moving_head_; }
 
 }  // namespace ibverbs
 }  // namespace grpc_core
+#endif

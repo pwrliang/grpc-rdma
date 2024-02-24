@@ -5,9 +5,11 @@
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
  */
+#ifdef GRPC_USE_IBVERBS
+#include <grpc/support/log.h>
+
 #include "src/core/lib/ibverbs/memory_region.h"
 
-#include <grpc/support/log.h>
 namespace grpc_core {
 namespace ibverbs {
 MemoryRegion::MemoryRegion(struct ibv_pd* pd) {
@@ -25,11 +27,10 @@ MemoryRegion::MemoryRegion(struct ibv_pd* pd, struct ibv_mr* src)
 }
 
 MemoryRegion::~MemoryRegion() {
-  int rv;
-
-  rv = ibv_dereg_mr(mr_);
+  int rv = ibv_dereg_mr(mr_);
   GPR_ASSERT(rv == 0);
 }
 
 }  // namespace ibverbs
 }  // namespace grpc_core
+#endif

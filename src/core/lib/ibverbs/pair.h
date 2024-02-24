@@ -7,6 +7,7 @@
  */
 #ifndef GRPC_SRC_CORE_LIB_IBVERBS_PAIR_H
 #define GRPC_SRC_CORE_LIB_IBVERBS_PAIR_H
+#ifdef GRPC_USE_IBVERBS
 #include <unistd.h>
 #include <mutex>
 #include <queue>
@@ -144,6 +145,7 @@ class PairPollable {
   const std::string& get_error() const;
 
  private:
+  // shared_ptr ensures Device destructed after pair
   std::shared_ptr<Device> dev_;
 
   Address self_;
@@ -293,5 +295,5 @@ class PairPool {
 
 }  // namespace ibverbs
 }  // namespace grpc_core
-
+#endif
 #endif  // GRPC_SRC_CORE_LIB_IBVERBS_PAIR_H

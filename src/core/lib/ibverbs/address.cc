@@ -1,8 +1,11 @@
-#include "address.h"
+#ifdef GRPC_USE_IBVERBS
 
 #include <array>
 
 #include <grpc/support/log.h>
+
+#include "src/core/lib/ibverbs/address.h"
+
 namespace grpc_core {
 namespace ibverbs {
 
@@ -27,3 +30,4 @@ std::string Address::str() const {
 }
 }  // namespace ibverbs
 }  // namespace grpc_core
+#endif

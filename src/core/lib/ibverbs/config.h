@@ -1,5 +1,6 @@
 #ifndef GRPC_SRC_CORE_LIB_IBVERBS_CONFIG_H
 #define GRPC_SRC_CORE_LIB_IBVERBS_CONFIG_H
+#ifdef GRPC_USE_IBVERBS
 #include <cstdlib>
 #include <cstring>
 #include <string>
@@ -51,4 +52,5 @@ class Config {
 
 }  // namespace ibverbs
 }  // namespace grpc_core
+#endif
 #endif  // GRPC_SRC_CORE_LIB_IBVERBS_CONFIG_H

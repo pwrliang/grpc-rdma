@@ -5,11 +5,14 @@
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
  */
-#include "pair.h"
+#ifdef GRPC_USE_IBVERBS
 
 #include <grpc/support/log.h>
+
 #include "grpcpp/stats_time.h"
+
 #include "src/core/lib/ibverbs/config.h"
+#include "src/core/lib/ibverbs/pair.h"
 #include "src/core/lib/ibverbs/ring_buffer.h"
 
 namespace grpc_core {
@@ -666,3 +669,4 @@ uint64_t PairPollable::Send(grpc_slice* slices, size_t slice_count,
 }
 }  // namespace ibverbs
 }  // namespace grpc_core
+#endif

@@ -1,9 +1,12 @@
-#include "src/core/lib/ibverbs/poller.h"
-#include <unistd.h>
-#include "absl/time/clock.h"
+#ifdef GRPC_USE_IBVERBS
 
 #include <poll.h>
+#include <unistd.h>
 #include <algorithm>
+
+#include "absl/time/clock.h"
+
+#include "src/core/lib/ibverbs/poller.h"
 namespace grpc_core {
 namespace ibverbs {
 void Poller::AddPollable(grpc_core::ibverbs::PairPollable* pollable) {
@@ -111,3 +114,4 @@ void Poller::begin_polling(int poller_id) {
 
 }  // namespace ibverbs
 }  // namespace grpc_core
+#endif

@@ -1,6 +1,6 @@
-
 #ifndef GRPC_SRC_CORE_LIB_IBVERBS_RING_BUFFER_H
 #define GRPC_SRC_CORE_LIB_IBVERBS_RING_BUFFER_H
+#ifdef GRPC_USE_IBVERBS
 #include <infiniband/verbs.h>
 
 #include <sys/uio.h>
@@ -206,5 +206,5 @@ class RingBufferPollable {
 }  // namespace ibverbs
 
 }  // namespace grpc_core
-
+#endif
 #endif  // GRPC_SRC_CORE_LIB_IBVERBS_RING_BUFFER_H

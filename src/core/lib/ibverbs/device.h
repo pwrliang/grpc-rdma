@@ -8,7 +8,7 @@
 
 #ifndef GRPC_SRC_CORE_LIB_IBVERBS_DEVICE_H
 #define GRPC_SRC_CORE_LIB_IBVERBS_DEVICE_H
-
+#ifdef GRPC_USE_IBVERBS
 #include <infiniband/verbs.h>
 
 #include <atomic>
@@ -36,11 +36,12 @@ class Device {
     return device;
   }
 
+  ibv_pd* get_pd() const;
+
  private:
-  const std::string pciBusID_;
   ibv_context* context_;
-  ibv_device_attr deviceAttr_;
-  ibv_port_attr portAttr_;
+  ibv_device_attr device_attr_;
+  ibv_port_attr port_attr_;
   ibv_pd* pd_;
 
   friend class PairPollable;
@@ -48,5 +49,5 @@ class Device {
 }  // namespace ibverbs
 
 }  // namespace grpc_core
-
+#endif
 #endif  // GRPC_SRC_CORE_LIB_IBVERBS_DEVICE_H
