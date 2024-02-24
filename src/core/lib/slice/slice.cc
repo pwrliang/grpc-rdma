@@ -28,7 +28,6 @@
 
 #include "src/core/lib/gprpp/memory.h"
 #include "src/core/lib/gprpp/ref_counted.h"
-#include "src/core/lib/ibverbs/device.h"
 #include "src/core/lib/iomgr/exec_ctx.h"
 
 char* grpc_slice_to_c_string(grpc_slice slice) {
@@ -277,9 +276,6 @@ class MallocRefCount {
   static void Destroy(void* arg) {
     MallocRefCount* r = static_cast<MallocRefCount*>(arg);
     r->~MallocRefCount();
-    ibv_mr* mr = *reinterpret_cast<ibv_mr**>(r + 1);
-    int rv = ibv_dereg_mr(mr);
-    GPR_ASSERT(rv == 0);
     gpr_free(r);
   }
 
@@ -305,22 +301,15 @@ grpc_slice grpc_slice_malloc_large(size_t length) {
 void grpc_core::UnmanagedMemorySlice::HeapInit(size_t length) {
   /* Memory layout used by the slice created here:
 
-     +-----------+-------------+--------------------------------------------+
-     | refcount  | ibv_mr*     | bytes                                      |
-     +-----------+-------------+--------------------------------------------+
+     +-----------+----------------------------------------------------------+
+     | refcount  | bytes                                                    |
+     +-----------+----------------------------------------------------------+
 
      refcount is a malloc_refcount
      bytes is an array of bytes of the requested length
      Both parts are placed in the same allocation returned from gpr_malloc */
-  size_t size = sizeof(MallocRefCount) + sizeof(ibv_mr**) + length;
-  void* ptr = gpr_malloc(size);
-  MallocRefCount* rc = static_cast<MallocRefCount*>(ptr);
-  ibv_mr** mr = reinterpret_cast<ibv_mr**>(rc + 1);
-  ibv_pd* pd = ibverbs::Device::Get()->get_pd();
-
-  *mr = ibv_reg_mr(pd, ptr, size, IBV_ACCESS_LOCAL_WRITE);
-
-  GPR_ASSERT(*mr);
+  auto* rc =
+      static_cast<MallocRefCount*>(gpr_malloc(sizeof(MallocRefCount) + length));
 
   /* Initial refcount on rc is 1 - and it's up to the caller to release
      this reference. */
@@ -330,7 +319,7 @@ void grpc_core::UnmanagedMemorySlice::HeapInit(size_t length) {
   /* The slices refcount points back to the allocated block. */
   refcount = rc->base_refcount();
   /* The data bytes are placed immediately after the refcount struct */
-  data.refcounted.bytes = reinterpret_cast<uint8_t*>(mr + 1);
+  data.refcounted.bytes = reinterpret_cast<uint8_t*>(rc + 1);
   /* And the length of the block is set to the requested length */
   data.refcounted.length = length;
 }
