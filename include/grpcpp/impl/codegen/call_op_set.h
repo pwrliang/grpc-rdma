@@ -292,9 +292,6 @@ class CallOpSendMessage {
   template <class M>
   Status SendMessage(const M& message) GRPC_MUST_USE_RESULT;
 
-  template <class M>
-  Status SendMessage(const M& message, grpc_call* call) GRPC_MUST_USE_RESULT;
-
   /// Send \a message using \a options for the write. The \a options are cleared
   /// after use. This form of SendMessage allows gRPC to reference \a message
   /// beyond the lifetime of SendMessage.
@@ -394,18 +391,6 @@ Status CallOpSendMessage::SendMessage(const M& message, WriteOptions options) {
 template <class M>
 Status CallOpSendMessage::SendMessage(const M& message) {
   return SendMessage(message, WriteOptions());
-}
-
-template <class M>
-Status CallOpSendMessage::SendMessage(const M& message, grpc_call* call) {
-  write_options_ = WriteOptions();
-  bool own_buf;
-  Status result = SerializationTraits<M, void>::Serialize(
-      message, send_buf_.bbuf_ptr(), &own_buf, call);
-  if (!own_buf) {
-    send_buf_.Duplicate();
-  }
-  return result;
 }
 
 template <class M>
@@ -988,8 +973,8 @@ class CallOpSet : public CallOpSetInterface,
       // A failure here indicates an API misuse; for example, doing a Write
       // while another Write is already pending on the same RPC or invoking
       // WritesDone multiple times
-      gpr_log(GPR_ERROR, "API misuse of type %s observed",
-              g_core_codegen_interface->grpc_call_error_to_string(err));
+      // gpr_log(GPR_ERROR, "API misuse of type %s observed",
+      //        g_core_codegen_interface->grpc_call_error_to_string(err));
       GPR_CODEGEN_ASSERT(false);
     }
   }
