@@ -34,7 +34,9 @@ inline void ibverbsCheck(std::string& error, int no, const char* call,
     ss << "Optix call '" << call << "' failed: " << file << ':' << line
        << ")\n";
     error = ss.str();
-    gpr_log(GPR_INFO, "ibverbs error, %s", error.c_str());
+#ifndef NDEBUG
+    gpr_log(GPR_ERROR, "ibverbs error, %s", error.c_str());
+#endif
   }
 }
 
@@ -98,7 +100,7 @@ class PairPollable {
   };
 
  public:
-  explicit PairPollable(const std::shared_ptr<Device>& dev);
+  PairPollable();
 
   virtual ~PairPollable();
 
@@ -249,12 +251,7 @@ class PairPollable {
 class PairPool {
   static constexpr int kInitPoolSize = 128;
 
-  PairPool() {
-    struct grpc_core::ibverbs::attr attr;
-    attr.port = 1;  // TODO: read from config
-    attr.index = 0;
-    dev_ = CreateDevice(attr);
-  }
+  PairPool() {}
 
  public:
   PairPool(const PairPool&) = delete;
@@ -286,11 +283,10 @@ class PairPool {
  private:
   std::mutex mu_;
   std::queue<PairPollable*> pairs_;
-  std::shared_ptr<Device> dev_;
 
   void createPairs() {
     for (int i = 0; i < kInitPoolSize; i++) {
-      pairs_.push(new PairPollable(dev_));
+      pairs_.push(new PairPollable());
     }
   }
 };

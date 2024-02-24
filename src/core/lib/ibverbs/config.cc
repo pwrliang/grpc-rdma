@@ -12,6 +12,12 @@ Config& Config::Get() {
   return inst;
 }
 
+const std::string& Config::get_device_name() const { return device_name_; }
+
+int Config::get_port_num() const { return port_num_; }
+
+int Config::get_gid_index() const { return gid_index_; }
+
 int Config::get_busy_polling_timeout_us() const {
   return busy_polling_timeout_us_;
 }
@@ -30,6 +36,25 @@ bool Config::is_zero_copy() const { return zero_copy_; }
 
 void Config::init() {
   char* s_val;
+
+  s_val = gpr_getenv("GRPC_RDMA_DEVICE_NAME");
+  if (s_val != nullptr) {
+    device_name_ = std::string(s_val);
+  }
+
+  s_val = gpr_getenv("GRPC_RDMA_PORT_NUM");
+  if (s_val != nullptr) {
+    port_num_ = atoi(s_val);
+  } else {
+    port_num_ = 1;
+  }
+
+  s_val = gpr_getenv("GRPC_RDMA_GID_INDEX");
+  if (s_val != nullptr) {
+    gid_index_ = atoi(s_val);
+  } else {
+    gid_index_ = 0;
+  }
 
   s_val = gpr_getenv("GRPC_RDMA_POLLER_THREAD_NUM");
 

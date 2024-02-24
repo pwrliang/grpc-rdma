@@ -15,11 +15,13 @@
 namespace grpc_core {
 namespace ibverbs {
 
-PairPollable::PairPollable(const std::shared_ptr<Device>& dev)
-    : dev_(dev),
+PairPollable::PairPollable()
+    : dev_(Device::Get()),
       read_content_(0),
       write_content_(0),
       status_(PairStatus::kUninitialized) {
+  auto& config = Config::Get();
+
   cq_ =
       ibv_create_cq(dev_->context_, kCompletionQueueCapacity, this, nullptr, 0);
   int rv;
@@ -35,7 +37,7 @@ PairPollable::PairPollable(const std::shared_ptr<Device>& dev)
     attr.cap.max_recv_sge = 1;
     attr.qp_type = IBV_QPT_RC;
     attr.sq_sig_all = 0;
-    qp_ = ibv_create_qp(dev->pd_, &attr);
+    qp_ = ibv_create_qp(dev_->pd_, &attr);
     GPR_ASSERT(qp_);
 
     //    ibv_query_qp_data_in_order(qp_, IBV_WR_RDMA_WRITE, )
@@ -46,11 +48,13 @@ PairPollable::PairPollable(const std::shared_ptr<Device>& dev)
   // the remote end of this pair needs to have the contents of the
   // full address struct in order to connect, and vice versa.
   {
+    auto port_num = config.get_port_num();
+    auto gid_index = config.get_gid_index();
     struct ibv_port_attr attr;
     memset(&attr, 0, sizeof(struct ibv_port_attr));
-    rv = ibv_query_port(dev_->context_, dev_->attr_.port, &attr);
+    rv = ibv_query_port(dev_->context_, port_num, &attr);
     GPR_ASSERT(rv == 0);
-    rv = ibv_query_gid(dev_->context_, dev_->attr_.port, dev_->attr_.index,
+    rv = ibv_query_gid(dev_->context_, port_num, gid_index,
                        &self_.addr_.ibv_gid);
     GPR_ASSERT(rv == 0);
     self_.addr_.lid = attr.lid;
@@ -75,18 +79,19 @@ void PairPollable::Init() {
 
   if (status_ == PairStatus::kUninitialized || status_ == PairStatus::kError ||
       status_ == PairStatus::kDisconnected) {
+    auto& config = Config::Get();
     // Init queue pair
     memset(&attr, 0, sizeof(struct ibv_qp_attr));
     attr.qp_state = IBV_QPS_INIT;
     attr.pkey_index = 0;
-    attr.port_num = dev_->attr_.port;
+    attr.port_num = config.get_port_num();
     attr.qp_access_flags = IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE;
     IBVERBS_CHECK(error_, ibv_modify_qp(qp_, &attr,
                                         IBV_QP_STATE | IBV_QP_PKEY_INDEX |
                                             IBV_QP_PORT | IBV_QP_ACCESS_FLAGS));
     // Clear queue, which can be nonempty if the last time connection fails
     mr_posted_recv_ = std::queue<std::unique_ptr<MemoryRegion>>();
-    auto recv_buf_size = Config::Get().get_ring_buffer_size_kb() * 1024;
+    auto recv_buf_size = config.get_ring_buffer_size_kb() * 1024;
     auto send_buf_size = recv_buf_size / 2;
 
     // used to check peer has the same size.
@@ -376,6 +381,7 @@ void PairPollable::waitDataWrites() {
 void PairPollable::initQPs() {
   struct ibv_qp_attr attr;
   int rv;
+  auto& config = Config::Get();
 
   memset(&attr, 0, sizeof(attr));
   attr.qp_state = IBV_QPS_RTR;
@@ -386,12 +392,12 @@ void PairPollable::initQPs() {
   attr.min_rnr_timer = 20;  // receiver not ready, 10.24 milliseconds delay
   attr.ah_attr.is_global = 0;
   attr.ah_attr.dlid = peer_.addr_.lid;
-  attr.ah_attr.port_num = dev_->attr_.port;
+  attr.ah_attr.port_num = config.get_port_num();
   if (peer_.addr_.ibv_gid.global.interface_id) {
     attr.ah_attr.is_global = 1;
     attr.ah_attr.grh.hop_limit = 1;
     attr.ah_attr.grh.dgid = peer_.addr_.ibv_gid;
-    attr.ah_attr.grh.sgid_index = dev_->attr_.index;
+    attr.ah_attr.grh.sgid_index = config.get_gid_index();
   }
 
   // Move to Ready To Receive (RTR) state

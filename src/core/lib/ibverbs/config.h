@@ -2,6 +2,8 @@
 #define GRPC_SRC_CORE_LIB_IBVERBS_CONFIG_H
 #include <cstdlib>
 #include <cstring>
+#include <string>
+
 #include "src/core/lib/gpr/env.h"
 
 namespace grpc_core {
@@ -17,6 +19,12 @@ class Config {
 
   static Config& Get();
 
+  const std::string& get_device_name() const;
+
+  int get_port_num() const;
+
+  int get_gid_index() const;
+
   int get_busy_polling_timeout_us() const;
 
   int get_poller_sleep_timeout_ms() const;
@@ -29,6 +37,10 @@ class Config {
 
  private:
   void init();
+
+  std::string device_name_;
+  int port_num_;
+  int gid_index_;
 
   int busy_polling_timeout_us_;
   int poller_sleep_timeout_ms_;
