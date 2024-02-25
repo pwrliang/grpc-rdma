@@ -636,7 +636,7 @@ void PairPollable::updateStatus() {
 }
 
 const std::string& PairPollable::get_error() const { return error_; }
-
+#if 1
 uint64_t PairPollable::Send(grpc_slice* slices, size_t slice_count,
                             size_t byte_idx) {
   GRPCProfiler profiler(GRPC_STATS_TIME_PAIR_SEND);
@@ -672,12 +672,11 @@ uint64_t PairPollable::Send(grpc_slice* slices, size_t slice_count,
     GPR_ASSERT(slice_len > 0);
 
     int64_t payload_size = std::min(recv_buf_size, slice_len);
-//    int64_t send_buf_free = (int64_t)send_buf->size() -
-//                            (int64_t)send_buffer_tail_ - (int64_t)2 * tag_size;
+    int64_t send_buf_free =
+        std::max(0l, (int64_t)send_buf->size() - (int64_t)send_buffer_tail_ -
+                         (int64_t)2 * tag_size);
 
-//    GPR_ASSERT(send_buf_free >= 0);
-
-//    payload_size = std::min(send_buf_free, payload_size);
+    payload_size = std::min(send_buf_free, payload_size);
 
     if (slice_len > payload_size) {
       partial_write_ = true;
@@ -737,17 +736,17 @@ uint64_t PairPollable::Send(grpc_slice* slices, size_t slice_count,
     }
     ibv_send_wr* bad_wr;
     IBVERBS_CHECK(error_, ibv_post_send(qp_, &wrs[0], &bad_wr));
-  }
 
-  waitDataWrites();
-  send_buffer_tail_ = 0;
-  last_allocate_failed_ = false;
+
+    waitDataWrites();
+    send_buffer_tail_ = 0;
+    last_allocate_failed_ = false;
+  }
 
   total_write_size_ += written_payload_size;
   return written_payload_size;
 }
-
-/*
+#else
 uint64_t PairPollable::Send(grpc_slice* slices, size_t slice_count,
                             size_t byte_idx) {
   GRPCProfiler profiler(GRPC_STATS_TIME_PAIR_SEND);
@@ -765,7 +764,7 @@ uint64_t PairPollable::Send(grpc_slice* slices, size_t slice_count,
 
   payload_size -= byte_idx;  // offset of the first slice
 
-  remain_write_size_ = payload_size > free_size ? payload_size - free_size : 0;
+  partial_write_ = payload_size > free_size;
 
   auto size = std::min(payload_size, free_size);
 
@@ -802,7 +801,8 @@ uint64_t PairPollable::Send(grpc_slice* slices, size_t slice_count,
     total_write_size_ += size;
   }
   return encoded_payload_size;
-}*/
+}
+#endif
 
 uint64_t PairPollable::SendZerocopy(grpc_slice* slices, size_t slice_count,
                                     size_t byte_idx) {

@@ -87,7 +87,7 @@ class PairPollable {
   static constexpr auto kSendCompletionQueueCapacity = kMaxBuffers;
   static constexpr auto kCompletionQueueCapacity =
       kRecvCompletionQueueCapacity + kSendCompletionQueueCapacity;
-  static constexpr int kMaxSendSGE = 2;
+  static constexpr int kMaxSendSGE = 1;
   static constexpr int WR_ID_MR = 100;
   static constexpr int WR_ID_DATA = 200;
   static constexpr int WR_ID_STATUS = 300;
