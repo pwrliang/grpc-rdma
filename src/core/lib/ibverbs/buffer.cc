@@ -15,9 +15,9 @@ Buffer::~Buffer() { ibv_dereg_mr(mr_); }
 
 size_t Buffer::size() const { return buffer_.size(); }
 
-char* Buffer::data() { return buffer_.data(); }
+uint8_t* Buffer::data() { return buffer_.data(); }
 
-const char* Buffer::data() const { return buffer_.data(); }
+const uint8_t* Buffer::data() const { return buffer_.data(); }
 
 ibv_mr* Buffer::get_mr() { return mr_; }
 

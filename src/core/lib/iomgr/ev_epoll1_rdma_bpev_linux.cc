@@ -768,7 +768,7 @@ static grpc_error_handle process_epoll_events(grpc_pollset* /*pollset*/) {
             fd_become_readable(fd);
           }
 
-          if (pair->GetRemainWriteSize()) {
+          if (pair->HasPendingWrites()) {
             fd_become_writable(fd);
           }
         }
@@ -851,7 +851,7 @@ static grpc_error_handle do_epoll_wait(grpc_pollset* ps, grpc_millis deadline) {
             }
 
             // N.B. Do not use GetWritableSize to trigger event, it slows down
-            if (pair->GetRemainWriteSize() && r < MAX_EPOLL_EVENTS) {
+            if (pair->HasPendingWrites() && r < MAX_EPOLL_EVENTS) {
               g_epoll_set.events[r].events = EPOLLOUT;
               g_epoll_set.events[r].data.ptr = reinterpret_cast<void*>(fd);
               r++;

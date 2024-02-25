@@ -286,23 +286,25 @@ class CallOpSendMessage {
   /// Send \a message using \a options for the write. The \a options are cleared
   /// after use.
   template <class M>
-  Status SendMessage(const M& message,
-                     WriteOptions options) GRPC_MUST_USE_RESULT;
+  Status SendMessage(const M& message, WriteOptions options,
+                     grpc_call* call = nullptr) GRPC_MUST_USE_RESULT;
 
   template <class M>
-  Status SendMessage(const M& message) GRPC_MUST_USE_RESULT;
+  Status SendMessage(const M& message,
+                     grpc_call* call = nullptr) GRPC_MUST_USE_RESULT;
 
   /// Send \a message using \a options for the write. The \a options are cleared
   /// after use. This form of SendMessage allows gRPC to reference \a message
   /// beyond the lifetime of SendMessage.
   template <class M>
-  Status SendMessagePtr(const M* message,
-                        WriteOptions options) GRPC_MUST_USE_RESULT;
+  Status SendMessagePtr(const M* message, WriteOptions options,
+                        grpc_call* call = nullptr) GRPC_MUST_USE_RESULT;
 
   /// This form of SendMessage allows gRPC to reference \a message beyond the
   /// lifetime of SendMessage.
   template <class M>
-  Status SendMessagePtr(const M* message) GRPC_MUST_USE_RESULT;
+  Status SendMessagePtr(const M* message,
+                        grpc_call* call = nullptr) GRPC_MUST_USE_RESULT;
 
  protected:
   void AddOp(grpc_op* ops, size_t* nops) {
@@ -372,7 +374,8 @@ class CallOpSendMessage {
 };
 
 template <class M>
-Status CallOpSendMessage::SendMessage(const M& message, WriteOptions options) {
+Status CallOpSendMessage::SendMessage(const M& message, WriteOptions options,
+                                      grpc_call* call) {
   write_options_ = options;
   // Serialize immediately since we do not have access to the message pointer
   bool own_buf;
@@ -381,7 +384,7 @@ Status CallOpSendMessage::SendMessage(const M& message, WriteOptions options) {
   // (since it should be implicit) but is needed due to an observed
   // difference in behavior between clang and gcc for certain internal users
   Status result = SerializationTraits<M, void>::Serialize(
-      message, send_buf_.bbuf_ptr(), &own_buf);
+      message, send_buf_.bbuf_ptr(), &own_buf, call);
   if (!own_buf) {
     send_buf_.Duplicate();
   }
@@ -389,24 +392,24 @@ Status CallOpSendMessage::SendMessage(const M& message, WriteOptions options) {
 }
 
 template <class M>
-Status CallOpSendMessage::SendMessage(const M& message) {
-  return SendMessage(message, WriteOptions());
+Status CallOpSendMessage::SendMessage(const M& message, grpc_call* call) {
+  return SendMessage(message, WriteOptions(), call);
 }
 
 template <class M>
-Status CallOpSendMessage::SendMessagePtr(const M* message,
-                                         WriteOptions options) {
+Status CallOpSendMessage::SendMessagePtr(const M* message, WriteOptions options,
+                                         grpc_call* call) {
   msg_ = message;
   write_options_ = options;
   // Store the serializer for later since we have access to the message
-  serializer_ = [this](const void* message) {
+  serializer_ = [this, call](const void* message) {
     bool own_buf;
     // TODO(vjpai): Remove the void below when possible
     // The void in the template parameter below should not be needed
     // (since it should be implicit) but is needed due to an observed
     // difference in behavior between clang and gcc for certain internal users
     Status result = SerializationTraits<M, void>::Serialize(
-        *static_cast<const M*>(message), send_buf_.bbuf_ptr(), &own_buf);
+        *static_cast<const M*>(message), send_buf_.bbuf_ptr(), &own_buf, call);
     if (!own_buf) {
       send_buf_.Duplicate();
     }
@@ -416,8 +419,8 @@ Status CallOpSendMessage::SendMessagePtr(const M* message,
 }
 
 template <class M>
-Status CallOpSendMessage::SendMessagePtr(const M* message) {
-  return SendMessagePtr(message, WriteOptions());
+Status CallOpSendMessage::SendMessagePtr(const M* message, grpc_call* call) {
+  return SendMessagePtr(message, WriteOptions(), call);
 }
 
 template <class R>

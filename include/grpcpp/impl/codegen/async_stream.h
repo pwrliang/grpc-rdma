@@ -382,7 +382,7 @@ class ClientAsyncWriter final : public ClientAsyncWriterInterface<W> {
     GPR_CODEGEN_ASSERT(started_);
     write_ops_.set_output_tag(tag);
     // TODO(ctiller): don't assert
-    GPR_CODEGEN_ASSERT(write_ops_.SendMessage(msg).ok());
+    GPR_CODEGEN_ASSERT(write_ops_.SendMessage(msg, call_.call()).ok());
     call_.PerformOps(&write_ops_);
   }
 
@@ -394,7 +394,7 @@ class ClientAsyncWriter final : public ClientAsyncWriterInterface<W> {
       write_ops_.ClientSendClose();
     }
     // TODO(ctiller): don't assert
-    GPR_CODEGEN_ASSERT(write_ops_.SendMessage(msg, options).ok());
+    GPR_CODEGEN_ASSERT(write_ops_.SendMessage(msg, options, call_.call()).ok());
     call_.PerformOps(&write_ops_);
   }
 
@@ -559,7 +559,7 @@ class ClientAsyncReaderWriter final
     GPR_CODEGEN_ASSERT(started_);
     write_ops_.set_output_tag(tag);
     // TODO(ctiller): don't assert
-    GPR_CODEGEN_ASSERT(write_ops_.SendMessage(msg).ok());
+    GPR_CODEGEN_ASSERT(write_ops_.SendMessage(msg, call_.call()).ok());
     call_.PerformOps(&write_ops_);
   }
 
@@ -571,7 +571,7 @@ class ClientAsyncReaderWriter final
       write_ops_.ClientSendClose();
     }
     // TODO(ctiller): don't assert
-    GPR_CODEGEN_ASSERT(write_ops_.SendMessage(msg, options).ok());
+    GPR_CODEGEN_ASSERT(write_ops_.SendMessage(msg, options, call_.call()).ok());
     call_.PerformOps(&write_ops_);
   }
 
@@ -870,7 +870,7 @@ class ServerAsyncWriter final : public ServerAsyncWriterInterface<W> {
     write_ops_.set_output_tag(tag);
     EnsureInitialMetadataSent(&write_ops_);
     // TODO(ctiller): don't assert
-    GPR_CODEGEN_ASSERT(write_ops_.SendMessage(msg).ok());
+    GPR_CODEGEN_ASSERT(write_ops_.SendMessage(msg, call_.call()).ok());
     call_.PerformOps(&write_ops_);
   }
 
@@ -882,7 +882,7 @@ class ServerAsyncWriter final : public ServerAsyncWriterInterface<W> {
 
     EnsureInitialMetadataSent(&write_ops_);
     // TODO(ctiller): don't assert
-    GPR_CODEGEN_ASSERT(write_ops_.SendMessage(msg, options).ok());
+    GPR_CODEGEN_ASSERT(write_ops_.SendMessage(msg, options, call_.call()).ok());
     call_.PerformOps(&write_ops_);
   }
 
@@ -901,7 +901,7 @@ class ServerAsyncWriter final : public ServerAsyncWriterInterface<W> {
     write_ops_.set_output_tag(tag);
     EnsureInitialMetadataSent(&write_ops_);
     options.set_buffer_hint();
-    GPR_CODEGEN_ASSERT(write_ops_.SendMessage(msg, options).ok());
+    GPR_CODEGEN_ASSERT(write_ops_.SendMessage(msg, options, call_.call()).ok());
     write_ops_.ServerSendStatus(&ctx_->trailing_metadata_, status);
     call_.PerformOps(&write_ops_);
   }
@@ -1042,7 +1042,7 @@ class ServerAsyncReaderWriter final
     write_ops_.set_output_tag(tag);
     EnsureInitialMetadataSent(&write_ops_);
     // TODO(ctiller): don't assert
-    GPR_CODEGEN_ASSERT(write_ops_.SendMessage(msg).ok());
+    GPR_CODEGEN_ASSERT(write_ops_.SendMessage(msg, call_.call()).ok());
     call_.PerformOps(&write_ops_);
   }
 
@@ -1052,7 +1052,7 @@ class ServerAsyncReaderWriter final
       options.set_buffer_hint();
     }
     EnsureInitialMetadataSent(&write_ops_);
-    GPR_CODEGEN_ASSERT(write_ops_.SendMessage(msg, options).ok());
+    GPR_CODEGEN_ASSERT(write_ops_.SendMessage(msg, options, call_.call()).ok());
     call_.PerformOps(&write_ops_);
   }
 
@@ -1072,7 +1072,7 @@ class ServerAsyncReaderWriter final
     write_ops_.set_output_tag(tag);
     EnsureInitialMetadataSent(&write_ops_);
     options.set_buffer_hint();
-    GPR_CODEGEN_ASSERT(write_ops_.SendMessage(msg, options).ok());
+    GPR_CODEGEN_ASSERT(write_ops_.SendMessage(msg, options, call_.call()).ok());
     write_ops_.ServerSendStatus(&ctx_->trailing_metadata_, status);
     call_.PerformOps(&write_ops_);
   }

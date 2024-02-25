@@ -70,6 +70,7 @@ class CoreCodegen final : public CoreCodegenInterface {
                                                grpc_status_code status,
                                                const char* description,
                                                void* reserved) override;
+  void* grpc_call_allocate_send_buffer(grpc_call* call, size_t size) override;
   void grpc_call_ref(grpc_call* call) override;
   void grpc_call_unref(grpc_call* call) override;
   void* grpc_call_arena_alloc(grpc_call* call, size_t length) override;

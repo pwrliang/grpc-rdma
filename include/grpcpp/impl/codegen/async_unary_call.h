@@ -130,7 +130,7 @@ class ClientAsyncResponseReaderHelper {
             call, sizeof(SingleBufType))) SingleBufType;
     *single_buf_ptr = single_buf;
     // TODO(ctiller): don't assert
-    GPR_CODEGEN_ASSERT(single_buf->SendMessage(request).ok());
+    GPR_CODEGEN_ASSERT(single_buf->SendMessage(request, call).ok());
     single_buf->ClientSendClose();
 
     // The purpose of the following functions is to type-erase the actual
@@ -346,7 +346,7 @@ class ServerAsyncResponseWriter final
     // The response is dropped if the status is not OK.
     if (status.ok()) {
       finish_buf_.ServerSendStatus(&ctx_->trailing_metadata_,
-                                   finish_buf_.SendMessage(msg));
+                                   finish_buf_.SendMessage(msg, call_.call()));
     } else {
       finish_buf_.ServerSendStatus(&ctx_->trailing_metadata_, status);
     }

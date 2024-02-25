@@ -19,8 +19,6 @@
 #ifndef GRPCPP_IMPL_CODEGEN_PROTO_UTILS_H
 #define GRPCPP_IMPL_CODEGEN_PROTO_UTILS_H
 
-#include <type_traits>
-
 #include <grpc/impl/codegen/byte_buffer_reader.h>
 #include <grpc/impl/codegen/grpc_types.h>
 #include <grpc/impl/codegen/slice.h>
@@ -32,6 +30,7 @@
 #include <grpcpp/impl/codegen/serialization_traits.h>
 #include <grpcpp/impl/codegen/slice.h>
 #include <grpcpp/impl/codegen/status.h>
+#include <type_traits>
 
 /// This header provides serialization and deserialization between gRPC
 /// messages serialized using protobuf and the C++ objects they represent.
@@ -64,6 +63,37 @@ Status GenericSerialize(const grpc::protobuf::MessageLite& msg, ByteBuffer* bb,
   return msg.SerializeToZeroCopyStream(&writer)
              ? g_core_codegen_interface->ok()
              : Status(StatusCode::INTERNAL, "Failed to serialize message");
+}
+
+template <class ProtoBufferWriter, class T>
+Status GenericSerialize(const grpc::protobuf::MessageLite& msg, ByteBuffer* bb,
+                        bool* own_buffer, grpc_call* call) {
+  static_assert(std::is_base_of<protobuf::io::ZeroCopyOutputStream,
+                                ProtoBufferWriter>::value,
+                "ProtoBufferWriter must be a subclass of "
+                "::protobuf::io::ZeroCopyOutputStream");
+  *own_buffer = true;
+  int byte_size = static_cast<int>(msg.ByteSizeLong());
+
+  void* ptr =
+      g_core_codegen_interface->grpc_call_allocate_send_buffer(call, byte_size);
+
+  if (ptr != nullptr) {
+    Slice slice(ptr, byte_size, Slice::StaticSlice::STATIC_SLICE);
+    GPR_CODEGEN_ASSERT(slice.end() == msg.SerializeWithCachedSizesToArray(
+                                          const_cast<uint8_t*>(slice.begin())));
+    ByteBuffer tmp(&slice, 1);
+    bb->Swap(&tmp);
+    return g_core_codegen_interface->ok();
+  }
+
+  Slice slice(byte_size);
+  GPR_CODEGEN_ASSERT(slice.end() == msg.SerializeWithCachedSizesToArray(
+                                        const_cast<uint8_t*>(slice.begin())));
+  ByteBuffer tmp(&slice, 1);
+  bb->Swap(&tmp);
+
+  return g_core_codegen_interface->ok();
 }
 
 // BufferReader must be a subclass of ::protobuf::io::ZeroCopyInputStream.
@@ -106,7 +136,10 @@ class SerializationTraits<
                           ByteBuffer* bb, bool* own_buffer) {
     return GenericSerialize<ProtoBufferWriter, T>(msg, bb, own_buffer);
   }
-
+  static Status Serialize(const grpc::protobuf::MessageLite& msg,
+                          ByteBuffer* bb, bool* own_buffer, grpc_call* call) {
+    return GenericSerialize<ProtoBufferWriter, T>(msg, bb, own_buffer, call);
+  }
   static Status Deserialize(ByteBuffer* buffer,
                             grpc::protobuf::MessageLite* msg) {
     return GenericDeserialize<ProtoBufferReader, T>(buffer, msg);

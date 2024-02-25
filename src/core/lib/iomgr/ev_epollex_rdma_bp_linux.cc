@@ -1061,7 +1061,7 @@ static grpc_error_handle pollable_epoll(pollable* p, grpc_millis deadline) {
           switch (status) {
             case grpc_core::ibverbs::PairStatus::kConnected: {
               bool readable = pair->HasMessage();
-              bool writable = pair->GetRemainWriteSize() > 0;
+              bool writable = pair->HasPendingWrites();
               uint32_t events = 0;
 
               if (readable) {

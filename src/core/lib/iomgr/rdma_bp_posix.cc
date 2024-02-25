@@ -489,7 +489,9 @@ static bool rdma_flush(grpc_rdma* rdma, grpc_error_handle* error) {
     }
   }
 
-  if (rdma->outgoing_byte_idx > 0) {
+  // Partial send
+  if (rdma->outgoing_byte_idx > 0 ||
+      outgoing_slice_idx < rdma->outgoing_buffer->count) {
     auto status = pair->get_status();
 
     if (status == grpc_core::ibverbs::PairStatus::kConnected) {
@@ -738,7 +740,7 @@ grpc_endpoint* grpc_rdma_bp_create(grpc_fd* em_fd,
                     grpc_schedule_on_exec_ctx);
   rdma->inq = 1;
 
-  auto* pair = grpc_core::ibverbs::PairPool::Get().Take();
+  auto* pair = grpc_core::ibverbs::PairPool::Get().Take(rdma->peer_string);
 
   gpr_log(GPR_INFO, "Take a Pair %p", pair);
 

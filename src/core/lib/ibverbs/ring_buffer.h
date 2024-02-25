@@ -39,31 +39,27 @@ struct ring_buffer_write_request {
 class RingBuffer {};
 
 class RingBufferPollable {
+ public:
   /**
    * Memory layout:
    * [head 8 bytes (size of payload)] [payload, aligned to 8 bytes] [footer 8
    * bytes (all bits are 1)]
    */
-  static constexpr int alignment = sizeof(uint64_t);
-  static constexpr uint64_t footer_tag = std::numeric_limits<uint64_t>::max();
+  using tag_t = uint64_t;
+  static constexpr int alignment = sizeof(tag_t);
+  static constexpr uint64_t footer = std::numeric_limits<tag_t>::max();
   // header,footer,an extra alignment to indicate the buffer is full
-
- public:
-  static constexpr uint64_t reserved_space = 3ul * alignment;
+  static constexpr int reserved_space = 3ul * alignment;
 
   RingBufferPollable();
 
-  RingBufferPollable(char* buf, uint64_t size);
+  RingBufferPollable(uint8_t* buf, uint64_t size);
 
   RingBufferPollable(const RingBufferPollable& other);
 
   RingBufferPollable& operator=(const RingBufferPollable& other);
 
   void Init();
-
-  static uint64_t CalculateCapacity(uint64_t max_payload_size) {
-    return next_power_2(max_payload_size + reserved_space);
-  }
 
   bool IsReadable() const { return GetReadableSize() > 0; }
 
@@ -78,19 +74,36 @@ class RingBufferPollable {
   uint64_t Read(void* dst_buf, uint64_t capacity,
                 uint64_t* internal_bytes_read = nullptr);
 
-  uint64_t Write(char* dst_buf, uint64_t tail, void* src_buf,
+  uint64_t Write(uint8_t* dst_buf, uint64_t tail, void* src_buf,
                  uint64_t size) const;
 
   uint64_t Write(uint64_t tail, void* src_buf, uint64_t size) const;
 
-  static uint64_t EncodeBuffer(char* buf, void* src_buf, uint64_t size) {
+  static uint8_t* AppendHeader(uint8_t* p, uint64_t payload_size) {
+    *reinterpret_cast<tag_t*>(p) = payload_size;
+    return p + alignment;
+  }
+
+  static uint8_t* AppendPayload(uint8_t* p, void* src, uint64_t payload_size) {
+    if (src != nullptr) {
+      memcpy(p, src, payload_size);
+    }
+    return p + round_up(payload_size);
+  }
+
+  static uint8_t* AppendFooter(uint8_t* p) {
+    *reinterpret_cast<tag_t*>(p) = footer;
+    return p + alignment;
+  }
+
+  static uint64_t EncodeBuffer(uint8_t* buf, void* src_buf, uint64_t size) {
     *reinterpret_cast<uint64_t*>(buf) = size;
     memcpy(buf + alignment, src_buf, size);
-    *reinterpret_cast<uint64_t*>(buf + alignment + round_up(size)) = footer_tag;
+    *reinterpret_cast<uint64_t*>(buf + alignment + round_up(size)) = footer;
     return 2ul * alignment + round_up(size);
   }
 
-  static uint64_t EncodeBuffer(char* buf, uint64_t payload_size_limit,
+  static uint64_t EncodeBuffer(uint8_t* buf, uint64_t payload_size_limit,
                                iovec* iov, uint64_t iov_size,
                                uint64_t& encoded_payload_size) {
     uint64_t offset = alignment;
@@ -115,13 +128,13 @@ class RingBufferPollable {
 
     if (encoded_payload_size > 0) {
       *reinterpret_cast<uint64_t*>(buf) = offset - alignment;
-      *reinterpret_cast<uint64_t*>(buf + round_up(offset)) = footer_tag;
+      *reinterpret_cast<uint64_t*>(buf + round_up(offset)) = footer;
       return alignment + round_up(offset);
     }
     return 0;
   }
 
-  static uint64_t EncodeBuffer(char* buf, uint64_t payload_size_limit,
+  static uint64_t EncodeBuffer(uint8_t* buf, uint64_t payload_size_limit,
                                grpc_slice* slices, size_t slice_count,
                                size_t byte_idx,
                                uint64_t& encoded_payload_size) {
@@ -151,23 +164,29 @@ class RingBufferPollable {
 
     if (encoded_payload_size > 0) {
       *reinterpret_cast<uint64_t*>(buf) = offset - alignment;
-      *reinterpret_cast<uint64_t*>(buf + round_up(offset)) = footer_tag;
+      *reinterpret_cast<uint64_t*>(buf + round_up(offset)) = footer;
       return alignment + round_up(offset);
     }
     return 0;
   }
 
+  static uint64_t GetEncodedSize(uint64_t payload_size) {
+    return 2ul * alignment + round_up(payload_size);
+  }
+
   uint64_t GetWriteRequests(uint64_t size, uint64_t tail,
                             std::vector<ring_buffer_write_request>& reqs);
 
-  char* get_buf();
+  uint64_t GetWriteRequests(uint64_t remote_tail, void *remote_addr,
+                            uint32_t rkey, std::vector<ibv_sge>& sg_list,
+                            std::array<ibv_send_wr, 2>& wrs);
 
   uint64_t get_capacity() const;
 
   uint64_t get_head() const;
 
  private:
-  char* buf_;
+  uint8_t* buf_;
   uint64_t capacity_;
   uint64_t capacity_mask_;
   std::atomic_uint64_t head_;
@@ -179,7 +198,7 @@ class RingBufferPollable {
   // RDMA
   friend class PairPollable;
 
-  void check_empty(char* buf, uint64_t len) const {
+  void check_empty(uint8_t* buf, uint64_t len) const {
     for (uint64_t i = 0; i < len; i++) {
       assert(buf[i] == 0);
     }

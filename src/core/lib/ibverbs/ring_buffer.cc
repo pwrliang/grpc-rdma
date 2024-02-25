@@ -1,5 +1,6 @@
 #ifdef GRPC_USE_IBVERBS
 #include <thread>
+#include <vector>
 
 #include <grpc/support/log.h>
 
@@ -16,7 +17,7 @@ RingBufferPollable::RingBufferPollable()
       moving_head_(0),
       remain_(0) {}
 
-RingBufferPollable::RingBufferPollable(char* buf, uint64_t size)
+RingBufferPollable::RingBufferPollable(uint8_t* buf, uint64_t size)
     : buf_(buf), capacity_(size), head_(0), moving_head_(0), remain_(0) {
   assert((capacity_ & (capacity_ - 1)) == 0);
   assert(capacity_ > reserved_space);
@@ -79,7 +80,7 @@ retry:
   }
 
   if (size > capacity_ - reserved_space) {
-    gpr_log(GPR_ERROR, "retry size %lu head %lu remain %lu\n", size, head,
+    gpr_log(GPR_ERROR, "retry size %lu head %lu remain %lu", size, head,
             remain);
     goto retry;
   }
@@ -89,7 +90,7 @@ retry:
   auto* p_footer =
       reinterpret_cast<std::atomic_uint64_t*>(buf_ + footer_offset);
 
-  if (p_footer->load() == footer_tag) {
+  if (p_footer->load() == footer) {
     return size;
   }
   return 0;
@@ -121,6 +122,9 @@ uint64_t RingBufferPollable::Read(void* dst_buf, uint64_t capacity,
   uint64_t prev_moving_head = moving_head_;
 
   if (copy_size == 0) {
+    if (internal_bytes_read != nullptr) {
+      *internal_bytes_read = 0;
+    }
     return 0;
   }
 
@@ -128,7 +132,8 @@ uint64_t RingBufferPollable::Read(void* dst_buf, uint64_t capacity,
     auto* p_header = reinterpret_cast<uint64_t*>(buf_ + head_);
 
     moving_head_ = (head_ + alignment) & capacity_mask_;
-    head_ = (head_ + 2 * alignment + round_up(readable_size)) & capacity_mask_;
+    head_ =
+        (head_ + 2ul * alignment + round_up(readable_size)) & capacity_mask_;
     assert(*p_header == readable_size);
     *p_header = 0;  // clear header
   }
@@ -163,7 +168,7 @@ uint64_t RingBufferPollable::Read(void* dst_buf, uint64_t capacity,
     // skip padded spce
     moving_head_ = round_up(moving_head_) & capacity_mask_;
     auto* p_footer = reinterpret_cast<uint64_t*>(buf_ + moving_head_);
-    assert(*p_footer == footer_tag);
+    assert(*p_footer == footer);
     *p_footer = 0;  // clear footer
     moving_head_ = (moving_head_ + alignment) & capacity_mask_;
     assert(moving_head_ == head_);
@@ -177,8 +182,8 @@ uint64_t RingBufferPollable::Read(void* dst_buf, uint64_t capacity,
   return copy_size;
 }
 
-uint64_t RingBufferPollable::Write(char* dst_buf, uint64_t tail, void* src_buf,
-                                   uint64_t size) const {
+uint64_t RingBufferPollable::Write(uint8_t* dst_buf, uint64_t tail,
+                                   void* src_buf, uint64_t size) const {
   assert(tail < capacity_);
   if (size == 0) {
     return tail;
@@ -207,7 +212,7 @@ uint64_t RingBufferPollable::Write(char* dst_buf, uint64_t tail, void* src_buf,
   }
   tail = (tail + round_up(size)) & capacity_mask_;
   assert(*reinterpret_cast<uint64_t*>(dst_buf + tail) == 0);
-  *reinterpret_cast<uint64_t*>(dst_buf + tail) = footer_tag;
+  *reinterpret_cast<uint64_t*>(dst_buf + tail) = footer;
   tail = (tail + alignment) & capacity_mask_;
   return tail;
 }
@@ -245,7 +250,71 @@ uint64_t RingBufferPollable::GetWriteRequests(
   return tail;
 }
 
-char* RingBufferPollable::get_buf() { return buf_; }
+uint64_t RingBufferPollable::GetWriteRequests(uint64_t remote_tail,
+                                              void* remote_addr, uint32_t rkey,
+                                              std::vector<ibv_sge>& sg_list,
+                                              std::array<ibv_send_wr, 2>& wrs) {
+  assert(remote_tail < capacity_);
+  uint64_t next_tail = remote_tail;
+  size_t circular_idx = sg_list.size();
+  uint32_t seg1_size, seg2_size;
+  uint32_t total_size = 0;
+
+  for (size_t i = 0; i < sg_list.size(); i++) {
+    auto& sge = sg_list[i];
+    auto size = sge.length;
+    next_tail = (next_tail + size) & capacity_mask_;
+
+    GPR_ASSERT(size > 0);
+
+    // Track the first circular case
+    if (remote_tail > next_tail && circular_idx == sg_list.size()) {
+      circular_idx = i;
+      seg2_size = next_tail;
+      seg1_size = size - seg2_size;
+    }
+  }
+
+  memset(wrs.data(), 0, sizeof(ibv_send_wr) * wrs.size());
+
+  if (circular_idx < sg_list.size()) {  // circular case
+    auto& sge1 = sg_list[circular_idx];
+    sge1.length = seg1_size;
+
+    ibv_sge sge2;
+    sge2.addr = sge1.addr + sge1.length;
+    sge2.length = seg2_size;
+    sge2.lkey = sge1.lkey;
+
+    sg_list.insert(sg_list.begin() + circular_idx + 1, sge2);
+
+    wrs[0].sg_list = sg_list.data();
+    wrs[0].num_sge = circular_idx + 1;
+    wrs[0].opcode = IBV_WR_RDMA_WRITE;
+    wrs[0].next = &wrs[1];
+    wrs[0].send_flags = IBV_SEND_SIGNALED;
+    wrs[0].wr.rdma.remote_addr =
+        reinterpret_cast<uint64_t>(remote_addr) + remote_tail;
+    wrs[0].wr.rdma.rkey = rkey;
+
+    wrs[1].sg_list = sg_list.data() + circular_idx + 1;
+    wrs[1].num_sge = sg_list.size() - wrs[0].num_sge;
+    wrs[1].opcode = IBV_WR_RDMA_WRITE;
+    wrs[1].send_flags = IBV_SEND_SIGNALED;
+    wrs[1].wr.rdma.remote_addr = reinterpret_cast<uint64_t>(remote_addr);
+    wrs[1].wr.rdma.rkey = rkey;
+  } else {
+    wrs[0].sg_list = sg_list.data();
+    wrs[0].num_sge = sg_list.size();
+    wrs[0].opcode = IBV_WR_RDMA_WRITE;
+    wrs[0].send_flags = IBV_SEND_SIGNALED;
+    wrs[0].wr.rdma.remote_addr =
+        reinterpret_cast<uint64_t>(remote_addr) + remote_tail;
+    wrs[0].wr.rdma.rkey = rkey;
+  }
+
+  return next_tail;
+}
 
 uint64_t RingBufferPollable::get_capacity() const { return capacity_; }
 

@@ -31,6 +31,7 @@
 #include <grpc/support/sync.h>
 #include <grpcpp/support/config.h>
 
+#include "src/core/lib/ibverbs/pair.h"
 #include "src/core/lib/profiling/timers.h"
 
 struct grpc_byte_buffer;
@@ -117,6 +118,26 @@ grpc_call_error CoreCodegen::grpc_call_cancel_with_status(
     grpc_call* call, grpc_status_code status, const char* description,
     void* reserved) {
   return ::grpc_call_cancel_with_status(call, status, description, reserved);
+}
+void* CoreCodegen::grpc_call_allocate_send_buffer(grpc_call* call,
+                                                  size_t size) {
+  void* buffer = nullptr;
+
+//  if (call != nullptr) {
+//    auto& config = grpc_core::ibverbs::Config::Get();
+//
+//    if (size / 1024 >= config.get_zero_copy_size_kb()) {
+//      auto& pair_pool = grpc_core::ibverbs::PairPool::Get();
+//      char* peer = grpc_call_get_peer(call);
+//      auto* pair = pair_pool.Get(peer);
+//      if (pair != nullptr) {
+//        buffer = pair->AllocateSendBuffer(size);
+//      }
+//      gpr_free(peer);
+//    }
+//  }
+
+  return buffer;
 }
 void CoreCodegen::grpc_call_ref(grpc_call* call) { ::grpc_call_ref(call); }
 void CoreCodegen::grpc_call_unref(grpc_call* call) { ::grpc_call_unref(call); }

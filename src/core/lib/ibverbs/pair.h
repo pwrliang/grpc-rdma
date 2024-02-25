@@ -8,13 +8,13 @@
 #ifndef GRPC_SRC_CORE_LIB_IBVERBS_PAIR_H
 #define GRPC_SRC_CORE_LIB_IBVERBS_PAIR_H
 #ifdef GRPC_USE_IBVERBS
+#include <grpc/slice.h>
 #include <unistd.h>
 #include <mutex>
 #include <queue>
 #include <sstream>
+#include <unordered_map>
 #include <vector>
-
-#include <grpc/slice.h>
 
 #include "src/core/lib/ibverbs/address.h"
 #include "src/core/lib/ibverbs/buffer.h"
@@ -32,11 +32,10 @@ inline void ibverbsCheck(std::string& error, int no, const char* call,
                          const char* file, unsigned int line) {
   if (no != 0) {
     std::stringstream ss;
-    ss << "Optix call '" << call << "' failed: " << file << ':' << line
-       << ")\n";
+    ss << "call '" << call << "' failed: " << file << ':' << line << ")\n";
     error = ss.str();
 #ifndef NDEBUG
-    gpr_log(GPR_ERROR, "ibverbs error, %s", error.c_str());
+    gpr_log(GPR_ERROR, "ibverbs error, %s, error code %d", error.c_str(), no);
 #endif
   }
 }
@@ -88,6 +87,7 @@ class PairPollable {
   static constexpr auto kSendCompletionQueueCapacity = kMaxBuffers;
   static constexpr auto kCompletionQueueCapacity =
       kRecvCompletionQueueCapacity + kSendCompletionQueueCapacity;
+  static constexpr int kMaxSendSGE = 2;
   static constexpr int WR_ID_MR = 100;
   static constexpr int WR_ID_DATA = 200;
   static constexpr int WR_ID_STATUS = 300;
@@ -122,15 +122,20 @@ class PairPollable {
 
   uint64_t Send(grpc_slice* slices, size_t slice_count, size_t byte_idx);
 
+  uint64_t SendZerocopy(grpc_slice* slices, size_t slice_count,
+                        size_t byte_idx);
+
   uint64_t Recv(void* buf, uint64_t capacity);
 
   bool HasMessage() const;
+
+  bool HasPendingWrites() const;
 
   uint64_t GetReadableSize() const;
 
   uint64_t GetWritableSize() const;
 
-  uint64_t GetRemainWriteSize() const;
+  uint8_t* AllocateSendBuffer(size_t size);
 
   const Address& get_self_address() const { return self_; }
 
@@ -160,12 +165,15 @@ class PairPollable {
 
   uint64_t internal_read_size_;
   uint64_t remote_tail_;
-  std::atomic_uint64_t remain_write_size_;
+  std::atomic_bool partial_write_;
 
+  std::vector<ibv_sge> sg_list_;
   std::atomic_int pending_write_num_data_;
   std::atomic_int pending_write_num_status_;
 
   RingBufferPollable ring_buf_;
+  std::atomic_uint32_t send_buffer_tail_;
+  std::atomic_bool last_allocate_failed_;
 
   std::array<std::unique_ptr<MemoryRegion>, kMaxBuffers> mr_pending_send_;
   std::queue<std::unique_ptr<MemoryRegion>> mr_posted_recv_;
@@ -227,17 +235,17 @@ class PairPollable {
       char msg[1024];
       auto remote_head = status->remote_head;
       auto readable_size = GetReadableSize();
-      auto remain_write_size = GetRemainWriteSize();
+      auto pending_writes = HasPendingWrites();
 
       sprintf(msg,
-              "PID %d Read %lu Write %lu Readable %lu Remain Write %lu Head "
+              "PID %d Read %lu Write %lu Readable %lu Pending Writes %d Head "
               "%lu Remote "
               "Head %lu "
               "Remote Tail %lu PendingComp Data %d PendingComp Status %d "
               "Status %d",
               getpid(), total_read_size_.load(), total_write_size_.load(),
-              readable_size, remain_write_size, ring_buf_.get_head(),
-              remote_head, remote_tail_, pending_write_num_data_.load(),
+              readable_size, pending_writes, ring_buf_.get_head(), remote_head,
+              remote_tail_, pending_write_num_data_.load(),
               pending_write_num_status_.load(), get_status());
 
       if (strcmp(last_msg, msg) != 0) {
@@ -265,7 +273,7 @@ class PairPool {
     return pool;
   }
 
-  PairPollable* Take() {
+  PairPollable* Take(const std::string& id) {
     std::lock_guard<std::mutex> lg(mu_);
 
     if (pairs_.empty()) {
@@ -273,18 +281,37 @@ class PairPool {
     }
     PairPollable* pair = pairs_.front();
     pairs_.pop();
+    id_pair_[id] = pair;
     return pair;
   }
 
   void Putback(PairPollable* pair) {
     std::lock_guard<std::mutex> lg(mu_);
 
+    auto it = pair_id_.find(pair);
+    if (it != pair_id_.end()) {
+      id_pair_.erase(it->second);
+      pair_id_.erase(it);
+    }
+
     pairs_.push(pair);
+  }
+
+  PairPollable* Get(const std::string& id) {
+    std::lock_guard<std::mutex> lg(mu_);
+
+    auto it = id_pair_.find(id);
+    if (it != id_pair_.end()) {
+      return it->second;
+    }
+    return nullptr;
   }
 
  private:
   std::mutex mu_;
   std::queue<PairPollable*> pairs_;
+  std::unordered_map<std::string, PairPollable*> id_pair_;
+  std::unordered_map<PairPollable*, std::string> pair_id_;
 
   void createPairs() {
     for (int i = 0; i < kInitPoolSize; i++) {

@@ -1,5 +1,6 @@
 #ifdef GRPC_USE_IBVERBS
 #include <grpc/support/log.h>
+#include <limits>
 
 #include "src/core/lib/ibverbs/config.h"
 
@@ -33,7 +34,7 @@ uint32_t Config::get_ring_buffer_size_kb() const {
   return ring_buffer_size_kb_;
 }
 
-bool Config::is_zero_copy() const { return zero_copy_; }
+uint32_t Config::get_zero_copy_size_kb() const { return zero_copy_size_kb_; }
 
 void Config::init() {
   char* s_val;
@@ -90,8 +91,12 @@ void Config::init() {
     ring_buffer_size_kb_ = 4 * 1024;
   }
 
-  s_val = gpr_getenv("GRPC_RDMA_ZEROCOPY");
-  zero_copy_ = s_val == nullptr || strcmp(s_val, "true") == 0;
+  s_val = gpr_getenv("GRPC_RDMA_ZEROCOPY_SIZE_KB");
+  if (s_val != nullptr) {
+    zero_copy_size_kb_ = atoll(s_val);
+  } else {
+    zero_copy_size_kb_ = std::numeric_limits<uint32_t>::max();
+  }
 }
 
 }  // namespace ibverbs

@@ -332,7 +332,7 @@ class ClientWriter : public ClientWriterInterface<W> {
                               context_->initial_metadata_flags());
       context_->set_initial_metadata_corked(false);
     }
-    if (!ops.SendMessagePtr(&msg, options).ok()) {
+    if (!ops.SendMessagePtr(&msg, options, call_.call()).ok()) {
       return false;
     }
 
@@ -505,7 +505,7 @@ class ClientReaderWriter final : public ClientReaderWriterInterface<W, R> {
                               context_->initial_metadata_flags());
       context_->set_initial_metadata_corked(false);
     }
-    if (!ops.SendMessagePtr(&msg, options).ok()) {
+    if (!ops.SendMessagePtr(&msg, options, call_.call()).ok()) {
       return false;
     }
 
@@ -662,7 +662,7 @@ class ServerWriter final : public ServerWriterInterface<W> {
       options.set_buffer_hint();
     }
 
-    if (!ctx_->pending_ops_.SendMessagePtr(&msg, options).ok()) {
+    if (!ctx_->pending_ops_.SendMessagePtr(&msg, options, call_->call()).ok()) {
       return false;
     }
     if (!ctx_->sent_initial_metadata_) {
@@ -741,7 +741,7 @@ class ServerReaderWriterBody final {
     if (options.is_last_message()) {
       options.set_buffer_hint();
     }
-    if (!ctx_->pending_ops_.SendMessagePtr(&msg, options).ok()) {
+    if (!ctx_->pending_ops_.SendMessagePtr(&msg, options, call_->call()).ok()) {
       return false;
     }
     if (!ctx_->sent_initial_metadata_) {

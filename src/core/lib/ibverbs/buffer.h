@@ -21,14 +21,14 @@ class Buffer {
 
   size_t size() const;
 
-  char* data();
+  uint8_t* data();
 
-  const char* data() const;
+  const uint8_t* data() const;
 
   ibv_mr* get_mr();
 
  private:
-  std::vector<char> buffer_;
+  std::vector<uint8_t> buffer_;
   ibv_mr* mr_;
 };
 }  // namespace ibverbs

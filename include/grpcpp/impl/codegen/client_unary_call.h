@@ -66,7 +66,7 @@ class BlockingUnaryCallImpl {
               CallOpRecvInitialMetadata, CallOpRecvMessage<OutputMessage>,
               CallOpClientSendClose, CallOpClientRecvStatus>
         ops;
-    status_ = ops.SendMessagePtr(&request);
+    status_ = ops.SendMessagePtr(&request, call.call());
     if (!status_.ok()) {
       return;
     }
