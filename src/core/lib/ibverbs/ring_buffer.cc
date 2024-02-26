@@ -270,9 +270,8 @@ uint64_t RingBufferPollable::GetWriteRequests(
   for (size_t i = 0; i < sg_list.size(); i++) {
     auto& sge = sg_list[i];
     auto size = sge.length;
+    GPR_ASSERT(size <= capacity_ - reserved_space);
     next_tail = (next_tail + size) & capacity_mask_;
-
-    GPR_ASSERT(size > 0);
 
     // Track the first circular case
     if (remote_tail > next_tail && circular_idx == sg_list.size()) {
@@ -292,6 +291,8 @@ uint64_t RingBufferPollable::GetWriteRequests(
     GPR_ASSERT(seg1_size > 0);
     GPR_ASSERT(seg2_size > 0);
     auto& sge1 = sg_list[circular_idx];
+    auto size = sge1.length;
+
     sge1.length = seg1_size;
 
     ibv_sge sge2;
@@ -306,10 +307,10 @@ uint64_t RingBufferPollable::GetWriteRequests(
       auto end = sg_list[i].addr + sg_list[i].length;
       auto next_begin = sg_list[i + 1].addr;
       if (end != next_begin) {
-        gpr_log(
-            GPR_ERROR,
-            "Circular idx %zu, i %u, seg1 %u, seg2 %u, end %lu, next begin %lu",
-            circular_idx, i, seg1_size, seg2_size, end, next_begin);
+        gpr_log(GPR_ERROR,
+                "Circular idx %zu, i %u, size %u, seg1 %u, seg2 %u, end %lu, "
+                "next begin %lu",
+                circular_idx, i, size, seg1_size, seg2_size, end, next_begin);
       }
       GPR_ASSERT(end == next_begin);
       total_size1 += sg_list[i].length;
