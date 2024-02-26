@@ -743,10 +743,12 @@ uint64_t PairPollable::Send(grpc_slice* slices, size_t slice_count,
                                               peer.rkey, sg_list_, wrs);
 
     wrs[0].wr_id = WR_ID_DATA;
+    GPR_ASSERT(wrs[0].num_sge <= kMaxSendSGE);
     pending_write_num_data_++;
     // circular case
     if (wrs[0].next != nullptr) {
       wrs[1].wr_id = WR_ID_DATA;
+      GPR_ASSERT(wrs[1].num_sge <= kMaxSendSGE);
       pending_write_num_data_++;
     }
     ibv_send_wr* bad_wr;
