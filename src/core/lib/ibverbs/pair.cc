@@ -29,6 +29,11 @@ PairPollable::PairPollable()
       ibv_create_cq(dev_->context_, kCompletionQueueCapacity, this, nullptr, 0);
   int rv;
   // Create queue pair
+  ibv_device_attr dev_attr;
+  rv = ibv_query_device(dev_->context_, &dev_attr);
+  GPR_ASSERT(rv == 0);
+  max_sge_num_ = dev_attr.max_sge;
+
   {
     struct ibv_qp_init_attr attr;
     memset(&attr, 0, sizeof(struct ibv_qp_init_attr));
@@ -36,7 +41,7 @@ PairPollable::PairPollable()
     attr.recv_cq = cq_;
     attr.cap.max_send_wr = PairPollable::kSendCompletionQueueCapacity;
     attr.cap.max_recv_wr = PairPollable::kRecvCompletionQueueCapacity;
-    attr.cap.max_send_sge = kMaxSendSGE;
+    attr.cap.max_send_sge = max_sge_num_;
     attr.cap.max_recv_sge = 1;  // exchanging MR only needs 1 sge
     attr.qp_type = IBV_QPT_RC;
     attr.sq_sig_all = 0;
@@ -693,7 +698,7 @@ uint64_t PairPollable::Send(grpc_slice* slices, size_t slice_count,
   GPR_ASSERT(send_buffer_tail_ == 0);
   auto remote_tail = remote_tail_;
 
-  for (int i = 0; i < slice_count && sg_list_.size() < kMaxSendSGE; i++) {
+  for (int i = 0; i < slice_count && sg_list_.size() < max_sge_num_; i++) {
     uint8_t* slice_ptr = GRPC_SLICE_START_PTR(slices[i]) + byte_idx;
     uint64_t slice_len = GRPC_SLICE_LENGTH(slices[i]) - byte_idx;
     byte_idx = 0;
@@ -743,12 +748,12 @@ uint64_t PairPollable::Send(grpc_slice* slices, size_t slice_count,
                                               peer.rkey, sg_list_, wrs);
 
     wrs[0].wr_id = WR_ID_DATA;
-    GPR_ASSERT(wrs[0].num_sge <= kMaxSendSGE);
+    GPR_ASSERT(wrs[0].num_sge <= max_sge_num_);
     pending_write_num_data_++;
     // circular case
     if (wrs[0].next != nullptr) {
       wrs[1].wr_id = WR_ID_DATA;
-      GPR_ASSERT(wrs[1].num_sge <= kMaxSendSGE);
+      GPR_ASSERT(wrs[1].num_sge <= max_sge_num_);
       pending_write_num_data_++;
     }
     ibv_send_wr* bad_wr;

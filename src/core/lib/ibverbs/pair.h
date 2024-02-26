@@ -87,7 +87,6 @@ class PairPollable {
   static constexpr auto kSendCompletionQueueCapacity = kMaxBuffers;
   static constexpr auto kCompletionQueueCapacity =
       kRecvCompletionQueueCapacity + kSendCompletionQueueCapacity;
-  static constexpr int kMaxSendSGE = 8;
   static constexpr int WR_ID_MR = 100;
   static constexpr int WR_ID_DATA = 200;
   static constexpr int WR_ID_STATUS = 300;
@@ -160,6 +159,7 @@ class PairPollable {
 
   struct ibv_cq* cq_;
   struct ibv_qp* qp_;
+  int max_sge_num_;
 
   PairStatus status_;
   std::string error_;
