@@ -275,6 +275,7 @@ uint64_t RingBufferPollable::GetWriteRequests(
 
     // Track the first circular case
     if (remote_tail > next_tail && circular_idx == sg_list.size()) {
+      GPR_ASSERT(next_tail <= size);
       seg2_size = next_tail;
       seg1_size = size - seg2_size;
 
