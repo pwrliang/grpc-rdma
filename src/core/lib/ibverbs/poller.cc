@@ -50,23 +50,16 @@ void Poller::RemovePollable(grpc_core::ibverbs::PairPollable* pollable) {
 }
 
 void Poller::begin_polling(int poller_id) {
-  absl::Time last_poll_time = absl::Now();
   auto poller_sleep_timeout = Config::Get().get_poller_sleep_timeout_ms();
   struct pollfd fds[1];
   gpr_log(GPR_INFO, "Poller started");
 
   while (running_) {
     if (n_pairs_ == 0) {
-      if ((absl::Now() - last_poll_time) >
-          absl::Milliseconds(poller_sleep_timeout)) {
-        gpr_log(GPR_INFO, "Poller sleep");
-        std::unique_lock<std::mutex> lk(mu_);
-        cv_.wait(lk, [this] { return n_pairs_ > 0; });
-        gpr_log(GPR_INFO, "Poller wakeup");
-      }
+      std::unique_lock<std::mutex> lk(mu_);
+      std::chrono::milliseconds dur(poller_sleep_timeout);
+      cv_.wait_for(lk, dur, [this] { return n_pairs_ > 0; });
       continue;
-    } else {
-      last_poll_time = absl::Now();
     }
 
     uint32_t tail = tail_;
