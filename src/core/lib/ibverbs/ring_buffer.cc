@@ -305,6 +305,12 @@ uint64_t RingBufferPollable::GetWriteRequests(
     for (int i = 0; i < sg_list.size() - 1; i++) {
       auto end = sg_list[i].addr + sg_list[i].length;
       auto next_begin = sg_list[i + 1].addr;
+      if (end != next_begin) {
+        gpr_log(
+            GPR_ERROR,
+            "Circular idx %zu, i %u, seg1 %u, seg2 %u, end %lu, next begin %lu",
+            circular_idx, i, seg1_size, seg2_size, end, next_begin);
+      }
       GPR_ASSERT(end == next_begin);
       total_size1 += sg_list[i].length;
     }

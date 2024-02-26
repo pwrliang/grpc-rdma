@@ -699,11 +699,10 @@ uint64_t PairPollable::Send(grpc_slice* slices, size_t slice_count,
     byte_idx = 0;
 
     uint64_t recv_buf_free = ring_buf_.GetFreeSize(remote_head, remote_tail);
-    uint64_t send_buf_free = RingBufferPollable::CalculateWritableSize(
-        send_buf->size() - send_buffer_tail_);
+    uint64_t send_buf_free = send_buf->size() - send_buffer_tail_;
     auto payload_size = std::min(
         slice_len,
-        std::min(send_buf_free,
+        std::min(RingBufferPollable::CalculateWritableSize(send_buf_free),
                  RingBufferPollable::CalculateWritableSize(recv_buf_free)));
     uint64_t encoded_size = RingBufferPollable::GetEncodedSize(payload_size);
     auto* send_buf_ptr = AllocateSendBuffer(encoded_size);
