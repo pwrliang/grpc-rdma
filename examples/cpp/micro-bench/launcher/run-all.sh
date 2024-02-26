@@ -14,6 +14,7 @@ fi
 
 # Available options: TCP RDMA_EVENT RDMA_BP RDMA_BPEV
 GRPC_MODES=(TCP RDMA_EVENT RDMA_BP RDMA_BPEV)
+GRPC_MODES=(RDMA_BP RDMA_BPEV)
 
 function set_hostfile() {
   name_prefix=$(basename "$hostfile_template")
