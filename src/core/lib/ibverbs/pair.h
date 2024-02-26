@@ -34,9 +34,9 @@ inline void ibverbsCheck(std::string& error, int no, const char* call,
     std::stringstream ss;
     ss << "call '" << call << "' failed: " << file << ':' << line << ")\n";
     error = ss.str();
-#ifndef NDEBUG
+//#ifndef NDEBUG
     gpr_log(GPR_ERROR, "ibverbs error, %s, error code %d", error.c_str(), no);
-#endif
+//#endif
   }
 }
 

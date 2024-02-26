@@ -756,6 +756,7 @@ uint64_t PairPollable::Send(grpc_slice* slices, size_t slice_count,
       GPR_ASSERT(wrs[1].num_sge <= max_sge_num_);
       pending_write_num_data_++;
     }
+
     ibv_send_wr* bad_wr;
     IBVERBS_CHECK(error_, ibv_post_send(qp_, &wrs[0], &bad_wr));
 
