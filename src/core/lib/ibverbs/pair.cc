@@ -298,6 +298,29 @@ uint8_t* PairPollable::AllocateSendBuffer(size_t size) {
   }
   Buffer* buf = send_buffers_[kDataBuffer].get();
   auto buf_size = buf->size();
+  uint32_t tail;
+
+  bool alloc_success;
+  do {
+    tail = send_buffer_tail_;
+    // need to allocate a continuous buffer
+    // reserve 2 alignments for the header and footer
+    if (tail + size > buf_size) {
+      last_allocate_failed_ = true;
+      return nullptr;
+    }
+    alloc_success =
+        send_buffer_tail_.compare_exchange_strong(tail, tail + size);
+  } while (!alloc_success);
+  return buf->data() + tail;
+}
+
+uint8_t* PairPollable::AllocateSendBufferEncoded(size_t size) {
+  if (size == 0) {
+    return nullptr;
+  }
+  Buffer* buf = send_buffers_[kDataBuffer].get();
+  auto buf_size = buf->size();
   uint32_t allocate_size = RingBufferPollable::GetEncodedSize(size);
   uint32_t tail;
 
@@ -641,13 +664,6 @@ uint64_t PairPollable::Send(grpc_slice* slices, size_t slice_count,
                             size_t byte_idx) {
   GRPCProfiler profiler(GRPC_STATS_TIME_PAIR_SEND);
   ContentAssertion cassert(write_content_);
-  auto* send_buf = send_buffers_[kDataBuffer].get();
-  const ibv_mr& peer = mr_peer_[kDataBuffer]->mr();
-  auto* status =
-      reinterpret_cast<status_report*>(recv_buffers_[kStatusBuffer]->data());
-  auto remote_head = status->remote_head;
-
-  int64_t tag_size = sizeof(RingBufferPollable::tag_t);
 
   if (status_ != PairStatus::kConnected) {
     return 0;
@@ -660,10 +676,12 @@ uint64_t PairPollable::Send(grpc_slice* slices, size_t slice_count,
   //    send_buffer_tail_ = 0;
   //    last_allocate_failed_ = false;
   //  }
-
-  uint64_t written_slice_size = 0;
-  int64_t recv_buf_free = ring_buf_.GetFreeSize(remote_head, remote_tail_);
+  auto* send_buf = send_buffers_[kDataBuffer].get();
+  auto* status =
+      reinterpret_cast<status_report*>(recv_buffers_[kStatusBuffer]->data());
+  auto remote_head = status->remote_head;
   uint64_t total_slice_size = 0;
+  uint64_t written_slice_size = 0;
 
   for (int i = 0; i < slice_count; i++) {
     total_slice_size += GRPC_SLICE_LENGTH(slices[i]);
@@ -673,47 +691,41 @@ uint64_t PairPollable::Send(grpc_slice* slices, size_t slice_count,
   sg_list_.clear();
 
   GPR_ASSERT(send_buffer_tail_ == 0);
+  auto remote_tail = remote_tail_;
 
   for (int i = 0; i < slice_count && sg_list_.size() < kMaxSendSGE; i++) {
     uint8_t* slice_ptr = GRPC_SLICE_START_PTR(slices[i]) + byte_idx;
-    int64_t slice_len = GRPC_SLICE_LENGTH(slices[i]) - byte_idx;
+    uint64_t slice_len = GRPC_SLICE_LENGTH(slices[i]) - byte_idx;
     byte_idx = 0;
 
-    int64_t send_buf_free =
-        std::max(0l, (int64_t)send_buf->size() - (int64_t)send_buffer_tail_ -
-                         (int64_t)3 * tag_size);
-    int64_t payload_size = std::min(
+    uint64_t recv_buf_free = ring_buf_.GetFreeSize(remote_head, remote_tail);
+    uint64_t send_buf_free = RingBufferPollable::CalculateWritableSize(
+        send_buf->size() - send_buffer_tail_);
+    auto payload_size = std::min(
         slice_len,
         std::min(send_buf_free,
-                 (int64_t)RingBufferPollable::GetWritableSize1(recv_buf_free)));
-
-    // header is reserved
-    auto* send_buf_ptr =
-        static_cast<uint8_t*>(AllocateSendBuffer(payload_size));
+                 RingBufferPollable::CalculateWritableSize(recv_buf_free)));
+    uint64_t encoded_size = RingBufferPollable::GetEncodedSize(payload_size);
+    auto* send_buf_ptr = AllocateSendBuffer(encoded_size);
 
     if (send_buf_ptr == nullptr) {  // allocate failed
       break;
     }
 
-    send_buf_ptr -= tag_size;  // back to the header
-    GPR_ASSERT(send_buf_ptr >= send_buf->data() &&
-               send_buf_ptr < send_buf->data() + send_buf->size());
-    auto write_begin_ptr = send_buf_ptr;
-    send_buf_ptr = RingBufferPollable::AppendHeader(send_buf_ptr, payload_size);
-    send_buf_ptr = RingBufferPollable::AppendPayload(send_buf_ptr, slice_ptr,
-                                                     payload_size);
-    send_buf_ptr = RingBufferPollable::AppendFooter(send_buf_ptr);
+    auto* next_ptr =
+        RingBufferPollable::AppendHeader(send_buf_ptr, payload_size);
+    next_ptr =
+        RingBufferPollable::AppendPayload(next_ptr, slice_ptr, payload_size);
+    next_ptr = RingBufferPollable::AppendFooter(next_ptr);
 
     ibv_sge sge;
-    sge.addr = (uint64_t)write_begin_ptr;
-    sge.length = send_buf_ptr - write_begin_ptr;
+    sge.addr = reinterpret_cast<uint64_t>(send_buf_ptr);
+    sge.length = encoded_size;
     sge.lkey = send_buf->get_mr()->lkey;
 
     sg_list_.push_back(sge);
     written_slice_size += payload_size;
-    recv_buf_free -= sge.length;
-
-    GPR_ASSERT(recv_buf_free >= 0);
+    remote_tail = ring_buf_.NextTail(remote_tail, payload_size);
   }
 
   partial_write_ = written_slice_size < total_slice_size;
@@ -726,6 +738,7 @@ uint64_t PairPollable::Send(grpc_slice* slices, size_t slice_count,
     }
 
     std::array<ibv_send_wr, 2> wrs;
+    const ibv_mr& peer = mr_peer_[kDataBuffer]->mr();
 
     remote_tail_ = ring_buf_.GetWriteRequests(remote_tail_, peer.addr,
                                               peer.rkey, sg_list_, wrs);

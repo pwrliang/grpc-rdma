@@ -137,6 +137,8 @@ class PairPollable {
 
   uint8_t* AllocateSendBuffer(size_t size);
 
+  uint8_t* AllocateSendBufferEncoded(size_t size);
+
   const Address& get_self_address() const { return self_; }
 
   const Address& get_peer_address() const { return peer_; }

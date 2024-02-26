@@ -98,6 +98,13 @@ class RingBufferPollable {
     return p + alignment;
   }
 
+  uint64_t NextTail(uint64_t tail, uint64_t payload_size) {
+    if (payload_size == 0) {
+      return tail;
+    }
+    return (tail + 2ul * alignment + round_up(payload_size)) & capacity_mask_;
+  }
+
   static uint64_t EncodeBuffer(uint8_t* buf, void* src_buf, uint64_t size) {
     *reinterpret_cast<uint64_t*>(buf) = size;
     memcpy(buf + alignment, src_buf, size);
@@ -173,18 +180,16 @@ class RingBufferPollable {
   }
 
   static uint64_t GetEncodedSize(uint64_t payload_size) {
+    if (payload_size == 0) {
+      return 0;
+    }
     return 2ul * alignment + round_up(payload_size);
   }
 
-  static uint64_t GetWritableSize1(uint64_t size) {
-    if (size > reserved_space) {
-      size -= reserved_space;
-      size = round_down(size);
-    } else {
-      size = 0;
-    }
-
-    return size;
+  static uint64_t CalculateWritableSize(uint64_t space) {
+    int64_t free = space;
+    free = std::max(0l, free - reserved_space);
+    return round_down(free);
   }
 
   uint64_t GetWriteRequests(uint64_t size, uint64_t tail,

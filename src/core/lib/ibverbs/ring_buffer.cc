@@ -99,16 +99,13 @@ retry:
 uint64_t RingBufferPollable::GetFreeSize(uint64_t head, uint64_t tail) const {
   assert(tail < capacity_mask_);
   assert(tail % alignment == 0);
-  auto used = (tail + capacity_ - head) & capacity_mask_;
-  return capacity_ - used;
+  uint64_t size = (tail + capacity_ - head) & capacity_mask_;
+  return capacity_ - size;
 }
 
 uint64_t RingBufferPollable::GetWritableSize(uint64_t head,
                                              uint64_t tail) const {
-  assert(tail < capacity_mask_);
-  assert(tail % alignment == 0);
-  uint64_t size = (tail + capacity_ - head) & capacity_mask_;
-  uint64_t remaining = capacity_ - size;
+  uint64_t remaining = GetFreeSize(head, tail);
 
   if (remaining > reserved_space) {
     remaining -= reserved_space;
