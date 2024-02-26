@@ -23,7 +23,7 @@ function set_hostfile() {
 }
 
 function throughput() {
-  clients=(1 2 4 8 16 32 64 128)
+  clients=(1 2 4 8 16 32 64)
   server_thread=38
   cqs=$server_thread
   req=32
