@@ -265,7 +265,6 @@ uint64_t RingBufferPollable::GetWriteRequests(
   uint64_t curr_tail = remote_tail;
   size_t circular_idx = sg_list.size();
   uint32_t seg1_size, seg2_size;
-  uint32_t total_size = 0;
 
   for (size_t i = 0; i < sg_list.size(); i++) {
     auto& sge = sg_list[i];
@@ -275,9 +274,6 @@ uint64_t RingBufferPollable::GetWriteRequests(
 
     // Track the first circular case
     if (curr_tail > next_tail) {
-      if (next_tail > size) {
-        gpr_log(GPR_ERROR, "Next tail %lu, size %u", next_tail, size);
-      }
       GPR_ASSERT(next_tail <= size);
       seg2_size = next_tail;
       seg1_size = size - seg2_size;
@@ -288,17 +284,12 @@ uint64_t RingBufferPollable::GetWriteRequests(
       }
     }
     curr_tail = next_tail;
-    total_size += size;
   }
 
   memset(wrs.data(), 0, sizeof(ibv_send_wr) * wrs.size());
 
   if (circular_idx < sg_list.size()) {  // circular case
-    GPR_ASSERT(seg1_size > 0);
-    GPR_ASSERT(seg2_size > 0);
     auto& sge1 = sg_list[circular_idx];
-    auto size = sge1.length;
-
     sge1.length = seg1_size;
 
     ibv_sge sge2;
@@ -307,26 +298,6 @@ uint64_t RingBufferPollable::GetWriteRequests(
     sge2.lkey = sge1.lkey;
 
     sg_list.insert(sg_list.begin() + circular_idx + 1, sge2);
-
-    uint32_t total_size1 = 0;
-    for (int i = 0; i < sg_list.size() - 1; i++) {
-      auto end = sg_list[i].addr + sg_list[i].length;
-      auto next_begin = sg_list[i + 1].addr;
-      if (end != next_begin) {
-        gpr_log(GPR_ERROR,
-                "Circular idx %zu, i %u, size %u, seg1 %u, seg2 %u, end %lu, "
-                "next begin %lu",
-                circular_idx, i, size, seg1_size, seg2_size, end, next_begin);
-      }
-      GPR_ASSERT(end == next_begin);
-      total_size1 += sg_list[i].length;
-    }
-    total_size1 += sg_list.back().length;
-
-    if (total_size != total_size1) {
-      gpr_log(GPR_ERROR, "total %u, total1 %u", total_size, total_size1);
-    }
-    GPR_ASSERT(total_size == total_size1);
 
     wrs[0].sg_list = sg_list.data();
     wrs[0].num_sge = circular_idx + 1;
@@ -340,7 +311,6 @@ uint64_t RingBufferPollable::GetWriteRequests(
     wrs[1].sg_list = sg_list.data() + circular_idx + 1;
     wrs[1].num_sge = sg_list.size() - wrs[0].num_sge;
     wrs[1].opcode = IBV_WR_RDMA_WRITE;
-    wrs[1].next = nullptr;
     wrs[1].send_flags = IBV_SEND_SIGNALED;
     wrs[1].wr.rdma.remote_addr = reinterpret_cast<uint64_t>(remote_addr);
     wrs[1].wr.rdma.rkey = rkey;
@@ -348,7 +318,6 @@ uint64_t RingBufferPollable::GetWriteRequests(
     wrs[0].sg_list = sg_list.data();
     wrs[0].num_sge = sg_list.size();
     wrs[0].opcode = IBV_WR_RDMA_WRITE;
-    wrs[0].next = nullptr;
     wrs[0].send_flags = IBV_SEND_SIGNALED;
     wrs[0].wr.rdma.remote_addr =
         reinterpret_cast<uint64_t>(remote_addr) + remote_tail;

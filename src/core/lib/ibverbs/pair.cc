@@ -737,12 +737,6 @@ uint64_t PairPollable::Send(grpc_slice* slices, size_t slice_count,
   partial_write_ = written_slice_size < total_slice_size;
 
   if (!sg_list_.empty()) {
-    for (int i = 0; i < sg_list_.size() - 1; i++) {
-      auto end = sg_list_[i].addr + sg_list_[i].length;
-      auto next_begin = sg_list_[i + 1].addr;
-      GPR_ASSERT(end == next_begin);
-    }
-
     std::array<ibv_send_wr, 2> wrs;
     const ibv_mr& peer = mr_peer_[kDataBuffer]->mr();
 
