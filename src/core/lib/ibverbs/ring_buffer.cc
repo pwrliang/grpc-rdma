@@ -96,6 +96,13 @@ retry:
   return 0;
 }
 
+uint64_t RingBufferPollable::GetFreeSize(uint64_t head, uint64_t tail) const {
+  assert(tail < capacity_mask_);
+  assert(tail % alignment == 0);
+  auto used = (tail + capacity_ - head) & capacity_mask_;
+  return capacity_ - used;
+}
+
 uint64_t RingBufferPollable::GetWritableSize(uint64_t head,
                                              uint64_t tail) const {
   assert(tail < capacity_mask_);
@@ -130,11 +137,15 @@ uint64_t RingBufferPollable::Read(void* dst_buf, uint64_t capacity,
 
   if (remain_ == 0) {
     auto* p_header = reinterpret_cast<uint64_t*>(buf_ + head_);
+    auto payload_size = *p_header;
+    auto* p_footer = reinterpret_cast<uint64_t*>(
+        buf_ + ((head_ + alignment + round_up(payload_size)) & capacity_mask_));
 
     moving_head_ = (head_ + alignment) & capacity_mask_;
     head_ =
         (head_ + 2ul * alignment + round_up(readable_size)) & capacity_mask_;
-    assert(*p_header == readable_size);
+    assert(payload_size == readable_size);
+    assert(*p_footer == footer);
     *p_header = 0;  // clear header
   }
 
@@ -250,10 +261,9 @@ uint64_t RingBufferPollable::GetWriteRequests(
   return tail;
 }
 
-uint64_t RingBufferPollable::GetWriteRequests(uint64_t remote_tail,
-                                              void* remote_addr, uint32_t rkey,
-                                              std::vector<ibv_sge>& sg_list,
-                                              std::array<ibv_send_wr, 2>& wrs) {
+uint64_t RingBufferPollable::GetWriteRequests(
+    uint64_t remote_tail, void* remote_addr, uint32_t rkey,
+    std::vector<ibv_sge>& sg_list, std::array<ibv_send_wr, 2>& wrs) const {
   assert(remote_tail < capacity_);
   uint64_t next_tail = remote_tail;
   size_t circular_idx = sg_list.size();
@@ -273,11 +283,14 @@ uint64_t RingBufferPollable::GetWriteRequests(uint64_t remote_tail,
       seg2_size = next_tail;
       seg1_size = size - seg2_size;
     }
+    total_size += size;
   }
 
   memset(wrs.data(), 0, sizeof(ibv_send_wr) * wrs.size());
 
   if (circular_idx < sg_list.size()) {  // circular case
+    GPR_ASSERT(seg1_size > 0);
+    GPR_ASSERT(seg2_size > 0);
     auto& sge1 = sg_list[circular_idx];
     sge1.length = seg1_size;
 
@@ -287,6 +300,20 @@ uint64_t RingBufferPollable::GetWriteRequests(uint64_t remote_tail,
     sge2.lkey = sge1.lkey;
 
     sg_list.insert(sg_list.begin() + circular_idx + 1, sge2);
+
+    uint32_t total_size1 = 0;
+    for (int i = 0; i < sg_list.size() - 1; i++) {
+      auto end = sg_list[i].addr + sg_list[i].length;
+      auto next_begin = sg_list[i + 1].addr;
+      GPR_ASSERT(end == next_begin);
+      total_size1 += sg_list[i].length;
+    }
+    total_size1 += sg_list.back().length;
+
+    if (total_size != total_size1) {
+      gpr_log(GPR_ERROR, "total %u, total1 %u", total_size, total_size1);
+    }
+    GPR_ASSERT(total_size == total_size1);
 
     wrs[0].sg_list = sg_list.data();
     wrs[0].num_sge = circular_idx + 1;
@@ -300,6 +327,7 @@ uint64_t RingBufferPollable::GetWriteRequests(uint64_t remote_tail,
     wrs[1].sg_list = sg_list.data() + circular_idx + 1;
     wrs[1].num_sge = sg_list.size() - wrs[0].num_sge;
     wrs[1].opcode = IBV_WR_RDMA_WRITE;
+    wrs[1].next = nullptr;
     wrs[1].send_flags = IBV_SEND_SIGNALED;
     wrs[1].wr.rdma.remote_addr = reinterpret_cast<uint64_t>(remote_addr);
     wrs[1].wr.rdma.rkey = rkey;
@@ -307,6 +335,7 @@ uint64_t RingBufferPollable::GetWriteRequests(uint64_t remote_tail,
     wrs[0].sg_list = sg_list.data();
     wrs[0].num_sge = sg_list.size();
     wrs[0].opcode = IBV_WR_RDMA_WRITE;
+    wrs[0].next = nullptr;
     wrs[0].send_flags = IBV_SEND_SIGNALED;
     wrs[0].wr.rdma.remote_addr =
         reinterpret_cast<uint64_t>(remote_addr) + remote_tail;

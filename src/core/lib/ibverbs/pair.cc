@@ -643,6 +643,10 @@ uint64_t PairPollable::Send(grpc_slice* slices, size_t slice_count,
   ContentAssertion cassert(write_content_);
   auto* send_buf = send_buffers_[kDataBuffer].get();
   const ibv_mr& peer = mr_peer_[kDataBuffer]->mr();
+  auto* status =
+      reinterpret_cast<status_report*>(recv_buffers_[kStatusBuffer]->data());
+  auto remote_head = status->remote_head;
+
   int64_t tag_size = sizeof(RingBufferPollable::tag_t);
 
   if (status_ != PairStatus::kConnected) {
@@ -657,39 +661,37 @@ uint64_t PairPollable::Send(grpc_slice* slices, size_t slice_count,
   //    last_allocate_failed_ = false;
   //  }
 
-  sg_list_.clear();
-  uint64_t written_payload_size = 0;
-  int64_t recv_buf_size = GetWritableSize();  // tag size is deducted
-
-  partial_write_ = false;
+  uint64_t written_slice_size = 0;
+  int64_t recv_buf_free = ring_buf_.GetFreeSize(remote_head, remote_tail_);
+  uint64_t total_slice_size = 0;
 
   for (int i = 0; i < slice_count; i++) {
-    auto& slice = slices[i];
-    uint8_t* slice_ptr = GRPC_SLICE_START_PTR(slice) + byte_idx;
-    int64_t slice_len = GRPC_SLICE_LENGTH(slice) - byte_idx;
+    total_slice_size += GRPC_SLICE_LENGTH(slices[i]);
+  }
+  total_slice_size -= byte_idx;
+
+  sg_list_.clear();
+
+  GPR_ASSERT(send_buffer_tail_ == 0);
+
+  for (int i = 0; i < slice_count && sg_list_.size() < kMaxSendSGE; i++) {
+    uint8_t* slice_ptr = GRPC_SLICE_START_PTR(slices[i]) + byte_idx;
+    int64_t slice_len = GRPC_SLICE_LENGTH(slices[i]) - byte_idx;
     byte_idx = 0;
 
-    GPR_ASSERT(slice_len > 0);
-
-    int64_t payload_size = std::min(recv_buf_size, slice_len);
     int64_t send_buf_free =
         std::max(0l, (int64_t)send_buf->size() - (int64_t)send_buffer_tail_ -
-                         (int64_t)2 * tag_size);
-
-    payload_size = std::min(send_buf_free, payload_size);
-
-    if (slice_len > payload_size) {
-      partial_write_ = true;
-    }
+                         (int64_t)3 * tag_size);
+    int64_t payload_size = std::min(
+        slice_len,
+        std::min(send_buf_free,
+                 (int64_t)RingBufferPollable::GetWritableSize1(recv_buf_free)));
 
     // header is reserved
-    uint64_t old_tail = send_buffer_tail_;
     auto* send_buf_ptr =
         static_cast<uint8_t*>(AllocateSendBuffer(payload_size));
-    uint64_t allocate_size = send_buffer_tail_ - old_tail;
 
     if (send_buf_ptr == nullptr) {  // allocate failed
-      partial_write_ = true;
       break;
     }
 
@@ -701,27 +703,28 @@ uint64_t PairPollable::Send(grpc_slice* slices, size_t slice_count,
     send_buf_ptr = RingBufferPollable::AppendPayload(send_buf_ptr, slice_ptr,
                                                      payload_size);
     send_buf_ptr = RingBufferPollable::AppendFooter(send_buf_ptr);
-    auto write_size = send_buf_ptr - write_begin_ptr;
-    GPR_ASSERT(write_size == allocate_size);
 
     ibv_sge sge;
     sge.addr = (uint64_t)write_begin_ptr;
-    sge.length = write_size;
+    sge.length = send_buf_ptr - write_begin_ptr;
     sge.lkey = send_buf->get_mr()->lkey;
 
     sg_list_.push_back(sge);
-    written_payload_size += payload_size;
-    recv_buf_size -= payload_size;
+    written_slice_size += payload_size;
+    recv_buf_free -= sge.length;
 
-    GPR_ASSERT(recv_buf_size >= 0);
-
-    if (sg_list_.size() >= kMaxSendSGE) {
-      partial_write_ = true;
-      break;
-    }
+    GPR_ASSERT(recv_buf_free >= 0);
   }
 
+  partial_write_ = written_slice_size < total_slice_size;
+
   if (!sg_list_.empty()) {
+    for (int i = 0; i < sg_list_.size() - 1; i++) {
+      auto end = sg_list_[i].addr + sg_list_[i].length;
+      auto next_begin = sg_list_[i + 1].addr;
+      GPR_ASSERT(end == next_begin);
+    }
+
     std::array<ibv_send_wr, 2> wrs;
 
     remote_tail_ = ring_buf_.GetWriteRequests(remote_tail_, peer.addr,
@@ -737,14 +740,13 @@ uint64_t PairPollable::Send(grpc_slice* slices, size_t slice_count,
     ibv_send_wr* bad_wr;
     IBVERBS_CHECK(error_, ibv_post_send(qp_, &wrs[0], &bad_wr));
 
-
     waitDataWrites();
     send_buffer_tail_ = 0;
     last_allocate_failed_ = false;
   }
 
-  total_write_size_ += written_payload_size;
-  return written_payload_size;
+  total_write_size_ += written_slice_size;
+  return written_slice_size;
 }
 #else
 uint64_t PairPollable::Send(grpc_slice* slices, size_t slice_count,

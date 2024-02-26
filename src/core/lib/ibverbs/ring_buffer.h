@@ -67,6 +67,8 @@ class RingBufferPollable {
 
   uint64_t GetReadableSize() const;
 
+  uint64_t GetFreeSize(uint64_t head, uint64_t tail) const;
+
   uint64_t GetWritableSize(uint64_t head, uint64_t tail) const;
 
   uint64_t GetWritableSize(uint64_t tail) const;
@@ -174,12 +176,23 @@ class RingBufferPollable {
     return 2ul * alignment + round_up(payload_size);
   }
 
+  static uint64_t GetWritableSize1(uint64_t size) {
+    if (size > reserved_space) {
+      size -= reserved_space;
+      size = round_down(size);
+    } else {
+      size = 0;
+    }
+
+    return size;
+  }
+
   uint64_t GetWriteRequests(uint64_t size, uint64_t tail,
                             std::vector<ring_buffer_write_request>& reqs);
 
-  uint64_t GetWriteRequests(uint64_t remote_tail, void *remote_addr,
+  uint64_t GetWriteRequests(uint64_t remote_tail, void* remote_addr,
                             uint32_t rkey, std::vector<ibv_sge>& sg_list,
-                            std::array<ibv_send_wr, 2>& wrs);
+                            std::array<ibv_send_wr, 2>& wrs) const;
 
   uint64_t get_capacity() const;
 
@@ -220,6 +233,14 @@ class RingBufferPollable {
       return v;
     }
     return v - v % alignment + alignment;
+  }
+
+  // Align given value up to given alignment
+  static inline uint64_t round_down(uint64_t v) {
+    if (v % alignment == 0) {
+      return v;
+    }
+    return v - v % alignment;
   }
 };
 }  // namespace ibverbs
