@@ -98,11 +98,9 @@ class RingBufferPollable {
     return p + alignment;
   }
 
-  uint64_t NextTail(uint64_t tail, uint64_t payload_size) {
-    if (payload_size == 0) {
-      return tail;
-    }
-    return (tail + 2ul * alignment + round_up(payload_size)) & capacity_mask_;
+  uint64_t NextTail(uint64_t tail, uint64_t size) {
+    assert(size <= capacity_);
+    return (tail + size) & capacity_mask_;
   }
 
   static uint64_t EncodeBuffer(uint8_t* buf, void* src_buf, uint64_t size) {

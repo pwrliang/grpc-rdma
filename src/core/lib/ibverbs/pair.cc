@@ -722,6 +722,8 @@ uint64_t PairPollable::Send(grpc_slice* slices, size_t slice_count,
         RingBufferPollable::AppendPayload(next_ptr, slice_ptr, payload_size);
     next_ptr = RingBufferPollable::AppendFooter(next_ptr);
 
+    GPR_ASSERT(next_ptr - send_buf_ptr == encoded_size);
+
     ibv_sge sge;
     sge.addr = reinterpret_cast<uint64_t>(send_buf_ptr);
     sge.length = encoded_size;
@@ -729,7 +731,7 @@ uint64_t PairPollable::Send(grpc_slice* slices, size_t slice_count,
 
     sg_list_.push_back(sge);
     written_slice_size += payload_size;
-    remote_tail = ring_buf_.NextTail(remote_tail, payload_size);
+    remote_tail = ring_buf_.NextTail(remote_tail, encoded_size);
   }
 
   partial_write_ = written_slice_size < total_slice_size;
