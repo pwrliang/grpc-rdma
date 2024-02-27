@@ -380,7 +380,8 @@ static void rdma_read(grpc_endpoint* ep, grpc_slice_buffer* incoming_buffer,
 #else
 #define MAX_WRITE_IOVEC 128
 #endif
-static bool rdma_flush_old(grpc_rdma* rdma, grpc_error_handle* error) {
+#if 0
+static bool rdma_flush(grpc_rdma* rdma, grpc_error_handle* error) {
   GRPCProfiler profiler(GRPC_STATS_TIME_TRANSPORT_FLUSH);
   struct iovec iov[MAX_WRITE_IOVEC];
   msg_iovlen_type iov_size;
@@ -465,12 +466,13 @@ static bool rdma_flush_old(grpc_rdma* rdma, grpc_error_handle* error) {
     }
   }
 }
-
+#else
 static bool rdma_flush(grpc_rdma* rdma, grpc_error_handle* error) {
   GRPCProfiler profiler(GRPC_STATS_TIME_TRANSPORT_FLUSH);
   size_t outgoing_slice_idx = 0;
   auto* pair = rdma->pair;
   GPR_ASSERT(rdma->outgoing_buffer->count);
+
   size_t sent_length =
       pair->SendZerocopy(rdma->outgoing_buffer->slices,
                          rdma->outgoing_buffer->count, rdma->outgoing_byte_idx);
@@ -520,6 +522,7 @@ static bool rdma_flush(grpc_rdma* rdma, grpc_error_handle* error) {
     return true;
   }
 }
+#endif
 
 static void rdma_handle_write(void* arg /* grpc_rdma */,
                               grpc_error_handle error) {
@@ -743,21 +746,9 @@ grpc_endpoint* grpc_rdma_bp_create(grpc_fd* em_fd,
   rdma->inq = 1;
 
   std::string pair_id(rdma->peer_string);
-  auto* server_uri =
-      grpc_channel_args_find_string(channel_args, GRPC_ARG_SERVER_URI);
-
-  if (server_uri != nullptr) {
-    std::string uri(server_uri);
-    auto pos = uri.find_last_of('/');
-    // get rid of prefix "dns:///"
-    if (pos != std::string::npos) {
-      pair_id = uri.substr(pos + 1);
-    }
-  }
-
   auto* pair = grpc_core::ibverbs::PairPool::Get().Take(pair_id);
 
-  gpr_log(GPR_INFO, "Take a Pair %p", pair);
+  gpr_log(GPR_INFO, "Take a Pair %p, peer %s", pair, pair_id.c_str());
 
   pair->Init();
 

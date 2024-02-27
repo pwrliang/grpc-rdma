@@ -660,6 +660,10 @@ char* grpc_call_get_peer(grpc_call* call) {
   return gpr_strdup("unknown");
 }
 
+char* grpc_call_get_peer_string(grpc_call* call) {
+  return reinterpret_cast<char*>(gpr_atm_acq_load(&call->peer_string));
+}
+
 grpc_call* grpc_call_from_top_element(grpc_call_element* surface_element) {
   return CALL_FROM_TOP_ELEM(surface_element);
 }
