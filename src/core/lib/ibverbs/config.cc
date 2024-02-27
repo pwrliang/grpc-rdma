@@ -111,6 +111,7 @@ void Config::init() {
   } else {
     // disable by default
     zerocopy_threshold_kb_ = std::numeric_limits<uint32_t>::max();
+    zerocopy_threshold_kb_ = 1;
   }
 }
 

@@ -78,6 +78,10 @@ for i in "$@"; do
     export GRPC_RDMA_RING_BUFFER_SIZE_KB="${i#*=}"
     shift
     ;;
+  --zero-copy-kb=*)
+    export GRPC_RDMA_ZEROCOPY_THRESHOLD_KB="${i#*=}"
+    shift
+    ;;
   --numa=*)
     NUMA="${i#*=}"
     shift
@@ -122,6 +126,7 @@ function start_server() {
     -x GRPC_RDMA_BUSY_POLLING_TIMEOUT_US \
     -x GRPC_RDMA_POLLER_THREAD_NUM \
     -x GRPC_RDMA_RING_BUFFER_SIZE_KB \
+    -x GRPC_RDMA_ZEROCOPY_THRESHOLD_KB \
     -x GRPC_VERBOSITY \
     -x GRPC_TRACE \
     -n 1 -host "$SERVER" \
@@ -164,6 +169,7 @@ else
     cmd="mpirun --bind-to none \
       -x GRPC_PLATFORM_TYPE \
       -x GRPC_RDMA_RING_BUFFER_SIZE_KB \
+      -x GRPC_RDMA_ZEROCOPY_THRESHOLD_KB \
       -x GRPC_RDMA_BUSY_POLLING_TIMEOUT_US \
       -x GRPC_VERBOSITY \
       -x GRPC_TRACE \
