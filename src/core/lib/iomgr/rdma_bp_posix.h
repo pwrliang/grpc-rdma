@@ -43,7 +43,4 @@
 grpc_endpoint* grpc_rdma_bp_create(grpc_fd* fd, const grpc_channel_args* args,
                                    const char* peer_string, bool enable_poller);
 
-
-void* grpc_rdma_bp_require_zerocopy_sendspace(grpc_endpoint* ep, size_t size);
-
 #endif /* GRPC_CORE_LIB_IOMGR_RDMA_BP_POSIX_H */

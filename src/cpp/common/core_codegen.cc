@@ -123,19 +123,21 @@ void* CoreCodegen::grpc_call_allocate_send_buffer(grpc_call* call,
                                                   size_t size) {
   void* buffer = nullptr;
 
-//  if (call != nullptr) {
-//    auto& config = grpc_core::ibverbs::Config::Get();
-//
-//    if (size / 1024 >= config.get_zero_copy_size_kb()) {
-//      auto& pair_pool = grpc_core::ibverbs::PairPool::Get();
-//      char* peer = grpc_call_get_peer(call);
-//      auto* pair = pair_pool.Get(peer);
-//      if (pair != nullptr) {
-//        buffer = pair->AllocateSendBuffer(size);
-//      }
-//      gpr_free(peer);
-//    }
-//  }
+  if (call != nullptr) {
+    auto& config = grpc_core::ibverbs::Config::Get();
+
+    if (size / 1024 >= config.get_zerocopy_threshold_kb()) {
+      auto& pair_pool = grpc_core::ibverbs::PairPool::Get();
+      char* peer = grpc_call_get_peer(call);
+      auto* pair = pair_pool.Get(peer);
+
+      if (pair != nullptr &&
+          pair->get_status() == grpc_core::ibverbs::PairStatus::kConnected) {
+        buffer = pair->AllocateSendBuffer(size);
+      }
+      gpr_free(peer);
+    }
+  }
 
   return buffer;
 }

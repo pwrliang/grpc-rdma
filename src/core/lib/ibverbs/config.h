@@ -34,7 +34,9 @@ class Config {
 
   uint32_t get_ring_buffer_size_kb() const;
 
-  uint32_t get_zero_copy_size_kb() const;
+  uint32_t get_zerocopy_buffer_size_kb() const;
+
+  uint32_t get_zerocopy_threshold_kb() const;
 
  private:
   void init();
@@ -47,7 +49,8 @@ class Config {
   int poller_sleep_timeout_ms_;
   int poller_thread_num_;
   uint32_t ring_buffer_size_kb_;
-  uint32_t zero_copy_size_kb_;
+  uint32_t zerocopy_buffer_size_kb_;
+  uint32_t zerocopy_threshold_kb_;
 };
 
 }  // namespace ibverbs

@@ -16,6 +16,7 @@
 #include <grpc/support/sync.h>
 #include <grpcpp/stats_time.h>
 
+#include "src/core/ext/filters/client_channel/client_channel.h"
 #include "src/core/lib/address_utils/sockaddr_utils.h"
 #include "src/core/lib/channel/channel_args.h"
 #include "src/core/lib/debug/stats_data.h"
@@ -471,8 +472,8 @@ static bool rdma_flush(grpc_rdma* rdma, grpc_error_handle* error) {
   auto* pair = rdma->pair;
   GPR_ASSERT(rdma->outgoing_buffer->count);
   size_t sent_length =
-      pair->Send(rdma->outgoing_buffer->slices, rdma->outgoing_buffer->count,
-                 rdma->outgoing_byte_idx);
+      pair->SendZerocopy(rdma->outgoing_buffer->slices,
+                         rdma->outgoing_buffer->count, rdma->outgoing_byte_idx);
 
   while (sent_length > 0) {
     auto slice_len =
@@ -718,6 +719,7 @@ grpc_endpoint* grpc_rdma_bp_create(grpc_fd* em_fd,
   } else {
     rdma->local_address = grpc_sockaddr_to_uri(&resolved_local_addr);
   }
+
   rdma->read_cb = nullptr;
   rdma->write_cb = nullptr;
   rdma->release_fd_cb = nullptr;
@@ -740,7 +742,20 @@ grpc_endpoint* grpc_rdma_bp_create(grpc_fd* em_fd,
                     grpc_schedule_on_exec_ctx);
   rdma->inq = 1;
 
-  auto* pair = grpc_core::ibverbs::PairPool::Get().Take(rdma->peer_string);
+  std::string pair_id(rdma->peer_string);
+  auto* server_uri =
+      grpc_channel_args_find_string(channel_args, GRPC_ARG_SERVER_URI);
+
+  if (server_uri != nullptr) {
+    std::string uri(server_uri);
+    auto pos = uri.find_last_of('/');
+    // get rid of prefix "dns:///"
+    if (pos != std::string::npos) {
+      pair_id = uri.substr(pos + 1);
+    }
+  }
+
+  auto* pair = grpc_core::ibverbs::PairPool::Get().Take(pair_id);
 
   gpr_log(GPR_INFO, "Take a Pair %p", pair);
 
@@ -775,11 +790,6 @@ grpc_endpoint* grpc_rdma_bp_create(grpc_fd* em_fd,
   }
 
   return &rdma->base;
-}
-
-void* grpc_rdma_bp_require_zerocopy_sendspace(grpc_endpoint* ep, size_t size) {
-  // FIXME:
-  return nullptr;
 }
 
 #endif /* GRPC_POSIX_SOCKET_TCP */

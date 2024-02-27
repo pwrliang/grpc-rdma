@@ -34,7 +34,13 @@ uint32_t Config::get_ring_buffer_size_kb() const {
   return ring_buffer_size_kb_;
 }
 
-uint32_t Config::get_zero_copy_size_kb() const { return zero_copy_size_kb_; }
+uint32_t Config::get_zerocopy_buffer_size_kb() const {
+  return zerocopy_buffer_size_kb_;
+}
+
+uint32_t Config::get_zerocopy_threshold_kb() const {
+  return zerocopy_threshold_kb_;
+}
 
 void Config::init() {
   char* s_val;
@@ -91,11 +97,20 @@ void Config::init() {
     ring_buffer_size_kb_ = 4 * 1024;
   }
 
-  s_val = gpr_getenv("GRPC_RDMA_ZEROCOPY_SIZE_KB");
+  s_val = gpr_getenv("GRPC_RDMA_RING_BUFFER_SIZE_KB");
   if (s_val != nullptr) {
-    zero_copy_size_kb_ = atoll(s_val);
+    zerocopy_buffer_size_kb_ = atoll(s_val);
+    GPR_ASSERT(zerocopy_buffer_size_kb_ > 0);
   } else {
-    zero_copy_size_kb_ = std::numeric_limits<uint32_t>::max();
+    zerocopy_buffer_size_kb_ = 4 * 1024;
+  }
+
+  s_val = gpr_getenv("GRPC_RDMA_ZEROCOPY_THRESHOLD_KB");
+  if (s_val != nullptr) {
+    zerocopy_threshold_kb_ = atoll(s_val);
+  } else {
+    // disable by default
+    zerocopy_threshold_kb_ = std::numeric_limits<uint32_t>::max();
   }
 }
 
