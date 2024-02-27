@@ -3,7 +3,7 @@
 #include <string>
 #define TOTAL_N_REQS (1000)
 const int min_msg_size = 1;
-const int max_msg_size = 4 * 1024 * 1024;
+const int max_msg_size = 4 * 1024 * 1024 - 1024;  // gRPC's 4M limit
 
 inline int get_msg_size(int min, int max)  // range : [min, max]
 {
