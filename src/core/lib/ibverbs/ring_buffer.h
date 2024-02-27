@@ -178,9 +178,7 @@ class RingBufferPollable {
   }
 
   static uint64_t GetEncodedSize(uint64_t payload_size) {
-    if (payload_size == 0) {
-      return 0;
-    }
+    assert(payload_size > 0);
     return 2ul * alignment + round_up(payload_size);
   }
 
