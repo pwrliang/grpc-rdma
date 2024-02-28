@@ -102,7 +102,7 @@ void Config::init() {
     zerocopy_buffer_size_kb_ = atoll(s_val);
     GPR_ASSERT(zerocopy_buffer_size_kb_ > 0);
   } else {
-    zerocopy_buffer_size_kb_ = 4 * 1024;
+    zerocopy_buffer_size_kb_ = 32 * 1024;
   }
 
   s_val = gpr_getenv("GRPC_RDMA_ZEROCOPY_THRESHOLD_KB");

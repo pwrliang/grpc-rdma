@@ -122,7 +122,7 @@ grpc_call_error CoreCodegen::grpc_call_cancel_with_status(
 void* CoreCodegen::grpc_call_allocate_send_buffer(grpc_call* call,
                                                   size_t size) {
   void* buffer = nullptr;
-
+#if 0
   if (call != nullptr) {
     auto& config = grpc_core::ibverbs::Config::Get();
 
@@ -141,7 +141,7 @@ void* CoreCodegen::grpc_call_allocate_send_buffer(grpc_call* call,
       }
     }
   }
-
+#endif
   return buffer;
 }
 void CoreCodegen::grpc_call_ref(grpc_call* call) { ::grpc_call_ref(call); }

@@ -474,8 +474,8 @@ static bool rdma_flush(grpc_rdma* rdma, grpc_error_handle* error) {
   GPR_ASSERT(rdma->outgoing_buffer->count);
 
   size_t sent_length =
-      pair->SendZerocopy(rdma->outgoing_buffer->slices,
-                         rdma->outgoing_buffer->count, rdma->outgoing_byte_idx);
+      pair->Send(rdma->outgoing_buffer->slices, rdma->outgoing_buffer->count,
+                 rdma->outgoing_byte_idx);
 
   while (sent_length > 0) {
     auto slice_len =
