@@ -746,6 +746,7 @@ grpc_endpoint* grpc_rdma_bp_create(grpc_fd* em_fd,
   rdma->inq = 1;
 
   std::string pair_id(rdma->peer_string);
+#if 0
   auto* server_uri =
       grpc_channel_args_find_string(channel_args, GRPC_ARG_SERVER_URI);
 
@@ -757,7 +758,7 @@ grpc_endpoint* grpc_rdma_bp_create(grpc_fd* em_fd,
       pair_id = uri.substr(pos + 1);
     }
   }
-
+#endif
   auto* pair = grpc_core::ibverbs::PairPool::Get().Take(pair_id);
 
   gpr_log(GPR_INFO, "Take a Pair %p, peer %s", pair, pair_id.c_str());
