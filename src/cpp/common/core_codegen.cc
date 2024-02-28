@@ -128,7 +128,8 @@ void* CoreCodegen::grpc_call_allocate_send_buffer(grpc_call* call,
 
     if (size / 1024 >= config.get_zerocopy_threshold_kb()) {
       auto& pair_pool = grpc_core::ibverbs::PairPool::Get();
-      char* peer = grpc_call_get_peer_string(call);
+      char* peer = grpc_call_get_peer_id(call);
+
       if (peer != nullptr) {
         auto* pair = pair_pool.Get(peer);
 
@@ -136,6 +137,7 @@ void* CoreCodegen::grpc_call_allocate_send_buffer(grpc_call* call,
             pair->get_status() == grpc_core::ibverbs::PairStatus::kConnected) {
           buffer = pair->AllocateSendBuffer(size);
         }
+        gpr_free(peer);
       }
     }
   }

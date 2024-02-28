@@ -337,10 +337,8 @@ void PairPollable::Disconnect() {
     closeQPs();
 
     if (debugging_) {
-#ifndef NDEBUG
       debugging_ = false;
       monitor_thread_.join();
-#endif
     }
     status_ = PairStatus::kDisconnected;
   }

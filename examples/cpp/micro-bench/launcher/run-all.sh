@@ -289,11 +289,46 @@ function bandwidth() {
   done
 }
 
+function zerocopy() {
+  # 8 clients 32k req 128kb ringbuf stuck
+  n_clients=1
+  server_thread=$n_clients
+  cqs=$server_thread
+  rpcs=10000000
+  concurrent=1
+  duration=30
+  grp_mode="RDMA_BPEV"
+  streaming="true"
+
+  set_hostfile "$n_clients"
+  export GRPC_PLATFORM_TYPE="$grp_mode"
+
+  for req in 8192 32768 131072 262144 524288; do
+    resp=$req
+    for zerocopy_threshold in 1 1048576; do
+      export LOG_NAME="bandwidth_${grp_mode}_cli_${n_clients}_req_${req}_zerocopy_threshold_${zerocopy_threshold}"
+
+      ./run.sh --server-thread=$server_thread \
+        --cqs=$cqs \
+        --req=$req \
+        --resp=$resp \
+        --rpcs=$rpcs \
+        --concurrent=$concurrent \
+        --duration=$duration \
+        --polling-timeout=500 \
+        --streaming="$streaming" \
+        --polling-thread=1 \
+        --zero-copy-kb=$zerocopy_threshold \
+        --overwrite
+    done
+  done
+}
+
 function adhoc() {
   n_clients=8
   server_thread=$n_clients
   cqs=$server_thread
-  req=$((512 * 1024))
+  req=32
   resp=8
   rpcs=10000000
   concurrent=1
@@ -301,7 +336,6 @@ function adhoc() {
   numa="false"
   grp_mode="RDMA_BPEV"
   streaming="true"
-  ring_buf_kb=32
 
   set_hostfile "$n_clients"
   export GRPC_PLATFORM_TYPE="$grp_mode"
@@ -320,8 +354,7 @@ function adhoc() {
     --streaming="$streaming" \
     --polling-thread=1 \
     --random-delay="false" \
-    --profiling="false" \
-    --ring-buffer-kb=$ring_buf_kb
+    --profiling="false"
 }
 
 for i in "$@"; do
@@ -360,6 +393,10 @@ for i in "$@"; do
     ;;
   --varying-busy-polling-time)
     varying_busy_polling_time
+    shift
+    ;;
+  --zerocopy)
+    zerocopy
     shift
     ;;
   --* | -*)

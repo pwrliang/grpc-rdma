@@ -660,8 +660,15 @@ char* grpc_call_get_peer(grpc_call* call) {
   return gpr_strdup("unknown");
 }
 
-char* grpc_call_get_peer_string(grpc_call* call) {
-  return reinterpret_cast<char*>(gpr_atm_acq_load(&call->peer_string));
+char* grpc_call_get_peer_id(grpc_call* call) {
+  char* peer_string;
+  if (call->is_client) {
+    peer_string = grpc_channel_get_target(call->channel);
+  } else {
+    peer_string = reinterpret_cast<char*>(gpr_atm_acq_load(&call->peer_string));
+    if (peer_string != nullptr) return gpr_strdup(peer_string);
+  }
+  return peer_string;
 }
 
 grpc_call* grpc_call_from_top_element(grpc_call_element* surface_element) {

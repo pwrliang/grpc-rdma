@@ -270,7 +270,7 @@ GRPCAPI grpc_call_error grpc_call_start_batch(grpc_call* call,
     functionality. Instead, use grpc_auth_context. */
 GRPCAPI char* grpc_call_get_peer(grpc_call* call);
 
-GRPCAPI char* grpc_call_get_peer_string(grpc_call* call);
+GRPCAPI char* grpc_call_get_peer_id(grpc_call* call);
 
 struct census_context;
 
