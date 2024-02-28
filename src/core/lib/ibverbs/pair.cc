@@ -157,6 +157,8 @@ bool PairPollable::Connect(const std::vector<char>& bytes) {
 #ifndef NDEBUG
       debugging_ = true;
       monitor_thread_ = std::thread(&PairPollable::printStatus, this);
+#else
+      debugging_ = false;
 #endif
       status_ = PairStatus::kConnected;
       return true;
