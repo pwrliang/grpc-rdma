@@ -255,9 +255,9 @@ function varying_polling_threads_throughput() {
   done
 }
 
-function bandwidth() {
+function varying_rb_size() {
   # 8 clients 32k req 128kb ringbuf stuck
-  n_clients=8
+  n_clients=1
   server_thread=40
   cqs=$server_thread
   req=$((32 * 1024))
@@ -265,13 +265,13 @@ function bandwidth() {
   rpcs=10000000
   concurrent=1
   duration=10
-  grp_mode="RDMA_BPEV"
+  grp_mode="RDMA_BP"
   streaming="true"
 
   set_hostfile "$n_clients"
   export GRPC_PLATFORM_TYPE="$grp_mode"
 
-  for ring_buf_kb in 128; do
+  for ring_buf_kb in 16 32 64 128 256 512 1024 2048 4096; do
     export LOG_NAME="bandwidth_${grp_mode}_cli_${n_clients}_req_${req}_ringbuf_${ring_buf_kb}"
 
     ./run.sh --server-thread=$server_thread \
@@ -284,8 +284,7 @@ function bandwidth() {
       --polling-timeout=500 \
       --streaming="$streaming" \
       --polling-thread=1 \
-      --ring-buffer-kb=$ring_buf_kb \
-      --overwrite
+      --ring-buffer-kb=$ring_buf_kb
   done
 }
 
@@ -294,17 +293,17 @@ function zerocopy() {
   n_clients=1
   server_thread=$n_clients
   cqs=$server_thread
-  rpcs=10000000
+  resp=8
+  rpcs=1000000
   concurrent=1
-  duration=30
-  grp_mode="RDMA_BPEV"
+  duration=5
+  grp_mode="RDMA_BP"
   streaming="true"
 
   set_hostfile "$n_clients"
   export GRPC_PLATFORM_TYPE="$grp_mode"
 
-  for req in 8192 32768 131072 262144 524288; do
-    resp=$req
+  for req in 1024 2048 4096 8192; do
     for zerocopy_threshold in 1 1048576; do
       export LOG_NAME="bandwidth_${grp_mode}_cli_${n_clients}_req_${req}_zerocopy_threshold_${zerocopy_threshold}"
 
@@ -318,8 +317,7 @@ function zerocopy() {
         --polling-timeout=500 \
         --streaming="$streaming" \
         --polling-thread=1 \
-        --zero-copy-kb=$zerocopy_threshold \
-        --overwrite
+        --zero-copy-kb=$zerocopy_threshold
     done
   done
 }
@@ -367,8 +365,8 @@ for i in "$@"; do
     latency
     shift
     ;;
-  --bandwidth)
-    bandwidth
+  --varying-rb-size)
+    varying_rb_size
     shift
     ;;
   --adhoc)

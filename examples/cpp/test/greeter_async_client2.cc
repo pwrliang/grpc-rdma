@@ -50,6 +50,7 @@ class GreeterClient {
     // Data we are sending to the server.
     HelloRequest request;
     request.set_name(msg);
+    GPR_ASSERT(request.ByteSizeLong() <= 4194304);
 
     // Call object to store rpc data
     AsyncClientCall* call = new AsyncClientCall;

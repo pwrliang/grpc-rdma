@@ -10,7 +10,7 @@ markers = ['o', '^', '*', 's', ]
 linestyle = ['-.', '-']
 
 
-def rr_vs_mrpc():
+def rr_vs_grpc():
     def read_resources(mode, n_clients):
         cpu_usr_p50 = []
         cpu_sys_p50 = []
@@ -79,21 +79,30 @@ def rr_vs_mrpc():
 
     ax2 = axs[1]
 
-    ax2.plot(x, tcp_mem_p50 / 1024, label="gRPC", color=colors[0], linestyle=linestyle[0], marker=markers[0])
-    ax2.plot(x, rr_mem_p50 / 1024, label="RR-Comp", color=colors[1], linestyle=linestyle[1], marker=markers[1])
+    print("TCP mem", tcp_mem_p50)
+    print("RR mem", rr_mem_p50)
+
+    ax2.plot(x, tcp_mem_p50 / 1024 / n_clients, label="gRPC", color=colors[0], linestyle=linestyle[0],
+             marker=markers[0])
+    ax2.plot(x, rr_mem_p50 / 1024 / n_clients, label="RR-Comp", color=colors[1], linestyle=linestyle[1],
+             marker=markers[1])
     ax2.set_xticks(x, n_clients)
+
+    print("TCP memory", tcp_mem_p50 / 1024 / n_clients)
+    print("RR memory", rr_mem_p50 / 1024 / n_clients)
+    print("Memory over gRPC", (rr_mem_p50 / n_clients) / (tcp_mem_p50 / n_clients))
 
     ax2.legend(loc="upper left", ncol=1, labelspacing=0.2, columnspacing=0.21, handletextpad=0.3, fontsize='medium',
                frameon=False)
     ax2.set(xlabel='Number of Clients', ylabel='Memory Usage (MB)')
     # # ax1.xaxis.labelpad = 10
-    # ax2.set_ylim((0, 35))
+    ax2.set_ylim((0, 25))
     # ax2.margins(x=0.05, )
-    ax2.set_title("(b) Median Memory Usage")
+    ax2.set_title("(b) Median Memory Usage Per Client")
     #
     fig.tight_layout()
-    # fig.savefig('resources_no_limit.pdf', format='pdf', bbox_inches='tight')
+    # fig.savefig('resources_limit_per_cli.pdf', format='pdf', bbox_inches='tight')
     plt.show()
 
 
-rr_vs_mrpc()
+rr_vs_grpc()

@@ -64,6 +64,8 @@ class GreeterClient {
     // Storage for the status of the RPC upon completion.
     Status status;
 
+    GPR_ASSERT(request.ByteSizeLong() <= 4194304);
+
     // stub_->PrepareAsyncSayHello() creates an RPC object, returning
     // an instance to store in "call" but does not actually start the RPC
     // Because we are using the asynchronous API, we need to hold on to
