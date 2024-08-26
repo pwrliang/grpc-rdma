@@ -99,6 +99,7 @@ extern TraceFlag pick_first_trace;
 extern TraceFlag plugin_credentials_trace;
 extern TraceFlag priority_lb_trace;
 extern TraceFlag queue_pluck_trace;
+extern TraceFlag rdma_trace;
 extern TraceFlag resource_quota_trace;
 extern TraceFlag retry_trace;
 extern TraceFlag ring_hash_lb_trace;

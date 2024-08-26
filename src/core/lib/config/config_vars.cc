@@ -57,6 +57,8 @@ ABSL_FLAG(absl::optional<std::string>, grpc_verbosity, {},
           "Logging verbosity.");
 ABSL_FLAG(absl::optional<bool>, grpc_enable_fork_support, {},
           "Enable fork support");
+ABSL_FLAG(absl::optional<bool>, grpc_enable_rdma_support, {},
+          "Enable RDMA support");
 ABSL_FLAG(absl::optional<std::string>, grpc_poll_strategy, {},
           "Declares which polling engines to try when starting gRPC. This is a "
           "comma-separated list of engines, which are tried in priority order "
@@ -76,6 +78,13 @@ ABSL_FLAG(absl::optional<bool>, grpc_cpp_experimental_disable_reflection, {},
           "EXPERIMENTAL. Only respected when there is a dependency on "
           ":grpc++_reflection. If true, no reflection server will be "
           "automatically added.");
+ABSL_FLAG(absl::optional<std::string>, grpc_rdma_device_name, {}, "");
+ABSL_FLAG(absl::optional<int32_t>, grpc_rdma_port_num, {}, "");
+ABSL_FLAG(absl::optional<int32_t>, grpc_rdma_gid_index, {}, "");
+ABSL_FLAG(absl::optional<int32_t>, grpc_rdma_poller_thread_num, {}, "");
+ABSL_FLAG(absl::optional<int32_t>, grpc_rdma_busy_polling_timeout_us, {}, "");
+ABSL_FLAG(absl::optional<int32_t>, grpc_rdma_poller_sleep_timeout_ms, {}, "");
+ABSL_FLAG(absl::optional<int32_t>, grpc_rdma_ring_buffer_size_kb, {}, "");
 
 namespace grpc_core {
 
@@ -87,6 +96,9 @@ ConfigVars::ConfigVars(const Overrides& overrides)
       enable_fork_support_(LoadConfig(
           FLAGS_grpc_enable_fork_support, "GRPC_ENABLE_FORK_SUPPORT",
           overrides.enable_fork_support, GRPC_ENABLE_FORK_SUPPORT_DEFAULT)),
+      enable_rdma_support_(LoadConfig(FLAGS_grpc_enable_rdma_support,
+                                      "GRPC_ENABLE_RDMA_SUPPORT",
+                                      overrides.enable_rdma_support, false)),
       abort_on_leaks_(LoadConfig(FLAGS_grpc_abort_on_leaks,
                                  "GRPC_ABORT_ON_LEAKS",
                                  overrides.abort_on_leaks, false)),
@@ -115,7 +127,27 @@ ConfigVars::ConfigVars(const Overrides& overrides)
       trace_(LoadConfig(FLAGS_grpc_trace, "GRPC_TRACE", overrides.trace, "")),
       override_system_ssl_roots_dir_(overrides.system_ssl_roots_dir),
       override_default_ssl_roots_file_path_(
-          overrides.default_ssl_roots_file_path) {}
+          overrides.default_ssl_roots_file_path),
+      override_rdma_device_name_(overrides.rdma_device_name),
+      rdma_port_num_(LoadConfig(FLAGS_grpc_rdma_port_num, "GRPC_RDMA_PORT_NUM",
+                                overrides.rdma_port_num, 1)),
+      rdma_gid_index_(LoadConfig(FLAGS_grpc_rdma_gid_index,
+                                 "GRPC_RDMA_GID_INDEX",
+                                 overrides.rdma_gid_index, 0)),
+      rdma_poller_thread_num_(LoadConfig(FLAGS_grpc_rdma_poller_thread_num,
+                                         "GRPC_RDMA_POLLER_THREAD_NUM",
+                                         overrides.rdma_poller_thread_num, 1)),
+      rdma_busy_polling_timeout_us_(
+          LoadConfig(FLAGS_grpc_rdma_busy_polling_timeout_us,
+                     "GRPC_RDMA_BUSY_POLLING_TIMEOUT_US",
+                     overrides.rdma_busy_polling_timeout_us, 500)),
+      rdma_poller_sleep_timeout_ms_(
+          LoadConfig(FLAGS_grpc_rdma_poller_sleep_timeout_ms,
+                     "GRPC_RDMA_POLLER_SLEEP_TIMEOUT_MS",
+                     overrides.rdma_poller_sleep_timeout_ms, 1000)),
+      rdma_ring_buffer_size_kb_(LoadConfig(
+          FLAGS_grpc_rdma_ring_buffer_size_kb, "GRPC_RDMA_RING_BUFFER_SIZE_KB",
+          overrides.rdma_ring_buffer_size_kb, 4096)) {}
 
 std::string ConfigVars::SystemSslRootsDir() const {
   return LoadConfig(FLAGS_grpc_system_ssl_roots_dir,
@@ -129,6 +161,11 @@ std::string ConfigVars::DefaultSslRootsFilePath() const {
                     override_default_ssl_roots_file_path_, "");
 }
 
+std::string ConfigVars::RdmaDeviceName() const {
+  return LoadConfig(FLAGS_grpc_rdma_device_name, "GRPC_RDMA_DEVICE_NAME",
+                    override_rdma_device_name_, "");
+}
+
 std::string ConfigVars::ToString() const {
   return absl::StrCat(
       "experiments: ", "\"", absl::CEscape(Experiments()), "\"",
@@ -138,6 +175,7 @@ std::string ConfigVars::ToString() const {
       absl::CEscape(Trace()), "\"", ", verbosity: ", "\"",
       absl::CEscape(Verbosity()), "\"",
       ", enable_fork_support: ", EnableForkSupport() ? "true" : "false",
+      ", enable_rdma_support: ", EnableRdmaSupport() ? "true" : "false",
       ", poll_strategy: ", "\"", absl::CEscape(PollStrategy()), "\"",
       ", abort_on_leaks: ", AbortOnLeaks() ? "true" : "false",
       ", system_ssl_roots_dir: ", "\"", absl::CEscape(SystemSslRootsDir()),
@@ -146,7 +184,13 @@ std::string ConfigVars::ToString() const {
       ", not_use_system_ssl_roots: ", NotUseSystemSslRoots() ? "true" : "false",
       ", ssl_cipher_suites: ", "\"", absl::CEscape(SslCipherSuites()), "\"",
       ", cpp_experimental_disable_reflection: ",
-      CppExperimentalDisableReflection() ? "true" : "false");
+      CppExperimentalDisableReflection() ? "true" : "false",
+      ", rdma_device_name: ", RdmaDeviceName(),
+      ", rdma_port_num: ", RdmaPortNum(), ", rdma_gid_index: ", RdmaGidIndex(),
+      ", rdma_poller_thread_num: ", RdmaPollerThreadNum(),
+      ", rdma_busy_polling_timeout_us: ", RdmaBusyPollingTimeoutUs(),
+      ", rdma_poller_sleep_timeout_ms: ", RdmaPollerSleepTimeoutMs(),
+      ", rdma_ring_buffer_size_kb: ", RdmaRingBufferSizeKb());
 }
 
 }  // namespace grpc_core

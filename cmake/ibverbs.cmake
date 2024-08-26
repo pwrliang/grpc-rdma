@@ -1,0 +1,7 @@
+find_package(ibverbs REQUIRED)
+if(IBVERBS_FOUND)
+    set(_gRPC_IBVERBS_INCLUDE_DIR ${IBVERBS_INCLUDE_DIRS})
+    set(_gRPC_IBVERBS_LIBRARIES ${IBVERBS_LIBRARIES})
+else()
+    message(STATUS "Cannot find ibverbs. RDMA transportation will be disabled")
+endif()

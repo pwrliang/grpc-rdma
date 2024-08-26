@@ -86,6 +86,7 @@ typedef struct grpc_event_engine_vtable {
                                            grpc_error_handle error);
 
   void (*fd_set_pre_allocated)(grpc_fd* fd);
+  void (*fd_set_arg)(grpc_fd* fd, void* arg);
 } grpc_event_engine_vtable;
 
 // register a new event engine factory
@@ -173,6 +174,9 @@ void grpc_fd_set_error(grpc_fd* fd);
 
 // Set the fd to be preallocated
 void grpc_fd_set_pre_allocated(grpc_fd* fd);
+
+// Set arg to the fd
+void grpc_fd_set_arg(grpc_fd* fd, void *arg);
 
 // pollset_posix functions
 

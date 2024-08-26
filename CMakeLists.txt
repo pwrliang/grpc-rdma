@@ -374,6 +374,7 @@ include(cmake/abseil-cpp.cmake)
 include(cmake/address_sorting.cmake)
 include(cmake/benchmark.cmake)
 include(cmake/cares.cmake)
+include(cmake/ibverbs.cmake)
 include(cmake/protobuf.cmake)
 include(cmake/re2.cmake)
 include(cmake/ssl.cmake)
@@ -2338,6 +2339,7 @@ add_library(grpc
   src/core/lib/iomgr/error_cfstream.cc
   src/core/lib/iomgr/ev_apple.cc
   src/core/lib/iomgr/ev_epoll1_linux.cc
+  src/core/lib/iomgr/ev_epoll1_rdma_linux.cc
   src/core/lib/iomgr/ev_poll_posix.cc
   src/core/lib/iomgr/ev_posix.cc
   src/core/lib/iomgr/event_engine_shims/closure.cc
@@ -2368,6 +2370,7 @@ add_library(grpc
   src/core/lib/iomgr/resolve_address.cc
   src/core/lib/iomgr/resolve_address_posix.cc
   src/core/lib/iomgr/resolve_address_windows.cc
+  src/core/lib/iomgr/rdma_posix.cc
   src/core/lib/iomgr/sockaddr_utils_posix.cc
   src/core/lib/iomgr/socket_factory_posix.cc
   src/core/lib/iomgr/socket_mutator.cc
@@ -2720,6 +2723,9 @@ target_link_libraries(grpc
 if(_gRPC_PLATFORM_IOS OR _gRPC_PLATFORM_MAC)
   target_link_libraries(grpc "-framework CoreFoundation")
 endif()
+if(IBVERBS_FOUND)
+  target_link_libraries(grpc grpc_ibverbs)
+endif()
 
 foreach(_hdr
   include/grpc/byte_buffer.h
@@ -2814,6 +2820,51 @@ if(gRPC_INSTALL)
     LIBRARY DESTINATION ${gRPC_INSTALL_LIBDIR}
     ARCHIVE DESTINATION ${gRPC_INSTALL_LIBDIR}
   )
+endif()
+
+if(IBVERBS_FOUND)
+  add_library(grpc_ibverbs
+    src/core/lib/ibverbs/address.cc
+    src/core/lib/ibverbs/buffer.cc
+    src/core/lib/ibverbs/device.cc
+    src/core/lib/ibverbs/memory_region.cc
+    src/core/lib/ibverbs/pair.cc
+    src/core/lib/ibverbs/poller.cc
+    src/core/lib/ibverbs/ring_buffer.cc
+    )
+
+  add_definitions(-DGRPC_USE_IBVERBS)
+
+  target_compile_features(grpc_ibverbs PUBLIC cxx_std_14)
+
+  set_target_properties(grpc_ibverbs PROPERTIES
+  VERSION ${gRPC_CORE_VERSION}
+  SOVERSION ${gRPC_CORE_SOVERSION}
+  )
+
+  target_include_directories(grpc_ibverbs
+  PUBLIC $<INSTALL_INTERFACE:${gRPC_INSTALL_INCLUDEDIR}> $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${_gRPC_ADDRESS_SORTING_INCLUDE_DIR}
+    ${_gRPC_IBVERBS_INCLUDE_DIR}
+    ${_gRPC_HDRHISTOGRAM_INCLUDE_DIR}
+  )
+  target_link_libraries(grpc_ibverbs
+  ${_gRPC_ALLTARGETS_LIBRARIES}
+  ${_gRPC_IBVERBS_LIBRARIES}
+  ${_gRPC_HDRHISTOGRAM_LIBRARIES}
+  gpr
+  )
+
+  if(gRPC_INSTALL)
+  install(TARGETS grpc_ibverbs EXPORT gRPCTargets
+    RUNTIME DESTINATION ${gRPC_INSTALL_BINDIR}
+    BUNDLE DESTINATION  ${gRPC_INSTALL_BINDIR}
+    LIBRARY DESTINATION ${gRPC_INSTALL_LIBDIR}
+    ARCHIVE DESTINATION ${gRPC_INSTALL_LIBDIR}
+  )
+  endif()
 endif()
 
 if(gRPC_BUILD_TESTS)
@@ -3134,6 +3185,7 @@ add_library(grpc_unsecure
   src/core/lib/iomgr/error_cfstream.cc
   src/core/lib/iomgr/ev_apple.cc
   src/core/lib/iomgr/ev_epoll1_linux.cc
+  src/core/lib/iomgr/ev_epoll1_rdma_linux.cc
   src/core/lib/iomgr/ev_poll_posix.cc
   src/core/lib/iomgr/ev_posix.cc
   src/core/lib/iomgr/event_engine_shims/closure.cc
@@ -3164,6 +3216,7 @@ add_library(grpc_unsecure
   src/core/lib/iomgr/resolve_address.cc
   src/core/lib/iomgr/resolve_address_posix.cc
   src/core/lib/iomgr/resolve_address_windows.cc
+  src/core/lib/iomgr/rdma_posix.cc
   src/core/lib/iomgr/sockaddr_utils_posix.cc
   src/core/lib/iomgr/socket_factory_posix.cc
   src/core/lib/iomgr/socket_mutator.cc
@@ -3410,6 +3463,9 @@ target_link_libraries(grpc_unsecure
 )
 if(_gRPC_PLATFORM_IOS OR _gRPC_PLATFORM_MAC)
   target_link_libraries(grpc_unsecure "-framework CoreFoundation")
+endif()
+if(IBVERBS_FOUND)
+  target_link_libraries(grpc_unsecure grpc_ibverbs)
 endif()
 
 foreach(_hdr
@@ -5353,6 +5409,7 @@ add_library(grpc_authorization_provider
   src/core/lib/iomgr/error_cfstream.cc
   src/core/lib/iomgr/ev_apple.cc
   src/core/lib/iomgr/ev_epoll1_linux.cc
+  src/core/lib/iomgr/ev_epoll1_rdma_linux.cc
   src/core/lib/iomgr/ev_poll_posix.cc
   src/core/lib/iomgr/ev_posix.cc
   src/core/lib/iomgr/event_engine_shims/closure.cc
@@ -5383,6 +5440,7 @@ add_library(grpc_authorization_provider
   src/core/lib/iomgr/resolve_address.cc
   src/core/lib/iomgr/resolve_address_posix.cc
   src/core/lib/iomgr/resolve_address_windows.cc
+  src/core/lib/iomgr/rdma_posix.cc
   src/core/lib/iomgr/sockaddr_utils_posix.cc
   src/core/lib/iomgr/socket_factory_posix.cc
   src/core/lib/iomgr/socket_mutator.cc
@@ -9081,6 +9139,7 @@ add_executable(call_utils_test
   src/core/lib/iomgr/error_cfstream.cc
   src/core/lib/iomgr/ev_apple.cc
   src/core/lib/iomgr/ev_epoll1_linux.cc
+  src/core/lib/iomgr/ev_epoll1_rdma_linux.cc
   src/core/lib/iomgr/ev_poll_posix.cc
   src/core/lib/iomgr/ev_posix.cc
   src/core/lib/iomgr/event_engine_shims/closure.cc
@@ -9111,6 +9170,7 @@ add_executable(call_utils_test
   src/core/lib/iomgr/resolve_address.cc
   src/core/lib/iomgr/resolve_address_posix.cc
   src/core/lib/iomgr/resolve_address_windows.cc
+  src/core/lib/iomgr/rdma_posix.cc
   src/core/lib/iomgr/sockaddr_utils_posix.cc
   src/core/lib/iomgr/socket_factory_posix.cc
   src/core/lib/iomgr/socket_mutator.cc

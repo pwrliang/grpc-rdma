@@ -101,6 +101,7 @@ TraceFlag pick_first_trace(false, "pick_first");
 TraceFlag plugin_credentials_trace(false, "plugin_credentials");
 TraceFlag priority_lb_trace(false, "priority_lb");
 TraceFlag queue_pluck_trace(false, "queue_pluck");
+TraceFlag rdma_trace(false, "rdma");
 TraceFlag resource_quota_trace(false, "resource_quota");
 TraceFlag retry_trace(false, "retry");
 TraceFlag ring_hash_lb_trace(false, "ring_hash_lb");
@@ -193,6 +194,7 @@ const absl::flat_hash_map<std::string, TraceFlag*>& GetAllTraceFlags() {
           {"plugin_credentials", &plugin_credentials_trace},
           {"priority_lb", &priority_lb_trace},
           {"queue_pluck", &queue_pluck_trace},
+          {"rdma", &rdma_trace},
           {"resource_quota", &resource_quota_trace},
           {"retry", &retry_trace},
           {"ring_hash_lb", &ring_hash_lb_trace},

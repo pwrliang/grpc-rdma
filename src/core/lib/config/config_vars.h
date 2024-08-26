@@ -35,7 +35,14 @@ class GPR_DLL ConfigVars {
  public:
   struct Overrides {
     absl::optional<int32_t> client_channel_backup_poll_interval_ms;
+    absl::optional<int32_t> rdma_port_num;
+    absl::optional<int32_t> rdma_gid_index;
+    absl::optional<int32_t> rdma_poller_thread_num;
+    absl::optional<int32_t> rdma_busy_polling_timeout_us;
+    absl::optional<int32_t> rdma_poller_sleep_timeout_ms;
+    absl::optional<int32_t> rdma_ring_buffer_size_kb;
     absl::optional<bool> enable_fork_support;
+    absl::optional<bool> enable_rdma_support;
     absl::optional<bool> abort_on_leaks;
     absl::optional<bool> not_use_system_ssl_roots;
     absl::optional<bool> cpp_experimental_disable_reflection;
@@ -47,6 +54,7 @@ class GPR_DLL ConfigVars {
     absl::optional<std::string> ssl_cipher_suites;
     absl::optional<std::string> experiments;
     absl::optional<std::string> trace;
+    absl::optional<std::string> rdma_device_name;
   };
   ConfigVars(const ConfigVars&) = delete;
   ConfigVars& operator=(const ConfigVars&) = delete;
@@ -83,6 +91,8 @@ class GPR_DLL ConfigVars {
   absl::string_view Verbosity() const { return verbosity_; }
   // Enable fork support
   bool EnableForkSupport() const { return enable_fork_support_; }
+  //
+  bool EnableRdmaSupport() const { return enable_rdma_support_; }
   // Declares which polling engines to try when starting gRPC. This is a
   // comma-separated list of engines, which are tried in priority order first ->
   // last.
@@ -105,12 +115,37 @@ class GPR_DLL ConfigVars {
     return cpp_experimental_disable_reflection_;
   }
 
+  std::string RdmaDeviceName() const;
+
+  int32_t RdmaPortNum() const { return rdma_port_num_; }
+
+  int32_t RdmaGidIndex() const { return rdma_gid_index_; }
+
+  int32_t RdmaPollerThreadNum() const { return rdma_poller_thread_num_; }
+
+  int32_t RdmaBusyPollingTimeoutUs() const {
+    return rdma_busy_polling_timeout_us_;
+  }
+
+  int32_t RdmaPollerSleepTimeoutMs() const {
+    return rdma_poller_sleep_timeout_ms_;
+  }
+
+  int32_t RdmaRingBufferSizeKb() const { return rdma_ring_buffer_size_kb_; }
+
  private:
   explicit ConfigVars(const Overrides& overrides);
   static const ConfigVars& Load();
   static std::atomic<ConfigVars*> config_vars_;
   int32_t client_channel_backup_poll_interval_ms_;
+  int32_t rdma_port_num_;
+  int32_t rdma_gid_index_;
+  int32_t rdma_poller_thread_num_;
+  int32_t rdma_busy_polling_timeout_us_;
+  int32_t rdma_poller_sleep_timeout_ms_;
+  int32_t rdma_ring_buffer_size_kb_;
   bool enable_fork_support_;
+  bool enable_rdma_support_;
   bool abort_on_leaks_;
   bool not_use_system_ssl_roots_;
   bool cpp_experimental_disable_reflection_;
@@ -122,6 +157,7 @@ class GPR_DLL ConfigVars {
   std::string trace_;
   absl::optional<std::string> override_system_ssl_roots_dir_;
   absl::optional<std::string> override_default_ssl_roots_file_path_;
+  absl::optional<std::string> override_rdma_device_name_;
 };
 
 }  // namespace grpc_core

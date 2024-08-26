@@ -37,6 +37,7 @@
 #include <grpc/support/time.h>
 
 #include "src/core/lib/address_utils/sockaddr_utils.h"
+#include "src/core/lib/config/config_vars.h"
 #include "src/core/lib/event_engine/resolved_address_internal.h"
 #include "src/core/lib/event_engine/shim.h"
 #include "src/core/lib/gprpp/crash.h"
@@ -44,6 +45,7 @@
 #include "src/core/lib/iomgr/event_engine_shims/tcp_client.h"
 #include "src/core/lib/iomgr/executor.h"
 #include "src/core/lib/iomgr/iomgr_internal.h"
+#include "src/core/lib/iomgr/rdma_posix.h"
 #include "src/core/lib/iomgr/sockaddr.h"
 #include "src/core/lib/iomgr/socket_mutator.h"
 #include "src/core/lib/iomgr/socket_utils_posix.h"
@@ -159,7 +161,12 @@ static void tc_on_alarm(void* acp, grpc_error_handle error) {
 static grpc_endpoint* grpc_tcp_client_create_from_fd(
     grpc_fd* fd, const grpc_core::PosixTcpOptions& options,
     absl::string_view addr_str) {
-  return grpc_tcp_create(fd, options, addr_str);
+  const grpc_core::ConfigVars& conf = grpc_core::ConfigVars::Get();
+  if (conf.EnableRdmaSupport()) {
+    return grpc_rdma_create(fd, options, addr_str);
+  } else {
+    return grpc_tcp_create(fd, options, addr_str);
+  }
 }
 
 grpc_endpoint* grpc_tcp_create_from_fd(
