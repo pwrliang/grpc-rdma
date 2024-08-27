@@ -29,7 +29,6 @@
 #include "src/core/lib/iomgr/wakeup_fd_posix.h"
 
 #define IBVERBS_PAIR_TAG_POLLABLE (0xa0)
-#define IBVERBS_PAIR_TAG_EVENT (0xb0)
 
 #define IBVERBS_CHECK(error, call) \
   ibverbsCheck(error, call, #call, __FILE__, __LINE__)
@@ -96,12 +95,7 @@ class PairPollable {
   static constexpr int WR_ID_STATUS = 300;
   static constexpr int STATUS_CHECK_INTERVAL_MS = 500;
 
-  enum BufferType {
-    kDataBuffer = 0,
-    kStatusBuffer,
-    kZeroCopyBuffer,
-    BufferNum
-  };
+  enum BufferType { kDataBuffer = 0, kStatusBuffer, BufferNum };
 
   struct status_report {
     uint64_t remote_head;
@@ -124,10 +118,6 @@ class PairPollable {
 
   bool Connect(const std::vector<char>& bytes);
 
-  uint64_t Send(void* buf, uint64_t size);
-
-  uint64_t Send(iovec* iov, uint64_t iov_size);
-
   uint64_t Send(grpc_slice* slices, size_t slice_count, size_t byte_idx);
 
   uint64_t Recv(void* buf, uint64_t capacity);
@@ -139,8 +129,6 @@ class PairPollable {
   uint64_t GetReadableSize() const;
 
   uint64_t GetWritableSize() const;
-
-  uint8_t* AllocateSendBuffer(size_t size);
 
   const Address& get_self_address() const { return self_; }
 
@@ -178,7 +166,6 @@ class PairPollable {
   std::atomic_int pending_write_num_status_;
 
   RingBufferPollable ring_buf_;
-  std::atomic_uint32_t zerocopy_buffer_tail_;
 
   std::array<std::unique_ptr<MemoryRegion>, kMaxBuffers> mr_pending_send_;
   std::queue<std::unique_ptr<MemoryRegion>> mr_posted_recv_;
@@ -195,7 +182,6 @@ class PairPollable {
   std::atomic_uint64_t total_read_size_;
   std::atomic_uint64_t total_write_size_;
   std::thread monitor_thread_;
-  std::atomic_uint64_t zerocopy_bytes_;
   std::atomic_uint64_t copy_bytes_;
 
   friend class RingBufferPollable;
@@ -250,18 +236,16 @@ class PairPollable {
       auto readable_size = GetReadableSize();
       auto pending_writes = HasPendingWrites();
 
-      float ratio = (float)zerocopy_bytes_ / (zerocopy_bytes_ + copy_bytes_);
-
       sprintf(msg,
               "PID %d Read %lu Write %lu Readable %lu Pending Writes %d Head "
               "%lu Remote "
               "Head %lu "
               "Remote Tail %lu PendingComp Data %d PendingComp Status %d "
-              "Status %d Zerocopy %.2f",
+              "Status %d",
               getpid(), total_read_size_.load(), total_write_size_.load(),
               readable_size, pending_writes, ring_buf_.get_head(), remote_head,
               remote_tail_, pending_write_num_data_.load(),
-              pending_write_num_status_.load(), get_status(), ratio);
+              pending_write_num_status_.load(), get_status());
 
       if (strcmp(last_msg, msg) != 0) {
         LOG(INFO) << "Pair " << this << ", " << msg;

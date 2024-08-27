@@ -118,8 +118,6 @@ void PairPollable::Init() {
     ring_buf_ = RingBufferPollable(data_buf->data(), data_buf->size());
     ring_buf_.Init();
 
-    zerocopy_buffer_tail_ = 0;
-
     error_.clear();
     last_qp_query_ts_ = std::chrono::duration_cast<std::chrono::milliseconds>(
                             std::chrono::system_clock::now().time_since_epoch())
@@ -136,8 +134,6 @@ void PairPollable::Init() {
     total_write_size_ = 0;
 
     status_ = PairStatus::kInitialized;
-    zerocopy_bytes_ = 0;
-    copy_bytes_ = 0;
   }
 }
 
@@ -166,98 +162,6 @@ bool PairPollable::Connect(const std::vector<char>& bytes) {
     }
   }
   return false;
-}
-
-uint64_t PairPollable::Send(void* buf, uint64_t payload_size) {
-  ContentAssertion cassert(write_content_);
-  auto* send_buf = send_buffers_[kDataBuffer].get();
-  const ibv_mr& peer = mr_peer_[kDataBuffer]->mr();
-  auto recv_buf_size = GetWritableSize();
-  auto send_buf_size = send_buf->size() - RingBufferPollable::reserved_space;
-  auto free_size = std::min(recv_buf_size, send_buf_size);
-
-  partial_write_ = payload_size > free_size;
-  auto size = std::min(payload_size, free_size);
-
-  if (size == 0 || status_ != PairStatus::kConnected) {
-    return 0;
-  }
-
-  // Wait writing done to reuse send buffer
-  waitDataWrites();
-
-  auto encoded_size =
-      RingBufferPollable::EncodeBuffer(send_buf->data(), buf, size);
-  std::vector<ring_buffer_write_request> reqs;
-
-  assert(encoded_size <= send_buf->size());
-  remote_tail_ = ring_buf_.GetWriteRequests(encoded_size, remote_tail_, reqs);
-
-  for (auto& req : reqs) {
-    rdma_write_request w_req;
-
-    w_req.id = WR_ID_DATA;
-    w_req.addr = (uint64_t)send_buf->data() + req.src_offset;
-    w_req.lkey = send_buf->get_mr()->lkey;
-    w_req.remote_addr = (uint64_t)peer.addr + req.dst_offset;
-    w_req.rkey = peer.rkey;
-    w_req.size = req.size;
-    postWrite(w_req);
-  }
-
-  total_write_size_ += size;
-  return size;
-}
-
-uint64_t PairPollable::Send(iovec* iov, uint64_t iov_size) {
-  ContentAssertion cassert(write_content_);
-  auto* send_buf = send_buffers_[kDataBuffer].get();
-  const ibv_mr& peer = mr_peer_[kDataBuffer]->mr();
-  auto recv_buf_size = GetWritableSize();
-  auto send_buf_size = send_buf->size() - RingBufferPollable::reserved_space;
-  auto free_size = std::min(recv_buf_size, send_buf_size);
-  uint64_t payload_size = 0;
-
-  for (int i = 0; i < iov_size; i++) {
-    payload_size += iov[i].iov_len;
-  }
-
-  partial_write_ = payload_size > free_size;
-
-  auto size = std::min(payload_size, free_size);
-
-  if (size == 0 || status_ != PairStatus::kConnected) {
-    return 0;
-  }
-
-  // Wait writing done to reuse send buffer
-  waitDataWrites();
-  uint64_t encoded_payload_size;
-  auto encoded_buffer_size = RingBufferPollable::EncodeBuffer(
-      send_buf->data(), free_size, iov, iov_size, encoded_payload_size);
-
-  if (encoded_payload_size > 0) {
-    std::vector<ring_buffer_write_request> reqs;
-
-    assert(encoded_buffer_size <= send_buf->size());
-    remote_tail_ =
-        ring_buf_.GetWriteRequests(encoded_buffer_size, remote_tail_, reqs);
-
-    for (auto& req : reqs) {
-      rdma_write_request w_req;
-
-      w_req.id = WR_ID_DATA;
-      w_req.addr = (uint64_t)send_buf->data() + req.src_offset;
-      w_req.lkey = send_buf->get_mr()->lkey;
-      w_req.remote_addr = (uint64_t)peer.addr + req.dst_offset;
-      w_req.rkey = peer.rkey;
-      w_req.size = req.size;
-      postWrite(w_req);
-    }
-
-    total_write_size_ += size;
-  }
-  return encoded_payload_size;
 }
 
 uint64_t PairPollable::Recv(void* buf, uint64_t capacity) {
@@ -299,26 +203,6 @@ uint64_t PairPollable::GetWritableSize() const {
 }
 
 bool PairPollable::HasPendingWrites() const { return partial_write_; }
-
-uint8_t* PairPollable::AllocateSendBuffer(size_t size) {
-  if (size == 0) {
-    return nullptr;
-  }
-  Buffer* buf = send_buffers_[kZeroCopyBuffer].get();
-  auto buf_size = buf->size();
-  uint32_t tail;
-
-  bool alloc_success;
-  do {
-    tail = zerocopy_buffer_tail_;
-    if (tail != 0 || tail + size > buf_size) {
-      return nullptr;
-    }
-    alloc_success =
-        zerocopy_buffer_tail_.compare_exchange_strong(tail, tail + size);
-  } while (!alloc_success);
-  return buf->data() + tail;
-}
 
 void PairPollable::Disconnect() {
   if (status_ != PairStatus::kUninitialized &&
@@ -639,7 +523,7 @@ void PairPollable::updateStatus() {
 }
 
 const std::string& PairPollable::get_error() const { return error_; }
-#if 1
+
 uint64_t PairPollable::Send(grpc_slice* slices, size_t slice_count,
                             size_t byte_idx) {
   ContentAssertion cassert(write_content_);
@@ -730,63 +614,6 @@ uint64_t PairPollable::Send(grpc_slice* slices, size_t slice_count,
   total_write_size_ += written_slice_size;
   return written_slice_size;
 }
-#else
-uint64_t PairPollable::Send(grpc_slice* slices, size_t slice_count,
-                            size_t byte_idx) {
-  GRPCProfiler profiler(GRPC_STATS_TIME_PAIR_SEND);
-  ContentAssertion cassert(write_content_);
-  auto* send_buf = send_buffers_[kDataBuffer].get();
-  const ibv_mr& peer = mr_peer_[kDataBuffer]->mr();
-  auto recv_buf_size = GetWritableSize();
-  auto send_buf_size = send_buf->size() - RingBufferPollable::reserved_space;
-  auto free_size = std::min(recv_buf_size, send_buf_size);
-  uint64_t payload_size = 0;
-
-  for (int i = 0; i < slice_count; i++) {
-    payload_size += GRPC_SLICE_LENGTH(slices[i]);
-  }
-
-  payload_size -= byte_idx;  // offset of the first slice
-
-  partial_write_ = payload_size > free_size;
-
-  auto size = std::min(payload_size, free_size);
-
-  if (size == 0 || status_ != PairStatus::kConnected) {
-    return 0;
-  }
-
-  // Wait writing done to reuse send buffer
-  waitDataWrites();
-  uint64_t encoded_payload_size;
-  auto encoded_buffer_size = RingBufferPollable::EncodeBuffer(
-      send_buf->data(), free_size, slices, slice_count, byte_idx,
-      encoded_payload_size);
-
-  if (encoded_payload_size > 0) {
-    std::vector<ring_buffer_write_request> reqs;
-
-    assert(encoded_buffer_size <= send_buf->size());
-    remote_tail_ =
-        ring_buf_.GetWriteRequests(encoded_buffer_size, remote_tail_, reqs);
-
-    for (auto& req : reqs) {
-      rdma_write_request w_req;
-
-      w_req.id = WR_ID_DATA;
-      w_req.addr = (uint64_t)send_buf->data() + req.src_offset;
-      w_req.lkey = send_buf->get_mr()->lkey;
-      w_req.remote_addr = (uint64_t)peer.addr + req.dst_offset;
-      w_req.rkey = peer.rkey;
-      w_req.size = req.size;
-      postWrite(w_req);
-    }
-
-    total_write_size_ += size;
-  }
-  return encoded_payload_size;
-}
-#endif
 
 }  // namespace ibverbs
 }  // namespace grpc_core

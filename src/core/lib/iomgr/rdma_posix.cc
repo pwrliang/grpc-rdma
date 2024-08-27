@@ -134,11 +134,6 @@ struct grpc_rdma {
   bool has_posted_reclaimer ABSL_GUARDED_BY(read_mu) = false;
 };
 
-struct backup_poller {
-  gpr_mu* pollset_mu;
-  grpc_closure run_poller;
-};
-
 void LogCommonIOErrors(absl::string_view prefix, int error_no) {
   switch (error_no) {
     case ECONNABORTED:
@@ -179,101 +174,10 @@ void LogCommonIOErrors(absl::string_view prefix, int error_no) {
 
 }  // namespace
 
-#define BACKUP_POLLER_POLLSET(b) ((grpc_pollset*)((b) + 1))
-
-static grpc_core::Mutex* g_backup_poller_mu = nullptr;
-static int g_uncovered_notifications_pending
-    ABSL_GUARDED_BY(g_backup_poller_mu);
-static backup_poller* g_backup_poller ABSL_GUARDED_BY(g_backup_poller_mu);
-
 static void rdma_handle_read(void* arg /* grpc_rdma */,
                              grpc_error_handle error);
 static void rdma_handle_write(void* arg /* grpc_rdma */,
                               grpc_error_handle error);
-static void rdma_drop_uncovered_then_handle_write(void* arg /* grpc_rdma */,
-                                                  grpc_error_handle error);
-
-static void done_poller(void* bp, grpc_error_handle /*error_ignored*/) {
-  backup_poller* p = static_cast<backup_poller*>(bp);
-  GRPC_TRACE_LOG(rdma, INFO) << "BACKUP_POLLER:" << p << " destroy";
-  grpc_pollset_destroy(BACKUP_POLLER_POLLSET(p));
-  gpr_free(p);
-}
-
-static void run_poller(void* bp, grpc_error_handle /*error_ignored*/) {
-  backup_poller* p = static_cast<backup_poller*>(bp);
-  GRPC_TRACE_LOG(rdma, INFO) << "BACKUP_POLLER:" << p << " run";
-  gpr_mu_lock(p->pollset_mu);
-  grpc_core::Timestamp deadline =
-      grpc_core::Timestamp::Now() + grpc_core::Duration::Seconds(10);
-  GRPC_LOG_IF_ERROR(
-      "backup_poller:pollset_work",
-      grpc_pollset_work(BACKUP_POLLER_POLLSET(p), nullptr, deadline));
-  gpr_mu_unlock(p->pollset_mu);
-  g_backup_poller_mu->Lock();
-  // last "uncovered" notification is the ref that keeps us polling
-  if (g_uncovered_notifications_pending == 1) {
-    CHECK(g_backup_poller == p);
-    g_backup_poller = nullptr;
-    g_uncovered_notifications_pending = 0;
-    g_backup_poller_mu->Unlock();
-    GRPC_TRACE_LOG(rdma, INFO) << "BACKUP_POLLER:" << p << " shutdown";
-    grpc_pollset_shutdown(BACKUP_POLLER_POLLSET(p),
-                          GRPC_CLOSURE_INIT(&p->run_poller, done_poller, p,
-                                            grpc_schedule_on_exec_ctx));
-  } else {
-    g_backup_poller_mu->Unlock();
-    GRPC_TRACE_LOG(rdma, INFO) << "BACKUP_POLLER:" << p << " reschedule";
-    grpc_core::Executor::Run(&p->run_poller, absl::OkStatus(),
-                             grpc_core::ExecutorType::DEFAULT,
-                             grpc_core::ExecutorJobType::LONG);
-  }
-}
-
-static void drop_uncovered(grpc_rdma* /*rdma*/) {
-  int old_count;
-  backup_poller* p;
-  g_backup_poller_mu->Lock();
-  p = g_backup_poller;
-  old_count = g_uncovered_notifications_pending--;
-  g_backup_poller_mu->Unlock();
-  CHECK_GT(old_count, 1);
-  GRPC_TRACE_LOG(rdma, INFO) << "BACKUP_POLLER:" << p << " uncover cnt "
-                             << old_count << "->" << old_count - 1;
-}
-
-// gRPC API considers a Write operation to be done the moment it clears ‘flow
-// control’ i.e., not necessarily sent on the wire. This means that the
-// application MIGHT not call `grpc_completion_queue_next/pluck` in a timely
-// manner when its `Write()` API is acked.
-//
-// We need to ensure that the fd is 'covered' (i.e being monitored by some
-// polling thread and progress is made) and hence add it to a backup poller here
-static void cover_self(grpc_rdma* rdma) {
-  backup_poller* p;
-  g_backup_poller_mu->Lock();
-  int old_count = 0;
-  if (g_uncovered_notifications_pending == 0) {
-    g_uncovered_notifications_pending = 2;
-    p = static_cast<backup_poller*>(
-        gpr_zalloc(sizeof(*p) + grpc_pollset_size()));
-    g_backup_poller = p;
-    grpc_pollset_init(BACKUP_POLLER_POLLSET(p), &p->pollset_mu);
-    g_backup_poller_mu->Unlock();
-    GRPC_TRACE_LOG(rdma, INFO) << "BACKUP_POLLER:" << p << " create";
-    grpc_core::Executor::Run(
-        GRPC_CLOSURE_INIT(&p->run_poller, run_poller, p, nullptr),
-        absl::OkStatus(), grpc_core::ExecutorType::DEFAULT,
-        grpc_core::ExecutorJobType::LONG);
-  } else {
-    old_count = g_uncovered_notifications_pending++;
-    p = g_backup_poller;
-    g_backup_poller_mu->Unlock();
-  }
-  GRPC_TRACE_LOG(rdma, INFO) << "BACKUP_POLLER:" << p << " add " << rdma
-                             << " cnt " << old_count - 1 << "->" << old_count;
-  grpc_pollset_add_fd(BACKUP_POLLER_POLLSET(p), rdma->em_fd);
-}
 
 static void notify_on_read(grpc_rdma* rdma) {
   GRPC_TRACE_LOG(rdma, INFO) << "RDMA:" << rdma << " notify_on_read";
@@ -282,9 +186,9 @@ static void notify_on_read(grpc_rdma* rdma) {
 
 static void notify_on_write(grpc_rdma* rdma) {
   GRPC_TRACE_LOG(rdma, INFO) << "RDMA:" << rdma << " notify_on_write";
-  if (!grpc_event_engine_run_in_background()) {
-    cover_self(rdma);
-  }
+  //  if (!grpc_event_engine_run_in_background()) {
+  //    cover_self(rdma);
+  //  }
   grpc_fd_notify_on_write(rdma->em_fd, &rdma->write_done_closure);
 }
 
@@ -1061,41 +965,5 @@ grpc_endpoint* grpc_rdma_create(grpc_fd* em_fd,
 
   return &rdma->base;
 }
-
-// int grpc_rdma_fd(grpc_endpoint* ep) {
-//   grpc_rdma* rdma = reinterpret_cast<grpc_rdma*>(ep);
-//   CHECK(ep->vtable == &vtable);
-//   return grpc_fd_wrapped_fd(rdma->em_fd);
-// }
-
-// void grpc_rdma_destroy_and_release_fd(grpc_endpoint* ep, int* fd,
-//                                       grpc_closure* done) {
-//   if (grpc_event_engine::experimental::grpc_is_event_engine_endpoint(ep)) {
-//     return grpc_event_engine::experimental::
-//         grpc_event_engine_endpoint_destroy_and_release_fd(ep, fd, done);
-//   }
-//   grpc_rdma* rdma = reinterpret_cast<grpc_rdma*>(ep);
-//   CHECK(ep->vtable == &vtable);
-//   rdma->release_fd = fd;
-//   rdma->release_fd_cb = done;
-//   grpc_slice_buffer_reset_and_unref(&rdma->last_read_buffer);
-//   // if (grpc_event_engine_can_track_errors()) {
-//   //   // Stop errors notification.
-//   //   ZerocopyDisableAndWaitForRemaining(rdma);
-//   //   gpr_atm_no_barrier_store(&rdma->stop_error_notification, true);
-//   //   grpc_fd_set_error(rdma->em_fd);
-//   // }
-//   rdma->read_mu.Lock();
-//   rdma->memory_owner.Reset();
-//   rdma->read_mu.Unlock();
-//   RDMA_UNREF(rdma, "destroy");
-// }
-
-// void grpc_rdma_posix_init() { g_backup_poller_mu = new grpc_core::Mutex; }
-
-// void grpc_rdma_posix_shutdown() {
-//   delete g_backup_poller_mu;
-//   g_backup_poller_mu = nullptr;
-// }
 
 #endif  // GRPC_POSIX_SOCKET_TCP
