@@ -24,7 +24,7 @@ if(MSVC)
 endif()
 
 find_package(Threads REQUIRED)
-
+set(ABSL_ENABLE_INSTALL ON)
 if(GRPC_AS_SUBMODULE)
   # One way to build a projects that uses gRPC is to just include the
   # entire gRPC project tree via "add_subdirectory".

@@ -1,0 +1,115 @@
+name: C++ CI
+
+on: [ push, pull_request ]
+
+jobs:
+  build:
+    runs-on: self-hosted
+    env:
+      DBG_PREFIX: /home/geng.161/.cache/grpc_dbg
+      REL_PREFIX: /home/geng.161/.cache/grpc_rel
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          submodules: true
+      - name: Prepare Env
+        run: |
+
+      - name: Prepare Dependencies
+        run: |
+          shopt -s expand_aliases
+          alias my_srun='srun --nodes=1 --ntasks-per-node=1 --cpus-per-task=16 --partition=devel --job-name=rpc_ci'
+
+          rm -rf $DBG_PREFIX $REL_PREFIX && mkdir -p $DBG_PREFIX $REL_PREFIX
+          pushd third_party/abseil-cpp 
+          # Build absel in debug mode
+          rm -rf debug && mkdir debug
+          pushd debug
+          cmake .. -DCMAKE_INSTALL_PREFIX=$DBG_PREFIX -DCMAKE_BUILD_TYPE=Debug
+          my_srun make -j16 install
+          popd
+          
+          # Build absel in release mode
+          rm -rf release && mkdir release
+          pushd release
+          cmake .. -DCMAKE_INSTALL_PREFIX=$REL_PREFIX -DCMAKE_BUILD_TYPE=Release
+          my_srun make -j16 install
+          popd
+          popd
+          
+          rm -rf HdrHistogram_c && git clone https://github.com/HdrHistogram/HdrHistogram_c.git
+          pushd HdrHistogram_c
+          rm -rf debug && mkdir debug
+          pushd debug
+          cmake .. -DCMAKE_INSTALL_PREFIX=$DBG_PREFIX -DCMAKE_BUILD_TYPE=Debug
+          my_srun make -j16 install
+          popd
+          
+          rm -rf release && mkdir release
+          pushd release
+          cmake .. -DCMAKE_INSTALL_PREFIX=$REL_PREFIX -DCMAKE_BUILD_TYPE=Release
+          my_srun make -j16 install
+          popd
+          popd
+
+      - name: Build gRPC
+        run: |
+          shopt -s expand_aliases
+          alias my_srun='srun --nodes=1 --ntasks-per-node=1 --cpus-per-task=16 --partition=devel --job-name=rpc_ci'
+
+          rm -rf debug && mkdir debug
+          pushd debug
+          cmake .. -DCMAKE_INSTALL_PREFIX=$DBG_PREFIX -DCMAKE_BUILD_TYPE=Debug
+          my_srun make -j16 install
+          popd
+          
+          rm -rf release && mkdir release
+          pushd release
+          cmake .. -DCMAKE_INSTALL_PREFIX=$REL_PREFIX -DCMAKE_BUILD_TYPE=Release
+          my_srun make -j16 install
+          popd
+
+
+      - name: Build Test
+        run: |
+          pushd examples/cpp/test
+          rm -rf debug && mkdir debug
+          pushd debug
+          PATH=$DBG_PREFIX/bin:$PATH cmake .. -DCMAKE_PREFIX_PATH=$DBG_PREFIX
+          make
+          popd
+
+          rm -rf release && mkdir release
+          pushd release
+          PATH=$REL_PREFIX/bin:$PATH cmake .. -DCMAKE_PREFIX_PATH=$REL_PREFIX
+          make
+          popd
+          popd
+
+      - name: Test Debug
+        timeout-minutes: 10
+        run: |
+          shopt -s expand_aliases
+          alias my_srun='srun --nodes=1 --ntasks-per-node=1 --cpus-per-task=16 --partition=devel --job-name=rpc_ci'
+
+          pushd examples/cpp/test
+          my_srun "$GITHUB_WORKSPACE/.github/workflows/run_all_variants.sh" ./test.sh --test-client=./debug
+          my_srun "$GITHUB_WORKSPACE/.github/workflows/run_all_variants.sh" ./test.sh --test-async-client=./debug
+          my_srun "$GITHUB_WORKSPACE/.github/workflows/run_all_variants.sh" ./test.sh --test-async-client2=./debug
+          popd
+
+      - name: Test Release
+        timeout-minutes: 10
+        run: |
+          shopt -s expand_aliases
+          alias my_srun='srun --nodes=1 --ntasks-per-node=1 --cpus-per-task=16 --partition=devel --job-name=rpc_ci'
+
+          pushd examples/cpp/test
+          my_srun "$GITHUB_WORKSPACE/.github/workflows/run_all_variants.sh" ./test.sh --test-client=./release
+          my_srun "$GITHUB_WORKSPACE/.github/workflows/run_all_variants.sh" ./test.sh --test-async-client=./release
+          my_srun "$GITHUB_WORKSPACE/.github/workflows/run_all_variants.sh" ./test.sh --test-async-client2=./release
+          popd
+
+      - name: Cleanup
+        run: |
+          squeue -u geng.161 -o %A | tail -n 1 | xargs scancel
