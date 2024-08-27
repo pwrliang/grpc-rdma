@@ -76,13 +76,13 @@ jobs:
           rm -rf debug && mkdir debug
           pushd debug
           PATH=$DBG_PREFIX/bin:$PATH cmake .. -DCMAKE_PREFIX_PATH=$DBG_PREFIX
-          make
+          make -j
           popd
 
           rm -rf release && mkdir release
           pushd release
           PATH=$REL_PREFIX/bin:$PATH cmake .. -DCMAKE_PREFIX_PATH=$REL_PREFIX
-          make
+          make -j
           popd
           popd
 
@@ -108,6 +108,46 @@ jobs:
           my_srun "$GITHUB_WORKSPACE/.github/workflows/run_all_variants.sh" ./test.sh --test-client=./release
           my_srun "$GITHUB_WORKSPACE/.github/workflows/run_all_variants.sh" ./test.sh --test-async-client=./release
           my_srun "$GITHUB_WORKSPACE/.github/workflows/run_all_variants.sh" ./test.sh --test-async-client2=./release
+          popd
+
+      - name: Build Micro-bench
+        run: |
+          pushd examples/cpp/micro-bench
+          rm -rf debug && mkdir debug
+          pushd debug
+          PATH=$DBG_PREFIX/bin:$PATH cmake .. -DCMAKE_PREFIX_PATH=$DBG_PREFIX
+          make
+          popd
+          rm -rf release && mkdir release
+          pushd release
+          PATH=$REL_PREFIX/bin:$PATH cmake .. -DCMAKE_PREFIX_PATH=$REL_PREFIX
+          make
+          popd
+          popd
+
+      - name: Allocate Nodes
+        run: |
+          pushd examples/cpp/micro-bench/launcher
+          srun --nodes=2 --ntasks-per-node=1 --cpus-per-task=8 --partition=devel --job-name=rpc_ci sleep 3600 &
+          # Wait allocation done
+          sleep 10
+          squeue -u $USER -o %N | tail -n 1 | xargs ./helper.sh
+          popd
+
+      - name: Micro-bench Debug
+        timeout-minutes: 20
+        run: |
+          pushd examples/cpp/micro-bench/launcher
+          rm -rf ./log
+          MB_HOME=$PWD/../debug ./run-all.sh --throughput
+          popd
+
+      - name: Micro-bench Release
+        timeout-minutes: 20
+        run: |
+          pushd examples/cpp/micro-bench/launcher
+          rm -rf ./log
+          MB_HOME=$PWD/../release ./run-all.sh --throughput
           popd
 
       - name: Cleanup
