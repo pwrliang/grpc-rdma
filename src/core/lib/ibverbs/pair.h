@@ -263,6 +263,7 @@ class PairPool {
   PairPool() {}
 
  public:
+      std::unique_ptr<PairPollable, std::function<void(PairPollable*)>>;
   PairPool(const PairPool&) = delete;
 
   PairPool& operator=(const PairPool&) = delete;
@@ -270,6 +271,19 @@ class PairPool {
   static PairPool& Get() {
     static PairPool pool;
     return pool;
+  }
+
+  unique_pair_t TakePair(const std::string& id) {
+    std::unique_lock<std::shared_timed_mutex> lock(mu_);
+
+    if (pairs_.empty()) {
+      createPairs();
+    }
+    PairPollable* pair = pairs_.front();
+    pairs_.pop();
+    id_pair_[id] = pair;
+
+    return unique_pair_t(pair, [this](PairPollable* p) { Putback(p); });
   }
 
   PairPollable* Take(const std::string& id) {

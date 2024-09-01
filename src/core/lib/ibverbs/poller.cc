@@ -48,16 +48,15 @@ void Poller::RemovePollable(grpc_core::ibverbs::PairPollable* pollable) {
   for (int i = 0; i < tail; i++) {
     if (pairs_[i] == reinterpret_cast<uint64_t>(pollable)) {
       pairs_[i] = 0;
+      n_pairs_--;
       break;
     }
   }
-  n_pairs_--;
 }
 
 void Poller::begin_polling(int poller_id) {
   auto poller_sleep_timeout = ConfigVars::Get().RdmaPollerSleepTimeoutMs();
   struct pollfd fds[1];
-  LOG(INFO) << "Poller started";
 
   while (running_) {
     if (n_pairs_ == 0) {
@@ -69,6 +68,7 @@ void Poller::begin_polling(int poller_id) {
 
     uint32_t tail = tail_;
     uint32_t curr = curr_++;
+    CHECK_GT(tail, 0);
     auto id = curr % tail;
     auto* pair = reinterpret_cast<PairPollable*>(pairs_[id].load());
 

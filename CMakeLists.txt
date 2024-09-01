@@ -2291,6 +2291,11 @@ add_library(grpc
   src/core/lib/event_engine/posix_engine/wakeup_fd_eventfd.cc
   src/core/lib/event_engine/posix_engine/wakeup_fd_pipe.cc
   src/core/lib/event_engine/posix_engine/wakeup_fd_posix_default.cc
+  src/core/lib/event_engine/rdma_engine/ev_bpev_rdma_linux.cc
+  src/core/lib/event_engine/rdma_engine/rdma_endpoint.cc
+  src/core/lib/event_engine/rdma_engine/rdma_engine_listener.cc
+  src/core/lib/event_engine/rdma_engine/rdma_engine.cc
+  src/core/lib/event_engine/rdma_engine/rdma_poller_default.cc
   src/core/lib/event_engine/resolved_address.cc
   src/core/lib/event_engine/shim.cc
   src/core/lib/event_engine/slice.cc
@@ -3143,6 +3148,11 @@ add_library(grpc_unsecure
   src/core/lib/event_engine/posix_engine/wakeup_fd_eventfd.cc
   src/core/lib/event_engine/posix_engine/wakeup_fd_pipe.cc
   src/core/lib/event_engine/posix_engine/wakeup_fd_posix_default.cc
+  src/core/lib/event_engine/rdma_engine/ev_bpev_rdma_linux.cc
+  src/core/lib/event_engine/rdma_engine/rdma_endpoint.cc
+  src/core/lib/event_engine/rdma_engine/rdma_engine_listener.cc
+  src/core/lib/event_engine/rdma_engine/rdma_engine.cc
+  src/core/lib/event_engine/rdma_engine/rdma_poller_default.cc
   src/core/lib/event_engine/resolved_address.cc
   src/core/lib/event_engine/shim.cc
   src/core/lib/event_engine/slice.cc
@@ -5368,6 +5378,11 @@ add_library(grpc_authorization_provider
   src/core/lib/event_engine/posix_engine/wakeup_fd_eventfd.cc
   src/core/lib/event_engine/posix_engine/wakeup_fd_pipe.cc
   src/core/lib/event_engine/posix_engine/wakeup_fd_posix_default.cc
+  src/core/lib/event_engine/rdma_engine/ev_bpev_rdma_linux.cc
+  src/core/lib/event_engine/rdma_engine/rdma_endpoint.cc
+  src/core/lib/event_engine/rdma_engine/rdma_engine_listener.cc
+  src/core/lib/event_engine/rdma_engine/rdma_engine.cc
+  src/core/lib/event_engine/rdma_engine/rdma_poller_default.cc
   src/core/lib/event_engine/resolved_address.cc
   src/core/lib/event_engine/shim.cc
   src/core/lib/event_engine/slice.cc
@@ -9098,6 +9113,11 @@ add_executable(call_utils_test
   src/core/lib/event_engine/posix_engine/wakeup_fd_eventfd.cc
   src/core/lib/event_engine/posix_engine/wakeup_fd_pipe.cc
   src/core/lib/event_engine/posix_engine/wakeup_fd_posix_default.cc
+  src/core/lib/event_engine/rdma_engine/ev_bpev_rdma_linux.cc
+  src/core/lib/event_engine/rdma_engine/rdma_endpoint.cc
+  src/core/lib/event_engine/rdma_engine/rdma_engine_listener.cc
+  src/core/lib/event_engine/rdma_engine/rdma_engine.cc
+  src/core/lib/event_engine/rdma_engine/rdma_poller_default.cc
   src/core/lib/event_engine/resolved_address.cc
   src/core/lib/event_engine/shim.cc
   src/core/lib/event_engine/slice.cc

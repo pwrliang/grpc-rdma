@@ -162,8 +162,8 @@ static grpc_error_handle CreateEventEngineListener(
                   static_cast<socklen_t>(sizeof(struct sockaddr_storage));
               // Get the fd of the socket connected to peer.
               int fd =
-                  reinterpret_cast<
-                      grpc_event_engine::experimental::PosixEndpoint*>(ep.get())
+                  reinterpret_cast<grpc_event_engine::experimental::
+                                       EndpointSupportsFdExtension*>(ep.get())
                       ->GetWrappedFd();
               if (getpeername(fd, reinterpret_cast<struct sockaddr*>(addr.addr),
                               &(addr.len)) < 0) {
