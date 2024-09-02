@@ -12,13 +12,10 @@ jobs:
       - uses: actions/checkout@v2
         with:
           submodules: true
-      - name: Prepare Env
-        run: |
-
       - name: Prepare Dependencies
         run: |
           shopt -s expand_aliases
-          alias my_srun='srun --nodes=1 --ntasks-per-node=1 --cpus-per-task=16 --partition=devel --job-name=rpc_ci'
+          alias my_srun='srun --account=PAS0350 --nodes=1 --ntasks-per-node=1 --cpus-per-task=40 --partition=debug --job-name=rpc_ci'
 
           rm -rf $DBG_PREFIX $REL_PREFIX && mkdir -p $DBG_PREFIX $REL_PREFIX
           pushd third_party/abseil-cpp 
@@ -26,14 +23,14 @@ jobs:
           rm -rf debug && mkdir debug
           pushd debug
           cmake .. -DCMAKE_INSTALL_PREFIX=$DBG_PREFIX -DCMAKE_BUILD_TYPE=Debug
-          my_srun make -j16 install
+          my_srun make -j install
           popd
           
           # Build absel in release mode
           rm -rf release && mkdir release
           pushd release
           cmake .. -DCMAKE_INSTALL_PREFIX=$REL_PREFIX -DCMAKE_BUILD_TYPE=Release
-          my_srun make -j16 install
+          my_srun make -j install
           popd
           popd
           
@@ -42,31 +39,31 @@ jobs:
           rm -rf debug && mkdir debug
           pushd debug
           cmake .. -DCMAKE_INSTALL_PREFIX=$DBG_PREFIX -DCMAKE_BUILD_TYPE=Debug
-          my_srun make -j16 install
+          my_srun make -j install
           popd
           
           rm -rf release && mkdir release
           pushd release
           cmake .. -DCMAKE_INSTALL_PREFIX=$REL_PREFIX -DCMAKE_BUILD_TYPE=Release
-          my_srun make -j16 install
+          my_srun make -j install
           popd
           popd
 
       - name: Build gRPC
         run: |
           shopt -s expand_aliases
-          alias my_srun='srun --nodes=1 --ntasks-per-node=1 --cpus-per-task=16 --partition=devel --job-name=rpc_ci'
+          alias my_srun='srun --account=PAS0350 --nodes=1 --ntasks-per-node=1 --cpus-per-task=40 --partition=debug --job-name=rpc_ci'
 
           rm -rf debug && mkdir debug
           pushd debug
           cmake .. -DCMAKE_INSTALL_PREFIX=$DBG_PREFIX -DCMAKE_BUILD_TYPE=Debug
-          my_srun make -j16 install
+          my_srun make -j install
           popd
           
           rm -rf release && mkdir release
           pushd release
           cmake .. -DCMAKE_INSTALL_PREFIX=$REL_PREFIX -DCMAKE_BUILD_TYPE=Release
-          my_srun make -j16 install
+          my_srun make -j install
           popd
 
 
@@ -90,7 +87,7 @@ jobs:
         timeout-minutes: 10
         run: |
           shopt -s expand_aliases
-          alias my_srun='srun --nodes=1 --ntasks-per-node=1 --cpus-per-task=16 --partition=devel --job-name=rpc_ci'
+          alias my_srun='srun --account=PAS0350 --nodes=1 --ntasks-per-node=1 --cpus-per-task=40 --partition=debug --job-name=rpc_ci'
 
           pushd examples/cpp/test
           my_srun "$GITHUB_WORKSPACE/.github/workflows/run_all_variants.sh" ./test.sh --test-client=./debug
@@ -102,7 +99,7 @@ jobs:
         timeout-minutes: 10
         run: |
           shopt -s expand_aliases
-          alias my_srun='srun --nodes=1 --ntasks-per-node=1 --cpus-per-task=16 --partition=devel --job-name=rpc_ci'
+          alias my_srun='srun --account=PAS0350 --nodes=1 --ntasks-per-node=1 --cpus-per-task=40 --partition=debug --job-name=rpc_ci'
 
           pushd examples/cpp/test
           my_srun "$GITHUB_WORKSPACE/.github/workflows/run_all_variants.sh" ./test.sh --test-client=./release
@@ -128,7 +125,7 @@ jobs:
       - name: Allocate Nodes
         run: |
           pushd examples/cpp/micro-bench/launcher
-          srun --nodes=2 --ntasks-per-node=1 --cpus-per-task=8 --partition=devel --job-name=rpc_ci sleep 3600 &
+          srun --account=PAS0350 --nodes=2 --ntasks-per-node=1 --cpus-per-task=8 --partition=debug --job-name=rpc_ci sleep 3600 &
           # Wait allocation done
           sleep 10
           squeue -u $USER -o %N | tail -n 1 | xargs ./helper.sh
@@ -152,4 +149,4 @@ jobs:
 
       - name: Cleanup
         run: |
-          squeue -u geng.161 -o %A | tail -n 1 | xargs scancel
+          squeue -u $USER -o %A | tail -n 1 | xargs scancel
