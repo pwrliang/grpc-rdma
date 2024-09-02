@@ -263,7 +263,6 @@ class PairPool {
   PairPool() {}
 
  public:
-      std::unique_ptr<PairPollable, std::function<void(PairPollable*)>>;
   PairPool(const PairPool&) = delete;
 
   PairPool& operator=(const PairPool&) = delete;
