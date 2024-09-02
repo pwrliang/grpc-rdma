@@ -6,8 +6,8 @@ jobs:
   build:
     runs-on: self-hosted
     env:
-      DBG_PREFIX: /home/geng.161/.cache/grpc_dbg
-      REL_PREFIX: /home/geng.161/.cache/grpc_rel
+      DBG_PREFIX: $HOME/.cache/grpc_dbg
+      REL_PREFIX: $HOME/.cache/grpc_rel
     steps:
       - uses: actions/checkout@v2
         with:
