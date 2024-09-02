@@ -273,19 +273,6 @@ class PairPool {
     return pool;
   }
 
-  unique_pair_t TakePair(const std::string& id) {
-    std::unique_lock<std::shared_timed_mutex> lock(mu_);
-
-    if (pairs_.empty()) {
-      createPairs();
-    }
-    PairPollable* pair = pairs_.front();
-    pairs_.pop();
-    id_pair_[id] = pair;
-
-    return unique_pair_t(pair, [this](PairPollable* p) { Putback(p); });
-  }
-
   PairPollable* Take(const std::string& id) {
     std::unique_lock<std::shared_timed_mutex> lock(mu_);
 
