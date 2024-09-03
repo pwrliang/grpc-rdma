@@ -32,58 +32,58 @@ jobs:
           echo "##[set-output name=ci_server;]$CI_SERVER"
           popd
 
-#      - name: Prepare Dependencies
-#        run: |
-#          CI_SERVER="${{ steps.alloc_nodes.outputs.ci_server }}"
-#          echo "CI server is: $CI_SERVER"
-#
-#          rm -rf $DBG_PREFIX $REL_PREFIX && mkdir -p $DBG_PREFIX $REL_PREFIX
-#          pushd third_party/abseil-cpp
-#          # Build absel in debug mode
-#          rm -rf debug && mkdir debug
-#          pushd debug
-#          cmake .. -DCMAKE_INSTALL_PREFIX=$DBG_PREFIX -DCMAKE_BUILD_TYPE=Debug
-#          ssh $CI_SERVER "cd $(pwd) && make -j install"
-#          popd
-#
-#          # Build absel in release mode
-#          rm -rf release && mkdir release
-#          pushd release
-#          cmake .. -DCMAKE_INSTALL_PREFIX=$REL_PREFIX -DCMAKE_BUILD_TYPE=Release
-#          ssh $CI_SERVER "cd $(pwd) && make -j install"
-#          popd
-#          popd
-#
-#          rm -rf HdrHistogram_c && git clone https://github.com/HdrHistogram/HdrHistogram_c.git
-#          pushd HdrHistogram_c
-#          rm -rf debug && mkdir debug
-#          pushd debug
-#          cmake .. -DCMAKE_INSTALL_PREFIX=$DBG_PREFIX -DCMAKE_BUILD_TYPE=Debug
-#          ssh $CI_SERVER "cd $(pwd) && make -j install"
-#          popd
-#
-#          rm -rf release && mkdir release
-#          pushd release
-#          cmake .. -DCMAKE_INSTALL_PREFIX=$REL_PREFIX -DCMAKE_BUILD_TYPE=Release
-#          ssh $CI_SERVER "cd $(pwd) && make -j install"
-#          popd
-#          popd
+      - name: Prepare Dependencies
+        run: |
+          CI_SERVER="${{ steps.alloc_nodes.outputs.ci_server }}"
+          echo "CI server is: $CI_SERVER"
 
-#      - name: Build gRPC
-#        run: |
-#          CI_SERVER="${{ steps.alloc_nodes.outputs.ci_server }}"
-#
-#          rm -rf debug && mkdir debug
-#          pushd debug
-#          cmake .. -DCMAKE_INSTALL_PREFIX=$DBG_PREFIX -DCMAKE_BUILD_TYPE=Debug
-#          ssh $CI_SERVER "cd $(pwd) && make -j install"
-#          popd
-#
-#          rm -rf release && mkdir release
-#          pushd release
-#          cmake .. -DCMAKE_INSTALL_PREFIX=$REL_PREFIX -DCMAKE_BUILD_TYPE=Release
-#          ssh $CI_SERVER "cd $(pwd) && make -j install"
-#          popd
+          rm -rf $DBG_PREFIX $REL_PREFIX && mkdir -p $DBG_PREFIX $REL_PREFIX
+          pushd third_party/abseil-cpp
+          # Build absel in debug mode
+          rm -rf debug && mkdir debug
+          pushd debug
+          cmake .. -DCMAKE_INSTALL_PREFIX=$DBG_PREFIX -DCMAKE_BUILD_TYPE=Debug
+          ssh $CI_SERVER "cd $(pwd) && make -j install"
+          popd
+
+          # Build absel in release mode
+          rm -rf release && mkdir release
+          pushd release
+          cmake .. -DCMAKE_INSTALL_PREFIX=$REL_PREFIX -DCMAKE_BUILD_TYPE=Release
+          ssh $CI_SERVER "cd $(pwd) && make -j install"
+          popd
+          popd
+
+          rm -rf HdrHistogram_c && git clone https://github.com/HdrHistogram/HdrHistogram_c.git
+          pushd HdrHistogram_c
+          rm -rf debug && mkdir debug
+          pushd debug
+          cmake .. -DCMAKE_INSTALL_PREFIX=$DBG_PREFIX -DCMAKE_BUILD_TYPE=Debug
+          ssh $CI_SERVER "cd $(pwd) && make -j install"
+          popd
+
+          rm -rf release && mkdir release
+          pushd release
+          cmake .. -DCMAKE_INSTALL_PREFIX=$REL_PREFIX -DCMAKE_BUILD_TYPE=Release
+          ssh $CI_SERVER "cd $(pwd) && make -j install"
+          popd
+          popd
+
+      - name: Build gRPC
+        run: |
+          CI_SERVER="${{ steps.alloc_nodes.outputs.ci_server }}"
+
+          rm -rf debug && mkdir debug
+          pushd debug
+          cmake .. -DCMAKE_INSTALL_PREFIX=$DBG_PREFIX -DCMAKE_BUILD_TYPE=Debug
+          ssh $CI_SERVER "cd $(pwd) && make -j install"
+          popd
+
+          rm -rf release && mkdir release
+          pushd release
+          cmake .. -DCMAKE_INSTALL_PREFIX=$REL_PREFIX -DCMAKE_BUILD_TYPE=Release
+          ssh $CI_SERVER "cd $(pwd) && make -j install"
+          popd
 
 
       - name: Build Test
