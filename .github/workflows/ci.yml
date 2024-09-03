@@ -139,20 +139,20 @@ jobs:
           popd
           popd
 
-#      - name: Micro-bench Debug
-#        timeout-minutes: 20
-#        run: |
-#          pushd examples/cpp/micro-bench/launcher
-#          rm -rf ./log
-#          MB_HOME="$PWD/../debug" MPIRUN_PATH="/apps/spack/0.17/ascend/linux-rhel8-zen3/openmpi/gcc/10.3.0/4.1.5-gjqoqo6/bin/mpirun" ./run-all.sh --throughput
-#          popd
+      - name: Micro-bench Debug
+        timeout-minutes: 20
+        run: |
+          pushd examples/cpp/micro-bench/launcher
+          rm -rf ./log
+          MB_HOME="$PWD/../debug" MPIRUN_PATH="/apps/spack/0.17/ascend/linux-rhel8-zen3/openmpi/gcc/10.3.0/3.1.6-vi2sdpq/bin/mpirun" ./run-all.sh --throughput
+          popd
 
       - name: Micro-bench Release
         timeout-minutes: 20
         run: |
           pushd examples/cpp/micro-bench/launcher
           rm -rf ./log
-          MB_HOME="$PWD/../release" MPIRUN_PATH="/apps/spack/0.17/ascend/linux-rhel8-zen3/openmpi/gcc/10.3.0/4.1.5-gjqoqo6/bin/mpirun" ./run-all.sh --throughput
+          MB_HOME="$PWD/../release" MPIRUN_PATH="/apps/spack/0.17/ascend/linux-rhel8-zen3/openmpi/gcc/10.3.0/3.1.6-vi2sdpq/bin/mpirun" ./run-all.sh --throughput
           popd
 
       - name: Cleanup
