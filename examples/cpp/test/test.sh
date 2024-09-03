@@ -16,7 +16,7 @@ function start_client() {
   TEST_BUILD_ROOT=$1
   mpirun --bind-to none --oversubscribe -n $NP -output-filename client_log "$TEST_BUILD_ROOT"/greeter_client -target "localhost:$PORT"
   echo "Killing $SERVER_PID"
-  kill -9 $SERVER_PID
+  kill_process $SERVER_PID
 }
 
 function start_async_server() {
@@ -31,7 +31,7 @@ function start_async_client() {
   TEST_BUILD_ROOT=$1
   mpirun --bind-to none --oversubscribe -n $NP -output-filename client_log "$TEST_BUILD_ROOT"/greeter_async_client -target "localhost:$PORT"
   echo "Killing $SERVER_PID"
-  kill -9 $SERVER_PID
+  kill_process $SERVER_PID
 }
 
 function start_async_client2() {
@@ -39,13 +39,21 @@ function start_async_client2() {
   TEST_BUILD_ROOT=$1
   mpirun --bind-to none --oversubscribe -n $NP -output-filename client_log "$TEST_BUILD_ROOT"/greeter_async_client2 -target "localhost:$PORT"
   echo "Killing $SERVER_PID"
-  kill -9 $SERVER_PID
+  kill_process $SERVER_PID
 }
 
 function cleanup() {
   if ps aux | pgrep greeter; then
     ps aux | pgrep greeter | xargs kill -9 2>/dev/null || true
   fi
+}
+
+function kill_process() {
+  PID=$1
+  kill -9 $PID
+    while kill -0 $PID; do
+        sleep 1
+    done
 }
 
 if [[ $# -eq 0 ]]; then

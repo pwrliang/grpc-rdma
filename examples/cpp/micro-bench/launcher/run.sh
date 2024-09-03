@@ -122,7 +122,6 @@ function start_server() {
     -x GRPC_RDMA_BUSY_POLLING_TIMEOUT_US \
     -x GRPC_RDMA_POLLER_THREAD_NUM \
     -x GRPC_RDMA_RING_BUFFER_SIZE_KB \
-    -x GRPC_VERBOSITY \
     -x GRPC_TRACE \
     -n 1 -host "$SERVER" \
     "$MB_HOME"/$SERVER_PROGRAM \
@@ -165,12 +164,8 @@ else
       -x GRPC_ENABLE_RDMA_SUPPORT \
       -x GRPC_RDMA_RING_BUFFER_SIZE_KB \
       -x GRPC_RDMA_BUSY_POLLING_TIMEOUT_US \
-      -x GRPC_VERBOSITY \
       -x GRPC_TRACE \
       --oversubscribe \
-      -mca btl_tcp_if_include ib0 \
-      -mca btl_openib_allow_ib true \
-      -mca btl_openib_warn_default_gid_prefix 0 \
       -hostfile $tmp_host \
       $MB_HOME/mb_client \
       -target=${SERVER}:50051 \
