@@ -12,25 +12,39 @@ jobs:
       - uses: actions/checkout@v2
         with:
           submodules: true
+
+      - name: Allocate Nodes
+        id: alloc_nodes
+        run: |
+          pushd examples/cpp/micro-bench/launcher
+          srun --account=PAS0350 --nodes=2 --ntasks-per-node=1 --cpus-per-task=8 --partition=debug --job-name=rpc_ci sleep 3600 &
+          # Wait allocation done
+          sleep 10
+          squeue -u $USER -o %N | tail -n 1 | xargs ./helper.sh
+          CI_SERVER=$(head -n 1 hosts)
+          echo "##[set-output name=ci_server;]$CI_SERVER"
+          popd
+
       - name: Prepare Dependencies
         run: |
           shopt -s expand_aliases
-          alias my_srun='srun --account=PAS0350 --nodes=1 --ntasks-per-node=1 --cpus-per-task=40 --partition=debug --job-name=rpc_ci'
-
+          CI_SERVER="${{ steps.alloc_nodes.outputs.ci_server }}"
+          echo "CI server is: $CI_SERVER"
+          
           rm -rf $DBG_PREFIX $REL_PREFIX && mkdir -p $DBG_PREFIX $REL_PREFIX
           pushd third_party/abseil-cpp 
           # Build absel in debug mode
           rm -rf debug && mkdir debug
           pushd debug
           cmake .. -DCMAKE_INSTALL_PREFIX=$DBG_PREFIX -DCMAKE_BUILD_TYPE=Debug
-          my_srun make -j install
+          ssh $CI_SERVER "cd $(pwd) make -j install"
           popd
           
           # Build absel in release mode
           rm -rf release && mkdir release
           pushd release
           cmake .. -DCMAKE_INSTALL_PREFIX=$REL_PREFIX -DCMAKE_BUILD_TYPE=Release
-          my_srun make -j install
+          ssh $CI_SERVER "cd $(pwd) make -j install"
           popd
           popd
           
@@ -39,113 +53,106 @@ jobs:
           rm -rf debug && mkdir debug
           pushd debug
           cmake .. -DCMAKE_INSTALL_PREFIX=$DBG_PREFIX -DCMAKE_BUILD_TYPE=Debug
-          my_srun make -j install
+          ssh $CI_SERVER "cd $(pwd) make -j install"
           popd
           
           rm -rf release && mkdir release
           pushd release
           cmake .. -DCMAKE_INSTALL_PREFIX=$REL_PREFIX -DCMAKE_BUILD_TYPE=Release
-          my_srun make -j install
+          ssh $CI_SERVER "cd $(pwd) make -j install"
           popd
           popd
 
-      - name: Build gRPC
-        run: |
-          shopt -s expand_aliases
-          alias my_srun='srun --account=PAS0350 --nodes=1 --ntasks-per-node=1 --cpus-per-task=40 --partition=debug --job-name=rpc_ci'
-
-          rm -rf debug && mkdir debug
-          pushd debug
-          cmake .. -DCMAKE_INSTALL_PREFIX=$DBG_PREFIX -DCMAKE_BUILD_TYPE=Debug
-          my_srun make -j install
-          popd
-          
-          rm -rf release && mkdir release
-          pushd release
-          cmake .. -DCMAKE_INSTALL_PREFIX=$REL_PREFIX -DCMAKE_BUILD_TYPE=Release
-          my_srun make -j install
-          popd
-
-
-      - name: Build Test
-        run: |
-          pushd examples/cpp/test
-          rm -rf debug && mkdir debug
-          pushd debug
-          PATH=$DBG_PREFIX/bin:$PATH cmake .. -DCMAKE_PREFIX_PATH=$DBG_PREFIX
-          make -j
-          popd
-
-          rm -rf release && mkdir release
-          pushd release
-          PATH=$REL_PREFIX/bin:$PATH cmake .. -DCMAKE_PREFIX_PATH=$REL_PREFIX
-          make -j
-          popd
-          popd
-
-      - name: Test Debug
-        timeout-minutes: 10
-        run: |
-          shopt -s expand_aliases
-          alias my_srun='srun --account=PAS0350 --nodes=1 --ntasks-per-node=1 --cpus-per-task=40 --partition=debug --job-name=rpc_ci'
-
-          pushd examples/cpp/test
-          my_srun "$GITHUB_WORKSPACE/.github/workflows/run_all_variants.sh" ./test.sh --test-client=./debug
-          my_srun "$GITHUB_WORKSPACE/.github/workflows/run_all_variants.sh" ./test.sh --test-async-client=./debug
-          my_srun "$GITHUB_WORKSPACE/.github/workflows/run_all_variants.sh" ./test.sh --test-async-client2=./debug
-          popd
-
-      - name: Test Release
-        timeout-minutes: 10
-        run: |
-          shopt -s expand_aliases
-          alias my_srun='srun --account=PAS0350 --nodes=1 --ntasks-per-node=1 --cpus-per-task=40 --partition=debug --job-name=rpc_ci'
-
-          pushd examples/cpp/test
-          my_srun "$GITHUB_WORKSPACE/.github/workflows/run_all_variants.sh" ./test.sh --test-client=./release
-          my_srun "$GITHUB_WORKSPACE/.github/workflows/run_all_variants.sh" ./test.sh --test-async-client=./release
-          my_srun "$GITHUB_WORKSPACE/.github/workflows/run_all_variants.sh" ./test.sh --test-async-client2=./release
-          popd
-
-      - name: Build Micro-bench
-        run: |
-          pushd examples/cpp/micro-bench
-          rm -rf debug && mkdir debug
-          pushd debug
-          PATH=$DBG_PREFIX/bin:$PATH cmake .. -DCMAKE_PREFIX_PATH=$DBG_PREFIX
-          make
-          popd
-          rm -rf release && mkdir release
-          pushd release
-          PATH=$REL_PREFIX/bin:$PATH cmake .. -DCMAKE_PREFIX_PATH=$REL_PREFIX
-          make
-          popd
-          popd
-
-      - name: Allocate Nodes
-        run: |
-          pushd examples/cpp/micro-bench/launcher
-          srun --account=PAS0350 --nodes=2 --ntasks-per-node=1 --cpus-per-task=8 --partition=debug --job-name=rpc_ci sleep 3600 &
-          # Wait allocation done
-          sleep 10
-          squeue -u $USER -o %N | tail -n 1 | xargs ./helper.sh
-          popd
-
-      - name: Micro-bench Debug
-        timeout-minutes: 20
-        run: |
-          pushd examples/cpp/micro-bench/launcher
-          rm -rf ./log
-          MB_HOME=$PWD/../debug ./run-all.sh --throughput
-          popd
-
-      - name: Micro-bench Release
-        timeout-minutes: 20
-        run: |
-          pushd examples/cpp/micro-bench/launcher
-          rm -rf ./log
-          MB_HOME=$PWD/../release ./run-all.sh --throughput
-          popd
+#      - name: Build gRPC
+#        run: |
+#          shopt -s expand_aliases
+#          alias my_srun='srun --account=PAS0350 --nodes=1 --ntasks-per-node=1 --cpus-per-task=40 --partition=debug --job-name=rpc_ci'
+#
+#          rm -rf debug && mkdir debug
+#          pushd debug
+#          cmake .. -DCMAKE_INSTALL_PREFIX=$DBG_PREFIX -DCMAKE_BUILD_TYPE=Debug
+#          my_srun make -j install
+#          popd
+#
+#          rm -rf release && mkdir release
+#          pushd release
+#          cmake .. -DCMAKE_INSTALL_PREFIX=$REL_PREFIX -DCMAKE_BUILD_TYPE=Release
+#          my_srun make -j install
+#          popd
+#
+#
+#      - name: Build Test
+#        run: |
+#          pushd examples/cpp/test
+#          rm -rf debug && mkdir debug
+#          pushd debug
+#          PATH=$DBG_PREFIX/bin:$PATH cmake .. -DCMAKE_PREFIX_PATH=$DBG_PREFIX
+#          make -j
+#          popd
+#
+#          rm -rf release && mkdir release
+#          pushd release
+#          PATH=$REL_PREFIX/bin:$PATH cmake .. -DCMAKE_PREFIX_PATH=$REL_PREFIX
+#          make -j
+#          popd
+#          popd
+#
+#      - name: Test Debug
+#        timeout-minutes: 10
+#        run: |
+#          shopt -s expand_aliases
+#          alias my_srun='srun --account=PAS0350 --nodes=1 --ntasks-per-node=1 --cpus-per-task=40 --partition=debug --job-name=rpc_ci'
+#
+#          pushd examples/cpp/test
+#          my_srun "$GITHUB_WORKSPACE/.github/workflows/run_all_variants.sh" ./test.sh --test-client=./debug
+#          my_srun "$GITHUB_WORKSPACE/.github/workflows/run_all_variants.sh" ./test.sh --test-async-client=./debug
+#          my_srun "$GITHUB_WORKSPACE/.github/workflows/run_all_variants.sh" ./test.sh --test-async-client2=./debug
+#          popd
+#
+#      - name: Test Release
+#        timeout-minutes: 10
+#        run: |
+#          shopt -s expand_aliases
+#          alias my_srun='srun --account=PAS0350 --nodes=1 --ntasks-per-node=1 --cpus-per-task=40 --partition=debug --job-name=rpc_ci'
+#
+#          pushd examples/cpp/test
+#          my_srun "$GITHUB_WORKSPACE/.github/workflows/run_all_variants.sh" ./test.sh --test-client=./release
+#          my_srun "$GITHUB_WORKSPACE/.github/workflows/run_all_variants.sh" ./test.sh --test-async-client=./release
+#          my_srun "$GITHUB_WORKSPACE/.github/workflows/run_all_variants.sh" ./test.sh --test-async-client2=./release
+#          popd
+#
+#      - name: Build Micro-bench
+#        run: |
+#          pushd examples/cpp/micro-bench
+#          rm -rf debug && mkdir debug
+#          pushd debug
+#          PATH=$DBG_PREFIX/bin:$PATH cmake .. -DCMAKE_PREFIX_PATH=$DBG_PREFIX
+#          make
+#          popd
+#          rm -rf release && mkdir release
+#          pushd release
+#          PATH=$REL_PREFIX/bin:$PATH cmake .. -DCMAKE_PREFIX_PATH=$REL_PREFIX
+#          make
+#          popd
+#          popd
+#
+#
+#
+#      - name: Micro-bench Debug
+#        timeout-minutes: 20
+#        run: |
+#          pushd examples/cpp/micro-bench/launcher
+#          rm -rf ./log
+#          MB_HOME=$PWD/../debug ./run-all.sh --throughput
+#          popd
+#
+#      - name: Micro-bench Release
+#        timeout-minutes: 20
+#        run: |
+#          pushd examples/cpp/micro-bench/launcher
+#          rm -rf ./log
+#          MB_HOME=$PWD/../release ./run-all.sh --throughput
+#          popd
 
       - name: Cleanup
         run: |

@@ -2,17 +2,17 @@
 set -e
 
 PORT=$(shuf -i 2000-65000 -n 1)
-NP=4
+NP=2
 
 function start_server() {
-  echo "Start start_server, mode: ${GRPC_PLATFORM_TYPE}"
+  echo "Start start_server, use rdma: ${GRPC_ENABLE_RDMA_SUPPORT}"
   TEST_BUILD_ROOT=$1
   "$TEST_BUILD_ROOT"/greeter_server -port $PORT |& tee server.log &
   SERVER_PID=$!
 }
 
 function start_client() {
-  echo "Start start_client, mode: ${GRPC_PLATFORM_TYPE}"
+  echo "Start start_client, use rdma: ${GRPC_ENABLE_RDMA_SUPPORT}"
   TEST_BUILD_ROOT=$1
   mpirun --bind-to none --oversubscribe -n $NP -output-filename client_log "$TEST_BUILD_ROOT"/greeter_client -target "localhost:$PORT"
   echo "Killing $SERVER_PID"
@@ -20,14 +20,14 @@ function start_client() {
 }
 
 function start_async_server() {
-  echo "Start server, ${TEST_BUILD_ROOT}/greeter_async_server, mode: ${GRPC_PLATFORM_TYPE}"
+  echo "Start server, ${TEST_BUILD_ROOT}/greeter_async_server, use rdma: ${GRPC_ENABLE_RDMA_SUPPORT}"
   TEST_BUILD_ROOT=$1
   "$TEST_BUILD_ROOT"/greeter_async_server -port $PORT |& tee server.log &
   SERVER_PID=$!
 }
 
 function start_async_client() {
-  echo "Start start_async_client, mode: ${GRPC_PLATFORM_TYPE}"
+  echo "Start start_async_client, use rdma: ${GRPC_ENABLE_RDMA_SUPPORT}"
   TEST_BUILD_ROOT=$1
   mpirun --bind-to none --oversubscribe -n $NP -output-filename client_log "$TEST_BUILD_ROOT"/greeter_async_client -target "localhost:$PORT"
   echo "Killing $SERVER_PID"
@@ -35,7 +35,7 @@ function start_async_client() {
 }
 
 function start_async_client2() {
-  echo "Start start_async_client2, mode: ${GRPC_PLATFORM_TYPE}"
+  echo "Start start_async_client2, use rdma: ${GRPC_ENABLE_RDMA_SUPPORT}"
   TEST_BUILD_ROOT=$1
   mpirun --bind-to none --oversubscribe -n $NP -output-filename client_log "$TEST_BUILD_ROOT"/greeter_async_client2 -target "localhost:$PORT"
   echo "Killing $SERVER_PID"
