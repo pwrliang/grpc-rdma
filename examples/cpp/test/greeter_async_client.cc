@@ -74,6 +74,7 @@ class GreeterClient {
     Status status;
 
     CHECK_LE(request.ByteSizeLong(), 4194304);
+    context.set_wait_for_ready(true);
 
     // stub_->PrepareAsyncSayHello() creates an RPC object, returning
     // an instance to store in "call" but does not actually start the RPC

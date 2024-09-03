@@ -63,6 +63,7 @@ class GreeterClient {
     // the server and/or tweak certain RPC behaviors.
     ClientContext context;
 
+    context.set_wait_for_ready(true);
     // The actual RPC.
     Status status = stub_->SayHello(&context, request, &reply);
 
