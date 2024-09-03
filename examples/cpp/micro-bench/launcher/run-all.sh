@@ -1,8 +1,12 @@
 set -e
 
 if [[ -z "$MB_HOME" ]]; then
-  export MB_HOME=/users/PAS0350/geng161/.clion/grpc-rdma/examples/cpp/micro-bench/cmake-build-release-pitzer02
-  #export MB_HOME=/home/geng.161/.clion/grpc-rdma/examples/cpp/micro-bench/cmake-build-release-mri
+  export MB_HOME="/users/PAS0350/geng161/.clion/grpc-rdma/examples/cpp/micro-bench/cmake-build-release-pitzer02"
+  #export MB_HOME="/home/geng.161/.clion/grpc-rdma/examples/cpp/micro-bench/cmake-build-release-mri"
+fi
+
+if [[ -z "$MPIRUN_PATH" ]]; then
+  export MPIRUN_PATH="/apps/spack/0.17/ascend/linux-rhel8-zen3/openmpi/gcc/10.3.0/4.1.5-gjqoqo6/bin/mpirun"
 fi
 
 hostfile_template="hosts"
@@ -61,7 +65,6 @@ function varying_clients_latency() {
   duration=30
   concurrent=1
   streaming="true"
-
 
   for use_rdma in true false; do
     for n_clients in "${clients[@]}"; do

@@ -103,7 +103,7 @@ for i in "$@"; do
 done
 
 function kill_server() {
-   ssh "$SERVER" "pkill -9 pidstat"
+  ssh "$SERVER" "pkill -9 pidstat"
   # Signal to print profiling results
   ssh "$SERVER" 'pgrep mb_server | xargs kill -USR1 2>/dev/null'
   # Kill Server
@@ -115,9 +115,9 @@ function start_server() {
   echo "Start server on node $SERVER"
 
   # Generate head
-  pidstat  -r -u -w -h 1 1 | grep '#' > "${server_stat_log_path}"
+  pidstat -r -u -w -h 1 1 | grep '#' >"${server_stat_log_path}"
   ssh "${SERVER}" "nohup sh -c 'pidstat  -r -u -w -h 1 | grep --line-buffered mb_server' >>${server_stat_log_path} 2>/dev/null &"
-  /apps/spack/0.17/ascend/linux-rhel8-zen3/openmpi/gcc/10.3.0/4.1.5-gjqoqo6/bin/mpirun --bind-to none -q \
+  "$MPIRUN_PATH" --bind-to none -q \
     -x GRPC_ENABLE_RDMA_SUPPORT \
     -x GRPC_RDMA_BUSY_POLLING_TIMEOUT_US \
     -x GRPC_RDMA_POLLER_THREAD_NUM \
@@ -135,6 +135,11 @@ function start_server() {
 
 if [[ ! -f "$MB_HOME/$SERVER_PROGRAM" ]]; then
   echo "Invalid MB_HOME"
+  exit 1
+fi
+
+if [[ ! -f "$MPIRUN_PATH" ]]; then
+  echo "Invalid MPIRUN_PATH"
   exit 1
 fi
 
@@ -160,7 +165,7 @@ else
     start_server "$server_log_path"
 
     # Evaluate
-    cmd="/apps/spack/0.17/ascend/linux-rhel8-zen3/openmpi/gcc/10.3.0/4.1.5-gjqoqo6/bin/mpirun --bind-to none \
+    cmd="$MPIRUN_PATH --bind-to none \
       -x GRPC_ENABLE_RDMA_SUPPORT \
       -x GRPC_RDMA_RING_BUFFER_SIZE_KB \
       -x GRPC_RDMA_BUSY_POLLING_TIMEOUT_US \
