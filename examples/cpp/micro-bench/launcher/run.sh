@@ -117,7 +117,7 @@ function start_server() {
   # Generate head
   pidstat  -r -u -w -h 1 1 | grep '#' > "${server_stat_log_path}"
   ssh "${SERVER}" "nohup sh -c 'pidstat  -r -u -w -h 1 | grep --line-buffered mb_server' >>${server_stat_log_path} 2>/dev/null &"
-  mpirun --bind-to none -q \
+  /apps/spack/0.17/ascend/linux-rhel8-zen3/openmpi/gcc/10.3.0/4.1.5-gjqoqo6/bin/mpirun --bind-to none -q \
     -x GRPC_ENABLE_RDMA_SUPPORT \
     -x GRPC_RDMA_BUSY_POLLING_TIMEOUT_US \
     -x GRPC_RDMA_POLLER_THREAD_NUM \
@@ -160,7 +160,7 @@ else
     start_server "$server_log_path"
 
     # Evaluate
-    cmd="mpirun --bind-to none \
+    cmd="/apps/spack/0.17/ascend/linux-rhel8-zen3/openmpi/gcc/10.3.0/4.1.5-gjqoqo6/bin/mpirun --bind-to none \
       -x GRPC_ENABLE_RDMA_SUPPORT \
       -x GRPC_RDMA_RING_BUFFER_SIZE_KB \
       -x GRPC_RDMA_BUSY_POLLING_TIMEOUT_US \
