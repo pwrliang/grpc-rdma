@@ -121,23 +121,23 @@ jobs:
 #          ssh $CI_SERVER "cd $(pwd) && $GITHUB_WORKSPACE/.github/workflows/run_all_variants.sh ./test.sh --test-async-client2=./release"
 #          popd
 
-#      - name: Build Micro-bench
-#        run: |
-#          CI_SERVER="${{ steps.alloc_nodes.outputs.ci_server }}"
-#
-#          pushd examples/cpp/micro-bench
-#          rm -rf debug && mkdir debug
-#          pushd debug
-#          PATH=$DBG_PREFIX/bin:$PATH cmake .. -DCMAKE_PREFIX_PATH=$DBG_PREFIX
-#          ssh $CI_SERVER "cd $(pwd) && make -j"
-#          popd
-#
-#          rm -rf release && mkdir release
-#          pushd release
-#          PATH=$REL_PREFIX/bin:$PATH cmake .. -DCMAKE_PREFIX_PATH=$REL_PREFIX
-#          ssh $CI_SERVER "cd $(pwd) && make -j"
-#          popd
-#          popd
+      - name: Build Micro-bench
+        run: |
+          CI_SERVER="${{ steps.alloc_nodes.outputs.ci_server }}"
+
+          pushd examples/cpp/micro-bench
+          rm -rf debug && mkdir debug
+          pushd debug
+          PATH=$DBG_PREFIX/bin:$PATH cmake .. -DCMAKE_PREFIX_PATH=$DBG_PREFIX
+          ssh $CI_SERVER "cd $(pwd) && make -j"
+          popd
+
+          rm -rf release && mkdir release
+          pushd release
+          PATH=$REL_PREFIX/bin:$PATH cmake .. -DCMAKE_PREFIX_PATH=$REL_PREFIX
+          ssh $CI_SERVER "cd $(pwd) && make -j"
+          popd
+          popd
 
       - name: Micro-bench Debug
         timeout-minutes: 20
