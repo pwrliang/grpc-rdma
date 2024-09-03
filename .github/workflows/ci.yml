@@ -158,4 +158,4 @@ jobs:
       - name: Cleanup
         if: failure() || success()
         run: |
-          squeue -n rpc_ci -u $USER -o %A | tail -n 1 | xargs scancel
+          squeue -n rpc_ci -u $USER -o %A -h | xargs scancel || true
