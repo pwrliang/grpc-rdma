@@ -67,6 +67,7 @@
 #include <sys/resource.h>      // IWYU pragma: keep
 #endif
 #include <netinet/in.h>  // IWYU pragma: keep
+#include <sys/poll.h>
 
 #include "src/core/lib/event_engine/rdma_engine/event_poller.h"
 #include "src/core/lib/ibverbs/poller.h"
@@ -145,9 +146,26 @@ bool RdmaEndpointImpl::RdmaDoRead(absl::Status& status) {
         break;
       } else {  // read zero bytes, something may go wrong
         auto pair_status = pair_->get_status();
+        // active exit
+        bool peer_exit =
+            pair_status == grpc_core::ibverbs::PairStatus::kHalfClosed;
 
-        if (pair_status == grpc_core::ibverbs::PairStatus::kHalfClosed) {
-          LOG(ERROR) << "Half closed, Pair " << pair_;
+        // passive exit
+        if (!peer_exit) {
+          pollfd fds[1];
+
+          fds[0].fd = fd_;
+          fds[0].events = POLLIN;
+
+          if (poll(fds, 1, 0) > 0) {
+            char buffer;
+
+            int bytes_received = recv(fd_, &buffer, 1, 0);
+            peer_exit = bytes_received == 0;
+          }
+        }
+
+        if (peer_exit) {
           incoming_buffer_->Clear();
           status = RdmaAnnotateError(absl::InternalError("Pair closed"));
           return true;
@@ -155,9 +173,9 @@ bool RdmaEndpointImpl::RdmaDoRead(absl::Status& status) {
           LOG(ERROR) << "Pair error, Pair " << pair_;
           incoming_buffer_->Clear();
           status = RdmaAnnotateError(absl::InternalError(pair_->get_error()));
-
           return true;
         }
+        // DoRead is invoked but no data to read and connection is still alive
         FinishEstimate();
         return false;
       }

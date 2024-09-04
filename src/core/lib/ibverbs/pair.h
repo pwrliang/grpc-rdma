@@ -281,6 +281,8 @@ class PairPool {
     PairPollable* pair = pairs_.front();
     pairs_.pop();
     id_pair_[id] = pair;
+    LOG(INFO) << "Take Pair " << pair << ", ID " << id;
+
     return pair;
   }
 
@@ -294,6 +296,7 @@ class PairPool {
     }
 
     pairs_.push(pair);
+    LOG(INFO) << "Putback Pair " << this << ", Active Pair " << pair_id_.size();
   }
 
   PairPollable* Get(const std::string& id) {

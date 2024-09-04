@@ -439,10 +439,10 @@ void BpevEventHandle::OrphanHandle(PosixEngineClosure* on_done, int* release_fd,
     LOG(ERROR) << "OrphanHandle: epoll_ctl failed: "
                << grpc_core::StrError(errno);
   }
-  LOG(INFO) << "OrphanHandle " << this;
   pair_->Disconnect();
   grpc_core::ibverbs::Poller::Get().RemovePollable(pair_);
   grpc_core::ibverbs::PairPool::Get().Putback(pair_);
+  pair_ = nullptr;
 }
 
 // if 'releasing_fd' is true, it means that we are going to detach the internal
@@ -508,6 +508,7 @@ BpevPoller::~BpevPoller() { Close(); }
 
 EventHandle* BpevPoller::CreateHandle(int fd, absl::string_view /*name*/,
                                       bool track_err) {
+  // We still relay on TCP fd to exchange pair data and monitor connection
   BpevEventHandle* new_handle = nullptr;
   {
     grpc_core::MutexLock lock(&mu_);
@@ -534,8 +535,6 @@ EventHandle* BpevPoller::CreateHandle(int fd, absl::string_view /*name*/,
     LOG(ERROR) << "epoll_ctl failed: " << grpc_core::StrError(errno);
   }
 
-  // TODO remove above logic
-  LOG(INFO) << "Create Handle";
   {
     struct epoll_event wakeup_ep_ev;
     wakeup_ep_ev.events = static_cast<uint32_t>(EPOLLIN | EPOLLET);
@@ -593,7 +592,10 @@ bool BpevPoller::ProcessEpollEvents(int max_epoll_events_to_handle,
 
           if (status != grpc_core::ibverbs::PairStatus::kUninitialized &&
               status != grpc_core::ibverbs::PairStatus::kDisconnected) {
-            CHECK(grpc_wakeup_fd_consume_wakeup(pair->get_wakeup_fd()).ok());
+            auto why = grpc_wakeup_fd_consume_wakeup(pair->get_wakeup_fd());
+            if (!why.ok()) {
+              LOG(ERROR) << "Consume wakeup fd error, " << why.message();
+            }
             /* If half-closed, trigger read to free resources */
             if (pair->HasMessage() ||
                 pair->get_status() ==
@@ -618,6 +620,7 @@ bool BpevPoller::ProcessEpollEvents(int max_epoll_events_to_handle,
         bool read_ev = (ev->events & (EPOLLIN | EPOLLPRI)) != 0;
         bool write_ev = (ev->events & EPOLLOUT) != 0;
         bool err_fallback = error && !track_err;
+
         if (handle->SetPendingActions(read_ev || cancel || err_fallback,
                                       write_ev || cancel || err_fallback,
                                       error && !err_fallback)) {
@@ -661,7 +664,6 @@ void BpevEventHandle::ShutdownHandle(absl::Status why) {
   // called in the OrphanHandle method.
   grpc_core::MutexLock lock(&mu_);
   HandleShutdownInternal(why, false);
-  LOG(INFO) << "ShutdownHandle";
 }
 
 bool BpevEventHandle::IsHandleShutdown() { return read_closure_->IsShutdown(); }

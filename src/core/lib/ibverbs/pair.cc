@@ -244,10 +244,10 @@ PairStatus PairPollable::get_status() {
       struct ibv_qp_attr attr;
       struct ibv_qp_init_attr init_attr;
 
-      if (ibv_query_qp(qp_, &attr, IBV_QP_STATE, &init_attr)) {
+      if (ibv_query_qp(qp_, &attr, IBV_QP_STATE, &init_attr) != 0) {
         return PairStatus::kDisconnected;
       }
-      if (qp_->state != IBV_QPS_RTS) {
+      if (attr.qp_state != IBV_QPS_RTS) {
         return PairStatus::kHalfClosed;
       }
       last_qp_query_ts_ = now;
