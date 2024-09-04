@@ -103,9 +103,9 @@ for i in "$@"; do
 done
 
 function kill_server() {
-  ssh "$SERVER" "pkill -9 pidstat"
+  ssh "$SERVER" "pkill -9 pidstat || true"
   # Signal to print profiling results
-  ssh "$SERVER" 'pgrep mb_server | xargs kill -USR1 2>/dev/null'
+  ssh "$SERVER" 'pgrep mb_server | xargs kill -USR1 2>/dev/null || true'
   # Kill Server
   ssh "$SERVER" 'pgrep mb_server | xargs kill -9 2>/dev/null && while [[ $(ps aux | pgrep mb_server) ]]; do sleep 1; done || true'
 }
