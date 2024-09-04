@@ -117,7 +117,7 @@ function start_server() {
   # Generate head
   pidstat -r -u -w -h 1 1 | grep '#' >"${server_stat_log_path}"
   ssh "${SERVER}" "nohup sh -c 'pidstat  -r -u -w -h 1 | grep --line-buffered mb_server' >>${server_stat_log_path} 2>/dev/null &"
-  "$MPIRUN_PATH" --bind-to none -q \
+  "$MPIRUN_PATH" --bind-to none \
     -x GRPC_ENABLE_RDMA_SUPPORT \
     -x GRPC_RDMA_BUSY_POLLING_TIMEOUT_US \
     -x GRPC_RDMA_POLLER_THREAD_NUM \
