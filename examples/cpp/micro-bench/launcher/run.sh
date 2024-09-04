@@ -117,7 +117,7 @@ function start_server() {
   # Generate head
   pidstat -r -u -w -h 1 1 | grep '#' >"${server_stat_log_path}"
   ssh "${SERVER}" "nohup sh -c 'pidstat  -r -u -w -h 1 | grep --line-buffered mb_server' >>${server_stat_log_path} 2>/dev/null &"
-  "$MPIRUN_PATH" --bind-to none \
+  mpirun --bind-to none \
     -x GRPC_ENABLE_RDMA_SUPPORT \
     -x GRPC_RDMA_BUSY_POLLING_TIMEOUT_US \
     -x GRPC_RDMA_POLLER_THREAD_NUM \
@@ -135,11 +135,6 @@ function start_server() {
 
 if [[ ! -f "$MB_HOME/$SERVER_PROGRAM" ]]; then
   echo "Invalid MB_HOME"
-  exit 1
-fi
-
-if [[ ! -f "$MPIRUN_PATH" ]]; then
-  echo "Invalid MPIRUN_PATH"
   exit 1
 fi
 
@@ -165,7 +160,7 @@ else
     start_server "$server_log_path"
 
     # Evaluate
-    cmd="$MPIRUN_PATH --bind-to none \
+    cmd="mpirun --bind-to none \
       -x GRPC_ENABLE_RDMA_SUPPORT \
       -x GRPC_RDMA_RING_BUFFER_SIZE_KB \
       -x GRPC_RDMA_BUSY_POLLING_TIMEOUT_US \
