@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-#set -e
+set -e
 SCRIPT_DIR=$(realpath "$(dirname "$0")")
 
 if [[ -z "$HOSTS_PATH" ]]; then
