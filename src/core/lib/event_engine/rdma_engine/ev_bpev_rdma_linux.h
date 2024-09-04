@@ -107,6 +107,9 @@ class BpevPoller : public grpc_event_engine::experimental::PosixEventPoller {
     // Index of the first event in epoll_events that has to be processed. This
     // field is only valid if num_events > 0
     int cursor = 0;
+
+    grpc_core::Mutex fd_mu;
+    std::list<BpevEventHandle*> fds;
   };
 #else
   struct EpollSet {};
@@ -119,6 +122,7 @@ class BpevPoller : public grpc_event_engine::experimental::PosixEventPoller {
   std::list<EventHandle*> free_epoll1_handles_list_ ABSL_GUARDED_BY(mu_);
   std::unique_ptr<WakeupFd> wakeup_fd_;
   bool closed_;
+  int polling_timeout_us_;
 };
 
 // Return an instance of a epoll1 based poller tied to the specified event

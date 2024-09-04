@@ -152,7 +152,7 @@ bool RdmaEndpointImpl::RdmaDoRead(absl::Status& status) {
 
         // passive exit
         if (!peer_exit) {
-          pollfd fds[1];
+          struct pollfd fds[1];
 
           fds[0].fd = fd_;
           fds[0].events = POLLIN;
