@@ -17,7 +17,7 @@ jobs:
         id: alloc_nodes
         run: |
           pushd examples/cpp/micro-bench/launcher
-          srun --nodes=2 --ntasks-per-node=1 --cpus-per-task=32 --partition=compute --job-name=rpc_ci sleep 3600 &
+          (srun --nodes=2 --ntasks-per-node=1 --cpus-per-task=32 --partition=compute --job-name=rpc_ci sleep 3600 &) || true
           # Wait allocation done
           while ! squeue -n rpc_ci --long -u $USER | grep -q "RUNNING"; do
               sleep 1
@@ -25,12 +25,12 @@ jobs:
           squeue -n rpc_ci -u $USER -o %N | tail -n 1 | xargs ./helper.sh
           CI_SERVER=$(head -n 1 hosts)
           echo "##[set-output name=ci_server;]$CI_SERVER"
+          echo "CI server is: $CI_SERVER"
           popd
 
       - name: Prepare Dependencies
         run: |
           CI_SERVER="${{ steps.alloc_nodes.outputs.ci_server }}"
-          echo "CI server is: $CI_SERVER"
 
           rm -rf $DBG_PREFIX $REL_PREFIX && mkdir -p $DBG_PREFIX $REL_PREFIX
           pushd third_party/abseil-cpp
