@@ -56,6 +56,7 @@
 #include <grpc/support/time.h>
 
 #include "src/core/lib/address_utils/sockaddr_utils.h"
+#include "src/core/lib/config/config_vars.h"
 #include "src/core/lib/event_engine/default_event_engine.h"
 #include "src/core/lib/event_engine/memory_allocator_factory.h"
 #include "src/core/lib/event_engine/posix_engine/posix_endpoint.h"
@@ -66,6 +67,7 @@
 #include "src/core/lib/iomgr/event_engine_shims/closure.h"
 #include "src/core/lib/iomgr/event_engine_shims/endpoint.h"
 #include "src/core/lib/iomgr/exec_ctx.h"
+#include "src/core/lib/iomgr/rdma_posix.h"
 #include "src/core/lib/iomgr/resolve_address.h"
 #include "src/core/lib/iomgr/sockaddr.h"
 #include "src/core/lib/iomgr/socket_utils_posix.h"
@@ -365,6 +367,17 @@ static void tcp_server_destroy(grpc_tcp_server* s) {
   }
 }
 
+static grpc_endpoint* create_endpoint(grpc_fd* em_fd,
+                                      const grpc_core::PosixTcpOptions& options,
+                                      absl::string_view peer_string) {
+  const grpc_core::ConfigVars& conf = grpc_core::ConfigVars::Get();
+  if (conf.EnableRdmaSupport()) {
+    return grpc_rdma_create(em_fd, options, peer_string);
+  } else {
+    return grpc_tcp_create(em_fd, options, peer_string);
+  }
+}
+
 // event manager callback when reads are ready
 static void on_read(void* arg, grpc_error_handle err) {
   grpc_tcp_listener* sp = static_cast<grpc_tcp_listener*>(arg);
@@ -481,7 +494,7 @@ static void on_read(void* arg, grpc_error_handle err) {
     acceptor->external_connection = false;
     sp->server->on_accept_cb(
         sp->server->on_accept_cb_arg,
-        grpc_tcp_create(fdobj, sp->server->options, addr_uri.value()),
+        create_endpoint(fdobj, sp->server->options, addr_uri.value()),
         read_notifier_pollset, acceptor);
   }
 
@@ -932,7 +945,7 @@ class ExternalConnectionHandler : public grpc_core::TcpServerFdHandler {
     acceptor->listener_fd = listener_fd;
     acceptor->pending_data = buf;
     s_->on_accept_cb(s_->on_accept_cb_arg,
-                     grpc_tcp_create(fdobj, s_->options, addr_uri.value()),
+                     create_endpoint(fdobj, s_->options, addr_uri.value()),
                      read_notifier_pollset, acceptor);
   }
 

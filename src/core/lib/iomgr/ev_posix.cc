@@ -36,6 +36,7 @@
 #include "src/core/lib/debug/trace.h"
 #include "src/core/lib/gprpp/crash.h"
 #include "src/core/lib/iomgr/ev_epoll1_linux.h"
+#include "src/core/lib/iomgr/ev_epoll1_rdma_linux.h"
 #include "src/core/lib/iomgr/ev_poll_posix.h"
 #include "src/core/lib/iomgr/ev_posix.h"
 #include "src/core/lib/iomgr/internal_errqueue.h"
@@ -73,6 +74,7 @@ static const grpc_event_engine_vtable* g_vtables[] = {
     nullptr,
     nullptr,
     nullptr,
+    &grpc_ev_epoll1_rdma_posix,
     &grpc_ev_epoll1_posix,
     &grpc_ev_poll_posix,
     &grpc_ev_none_posix,
@@ -182,6 +184,10 @@ void grpc_fd_set_pre_allocated(grpc_fd* fd) {
   GRPC_TRACE_LOG(fd_trace, INFO)
       << "(fd-trace) fd_set_pre_allocated(" << grpc_fd_wrapped_fd(fd) << ")";
   g_event_engine->fd_set_pre_allocated(fd);
+}
+
+void grpc_fd_set_arg(grpc_fd* fd, void* arg) {
+  g_event_engine->fd_set_arg(fd, arg);
 }
 
 void grpc_fd_shutdown(grpc_fd* fd, grpc_error_handle why) {

@@ -2353,6 +2353,7 @@ add_library(grpc
   src/core/lib/iomgr/error_cfstream.cc
   src/core/lib/iomgr/ev_apple.cc
   src/core/lib/iomgr/ev_epoll1_linux.cc
+  src/core/lib/iomgr/ev_epoll1_rdma_linux.cc
   src/core/lib/iomgr/ev_poll_posix.cc
   src/core/lib/iomgr/ev_posix.cc
   src/core/lib/iomgr/event_engine_shims/closure.cc
@@ -2383,6 +2384,7 @@ add_library(grpc
   src/core/lib/iomgr/resolve_address.cc
   src/core/lib/iomgr/resolve_address_posix.cc
   src/core/lib/iomgr/resolve_address_windows.cc
+  src/core/lib/iomgr/rdma_posix.cc
   src/core/lib/iomgr/sockaddr_utils_posix.cc
   src/core/lib/iomgr/socket_factory_posix.cc
   src/core/lib/iomgr/socket_mutator.cc
@@ -3210,6 +3212,7 @@ add_library(grpc_unsecure
   src/core/lib/iomgr/error_cfstream.cc
   src/core/lib/iomgr/ev_apple.cc
   src/core/lib/iomgr/ev_epoll1_linux.cc
+  src/core/lib/iomgr/ev_epoll1_rdma_linux.cc
   src/core/lib/iomgr/ev_poll_posix.cc
   src/core/lib/iomgr/ev_posix.cc
   src/core/lib/iomgr/event_engine_shims/closure.cc
@@ -3240,6 +3243,7 @@ add_library(grpc_unsecure
   src/core/lib/iomgr/resolve_address.cc
   src/core/lib/iomgr/resolve_address_posix.cc
   src/core/lib/iomgr/resolve_address_windows.cc
+  src/core/lib/iomgr/rdma_posix.cc
   src/core/lib/iomgr/sockaddr_utils_posix.cc
   src/core/lib/iomgr/socket_factory_posix.cc
   src/core/lib/iomgr/socket_mutator.cc
@@ -5437,6 +5441,7 @@ add_library(grpc_authorization_provider
   src/core/lib/iomgr/error_cfstream.cc
   src/core/lib/iomgr/ev_apple.cc
   src/core/lib/iomgr/ev_epoll1_linux.cc
+  src/core/lib/iomgr/ev_epoll1_rdma_linux.cc
   src/core/lib/iomgr/ev_poll_posix.cc
   src/core/lib/iomgr/ev_posix.cc
   src/core/lib/iomgr/event_engine_shims/closure.cc
@@ -5467,6 +5472,7 @@ add_library(grpc_authorization_provider
   src/core/lib/iomgr/resolve_address.cc
   src/core/lib/iomgr/resolve_address_posix.cc
   src/core/lib/iomgr/resolve_address_windows.cc
+  src/core/lib/iomgr/rdma_posix.cc
   src/core/lib/iomgr/sockaddr_utils_posix.cc
   src/core/lib/iomgr/socket_factory_posix.cc
   src/core/lib/iomgr/socket_mutator.cc
@@ -9170,6 +9176,7 @@ add_executable(call_utils_test
   src/core/lib/iomgr/error_cfstream.cc
   src/core/lib/iomgr/ev_apple.cc
   src/core/lib/iomgr/ev_epoll1_linux.cc
+  src/core/lib/iomgr/ev_epoll1_rdma_linux.cc
   src/core/lib/iomgr/ev_poll_posix.cc
   src/core/lib/iomgr/ev_posix.cc
   src/core/lib/iomgr/event_engine_shims/closure.cc
@@ -9200,6 +9207,7 @@ add_executable(call_utils_test
   src/core/lib/iomgr/resolve_address.cc
   src/core/lib/iomgr/resolve_address_posix.cc
   src/core/lib/iomgr/resolve_address_windows.cc
+  src/core/lib/iomgr/rdma_posix.cc
   src/core/lib/iomgr/sockaddr_utils_posix.cc
   src/core/lib/iomgr/socket_factory_posix.cc
   src/core/lib/iomgr/socket_mutator.cc
