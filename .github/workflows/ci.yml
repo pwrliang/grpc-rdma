@@ -17,7 +17,7 @@ jobs:
         id: alloc_nodes
         run: |
           pushd examples/cpp/micro-bench/launcher
-          (srun --nodes=2 --ntasks-per-node=1 --cpus-per-task=16 --partition=devel --job-name=rpc_ci sleep 3600 &) || true
+          (srun --nodes=2 --ntasks-per-node=1 --cpus-per-task=16 --partition=mi100 --job-name=rpc_ci sleep 3600 &) || true
           # Wait allocation done
           while ! squeue -n rpc_ci --long -u $USER | grep -q "RUNNING"; do
               sleep 1
