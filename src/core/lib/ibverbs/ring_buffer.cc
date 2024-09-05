@@ -116,10 +116,6 @@ uint64_t RingBufferPollable::GetWritableSize(uint64_t head,
   return remaining;
 }
 
-uint64_t RingBufferPollable::GetWritableSize(uint64_t tail) const {
-  return GetWritableSize(moving_head_, tail);
-}
-
 uint64_t RingBufferPollable::Read(void* dst_buf, uint64_t capacity,
                                   uint64_t* internal_bytes_read) {
   auto readable_size = GetReadableSize();
@@ -229,34 +225,6 @@ uint64_t RingBufferPollable::Write(uint8_t* dst_buf, uint64_t tail,
 uint64_t RingBufferPollable::Write(uint64_t tail, void* src_buf,
                                    uint64_t size) const {
   return Write(buf_, tail, src_buf, size);
-}
-
-uint64_t RingBufferPollable::GetWriteRequests(
-    uint64_t size, uint64_t tail,
-    std::vector<ring_buffer_write_request>& reqs) {
-  reqs.clear();
-  assert(tail < capacity_);
-  if (size == 0) {
-    return tail;
-  }
-  uint64_t end = (tail + size) & capacity_mask_;
-  uint64_t size_seg1;
-
-  if (tail < end) {
-    size_seg1 = size;
-  } else {  // circular case
-    size_seg1 = size - end;
-  }
-
-  reqs.emplace_back(0, tail, size_seg1);
-
-  uint64_t size_seg2 = size - size_seg1;
-
-  if (size_seg2 > 0) {
-    reqs.emplace_back(size_seg1, 0, size_seg2);
-  }
-  tail = (tail + size) & capacity_mask_;
-  return tail;
 }
 
 uint64_t RingBufferPollable::GetWriteRequests(
