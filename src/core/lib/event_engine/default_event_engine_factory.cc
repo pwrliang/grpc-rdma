@@ -14,12 +14,10 @@
 
 #include "src/core/lib/event_engine/default_event_engine_factory.h"
 
-#include <memory>
-
 #include <grpc/event_engine/event_engine.h>
 #include <grpc/support/port_platform.h>
 
-#include "src/core/lib/config/config_vars.h"
+#include <memory>
 
 #if defined(GPR_WINDOWS)
 #include "src/core/lib/event_engine/windows/windows_engine.h"
@@ -46,6 +44,7 @@ std::unique_ptr<EventEngine> DefaultEventEngineFactory() {
 }  // namespace experimental
 }  // namespace grpc_event_engine
 #else
+#include "src/core/lib/config/config_vars.h"
 #include "src/core/lib/event_engine/posix_engine/posix_engine.h"
 #include "src/core/lib/event_engine/rdma_engine/rdma_engine.h"
 
