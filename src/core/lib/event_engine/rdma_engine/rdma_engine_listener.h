@@ -239,7 +239,7 @@ class RdmaEngineListener : public PosixListenerWithFdSupport {
 
 #else  // GRPC_POSIX_SOCKET_TCP
 
-#include "src/core/lib/gprpp/crash.h"
+#include "src/core/util/crash.h"
 
 class RdmaEngineListener : public PosixListenerWithFdSupport {
  public:

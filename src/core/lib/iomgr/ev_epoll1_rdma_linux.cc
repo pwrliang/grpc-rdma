@@ -18,7 +18,7 @@
 
 #include <grpc/support/port_platform.h>
 
-#include "src/core/lib/gprpp/crash.h"
+#include "src/core/util/crash.h"
 #include "src/core/lib/iomgr/port.h"
 
 // This polling engine is only relevant on linux kernels supporting epoll
@@ -48,8 +48,8 @@
 #include <grpc/support/cpu.h>
 
 #include "src/core/lib/config/config_vars.h"
-#include "src/core/lib/gprpp/manual_constructor.h"
-#include "src/core/lib/gprpp/strerror.h"
+#include "src/core/util/manual_constructor.h"
+#include "src/core/util/strerror.h"
 #include "src/core/lib/ibverbs/pair.h"
 #include "src/core/lib/iomgr/block_annotate.h"
 #include "src/core/lib/iomgr/ev_epoll1_rdma_linux.h"
