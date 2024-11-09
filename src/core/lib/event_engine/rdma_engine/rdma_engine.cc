@@ -13,6 +13,11 @@
 // limitations under the License.
 #include "src/core/lib/event_engine/rdma_engine/rdma_engine.h"
 
+#include <grpc/event_engine/event_engine.h>
+#include <grpc/event_engine/memory_allocator.h>
+#include <grpc/event_engine/slice_buffer.h>
+#include <grpc/support/cpu.h>
+#include <grpc/support/port_platform.h>
 #include <poll.h>
 
 #include <algorithm>
@@ -32,13 +37,6 @@
 #include "absl/status/status.h"
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
-
-#include <grpc/event_engine/event_engine.h>
-#include <grpc/event_engine/memory_allocator.h>
-#include <grpc/event_engine/slice_buffer.h>
-#include <grpc/support/cpu.h>
-#include <grpc/support/port_platform.h>
-
 #include "src/core/lib/debug/trace.h"
 #include "src/core/lib/event_engine/ares_resolver.h"
 #include "src/core/lib/event_engine/forkable.h"
@@ -51,11 +49,11 @@
 #include "src/core/lib/event_engine/posix_engine/timer.h"
 #include "src/core/lib/event_engine/tcp_socket_utils.h"
 #include "src/core/lib/event_engine/utils.h"
-#include "src/core/util/crash.h"
-#include "src/core/lib/gprpp/no_destruct.h"
-#include "src/core/lib/gprpp/strerror.h"
-#include "src/core/lib/gprpp/sync.h"
 #include "src/core/lib/ibverbs/pair.h"
+#include "src/core/util/crash.h"
+#include "src/core/util/no_destruct.h"
+#include "src/core/util/strerror.h"
+#include "src/core/util/sync.h"
 #include "src/core/util/useful.h"
 
 #ifdef GRPC_POSIX_SOCKET_TCP
@@ -248,14 +246,15 @@ void RdmaAsyncConnect::OnWritable(absl::Status status)
   }
 }
 
-EventEngine::ConnectionHandle RdmaEventEngine::ConnectInternal(
-    PosixSocketWrapper sock, OnConnectCallback on_connect, ResolvedAddress addr,
-    MemoryAllocator&& allocator, const PosixTcpOptions& options,
+EventEngine::ConnectionHandle
+RdmaEventEngine::CreateEndpointFromUnconnectedFdInternal(
+    int fd, OnConnectCallback on_connect, ResolvedAddress addr,
+    const PosixTcpOptions& options, MemoryAllocator&& allocator,
     Duration timeout) {
   int err;
   int connect_errno;
   do {
-    err = connect(sock.Fd(), addr.address(), addr.size());
+    err = connect(fd, addr.address(), addr.size());
   } while (err < 0 && errno == EINTR);
   connect_errno = (err < 0) ? errno : 0;
 
@@ -274,7 +273,7 @@ EventEngine::ConnectionHandle RdmaEventEngine::ConnectInternal(
 
   PosixEventPoller* poller = poller_manager_->Poller();
   RdmaEventHandle* handle = dynamic_cast<RdmaEventHandle*>(
-      poller->CreateHandle(sock.Fd(), name, poller->CanTrackErrors()));
+      poller->CreateHandle(fd, name, poller->CanTrackErrors()));
 
   // socket is ok
   if (connect_errno == 0) {
@@ -663,11 +662,26 @@ EventEngine::ConnectionHandle RdmaEventEngine::Connect(
          status = socket.status()]() mutable { on_connect(status); });
     return EventEngine::ConnectionHandle::kInvalid;
   }
-  return ConnectInternal((*socket).sock, std::move(on_connect),
-                         (*socket).mapped_target_addr,
-                         std::move(memory_allocator), options, timeout);
+  return CreateEndpointFromUnconnectedFdInternal(
+      (*socket).sock.Fd(), std::move(on_connect), (*socket).mapped_target_addr,
+      options, std::move(memory_allocator), timeout);
 #else   // GRPC_PLATFORM_SUPPORTS_POSIX_POLLING
   grpc_core::Crash("EventEngine::Connect is not supported on this platform");
+#endif  // GRPC_PLATFORM_SUPPORTS_POSIX_POLLING
+}
+
+EventEngine::ConnectionHandle RdmaEventEngine::CreateEndpointFromUnconnectedFd(
+    int fd, EventEngine::OnConnectCallback on_connect,
+    const EventEngine::ResolvedAddress& addr, const EndpointConfig& config,
+    MemoryAllocator memory_allocator, EventEngine::Duration timeout) {
+#if GRPC_PLATFORM_SUPPORTS_POSIX_POLLING
+  return CreateEndpointFromUnconnectedFdInternal(
+      fd, std::move(on_connect), addr, TcpOptionsFromEndpointConfig(config),
+      std::move(memory_allocator), timeout);
+#else   // GRPC_PLATFORM_SUPPORTS_POSIX_POLLING
+  grpc_core::Crash(
+      "EventEngine::CreateEndpointFromUnconnectedFd is not supported on this "
+      "platform");
 #endif  // GRPC_PLATFORM_SUPPORTS_POSIX_POLLING
 }
 

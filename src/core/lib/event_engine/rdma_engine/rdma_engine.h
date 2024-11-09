@@ -13,6 +13,11 @@
 // limitations under the License.
 #ifndef GRPC_SRC_CORE_LIB_EVENT_ENGINE_RDMA_ENGINE_RDMA_ENGINE_H
 #define GRPC_SRC_CORE_LIB_EVENT_ENGINE_RDMA_ENGINE_RDMA_ENGINE_H
+#include <grpc/event_engine/endpoint_config.h>
+#include <grpc/event_engine/event_engine.h>
+#include <grpc/event_engine/memory_allocator.h>
+#include <grpc/support/port_platform.h>
+
 #include <atomic>
 #include <cstdint>
 #include <memory>
@@ -27,22 +32,16 @@
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
-
-#include <grpc/event_engine/endpoint_config.h>
-#include <grpc/event_engine/event_engine.h>
-#include <grpc/event_engine/memory_allocator.h>
-#include <grpc/support/port_platform.h>
-
 #include "src/core/lib/event_engine/handle_containers.h"
 #include "src/core/lib/event_engine/posix.h"
 #include "src/core/lib/event_engine/posix_engine/timer_manager.h"
 #include "src/core/lib/event_engine/rdma_engine/event_poller.h"
 #include "src/core/lib/event_engine/ref_counted_dns_resolver_interface.h"
 #include "src/core/lib/event_engine/thread_pool/thread_pool.h"
-#include "src/core/lib/gprpp/orphanable.h"
-#include "src/core/lib/gprpp/sync.h"
 #include "src/core/lib/iomgr/port.h"
 #include "src/core/lib/surface/init_internally.h"
+#include "src/core/util/orphanable.h"
+#include "src/core/util/sync.h"
 
 #ifdef GRPC_POSIX_SOCKET_TCP
 #include "src/core/lib/event_engine/posix_engine/posix_engine_closure.h"
@@ -104,7 +103,8 @@ class RdmaEnginePollerManager
  public:
   explicit RdmaEnginePollerManager(std::shared_ptr<ThreadPool> executor);
   explicit RdmaEnginePollerManager(
-      std::shared_ptr<grpc_event_engine::experimental::PosixEventPoller> poller);
+      std::shared_ptr<grpc_event_engine::experimental::PosixEventPoller>
+          poller);
   grpc_event_engine::experimental::PosixEventPoller* Poller() {
     return poller_.get();
   }
@@ -160,7 +160,8 @@ class RdmaEventEngine final : public PosixEventEngineWithFdSupport,
   // MakeTestOnlyPosixEventEngine static method. Its expected to be used only in
   // tests.
   explicit RdmaEventEngine(
-      std::shared_ptr<grpc_event_engine::experimental::PosixEventPoller> poller);
+      std::shared_ptr<grpc_event_engine::experimental::PosixEventPoller>
+          poller);
   RdmaEventEngine();
 #else   // GRPC_POSIX_SOCKET_TCP
   RdmaEventEngine();
@@ -173,6 +174,11 @@ class RdmaEventEngine final : public PosixEventEngineWithFdSupport,
       MemoryAllocator memory_allocator) override;
   std::unique_ptr<EventEngine::Endpoint> CreateEndpointFromFd(
       int fd, const EndpointConfig& config) override;
+
+  ConnectionHandle CreateEndpointFromUnconnectedFd(
+      int fd, EventEngine::OnConnectCallback on_connect,
+      const EventEngine::ResolvedAddress& addr, const EndpointConfig& config,
+      MemoryAllocator memory_allocator, EventEngine::Duration timeout) override;
 
   absl::StatusOr<std::unique_ptr<Listener>> CreateListener(
       Listener::AcceptCallback on_accept,
@@ -235,12 +241,10 @@ class RdmaEventEngine final : public PosixEventEngineWithFdSupport,
   static void PollerWorkInternal(
       std::shared_ptr<RdmaEnginePollerManager> poller_manager);
 
-  ConnectionHandle ConnectInternal(
-      grpc_event_engine::experimental::PosixSocketWrapper sock,
-      OnConnectCallback on_connect, ResolvedAddress addr,
-      MemoryAllocator&& allocator,
+  ConnectionHandle CreateEndpointFromUnconnectedFdInternal(
+      int fd, OnConnectCallback on_connect, ResolvedAddress addr,
       const grpc_event_engine::experimental::PosixTcpOptions& options,
-      Duration timeout);
+      MemoryAllocator&& allocator, Duration timeout);
 
   void OnConnectFinishInternal(int connection_handle);
 

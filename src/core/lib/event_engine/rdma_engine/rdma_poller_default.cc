@@ -24,7 +24,7 @@
 #include "src/core/lib/event_engine/forkable.h"
 #include "src/core/lib/event_engine/posix_engine/event_poller.h"
 #include "src/core/lib/event_engine/rdma_engine/ev_bpev_rdma_linux.h"
-#include "src/core/lib/gprpp/no_destruct.h"
+#include "src/core/util/no_destruct.h"
 #include "src/core/lib/iomgr/port.h"
 
 namespace grpc_event_engine {
