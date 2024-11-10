@@ -419,8 +419,26 @@ static bool rdma_do_read(grpc_rdma* rdma, grpc_error_handle* error)
         break;
       } else {
         auto status = pair->get_status();
+        // active exit
+        bool peer_exit =
+            status == grpc_core::ibverbs::PairStatus::kHalfClosed;
 
-        if (status == grpc_core::ibverbs::PairStatus::kHalfClosed) {
+        // passive exit
+        if (!peer_exit) {
+          struct pollfd fds[1];
+
+          fds[0].fd = rdma->fd;
+          fds[0].events = POLLIN;
+
+          if (poll(fds, 1, 0) > 0) {
+            char buffer;
+
+            int bytes_received = recv(rdma->fd, &buffer, 1, 0);
+            peer_exit = bytes_received == 0;
+          }
+        }
+
+        if (peer_exit) {
           LOG(ERROR) << "Half closed, Pair " << pair;
           grpc_slice_buffer_reset_and_unref(rdma->incoming_buffer);
           *error =
@@ -431,7 +449,6 @@ static bool rdma_do_read(grpc_rdma* rdma, grpc_error_handle* error)
           grpc_slice_buffer_reset_and_unref(rdma->incoming_buffer);
           std::string err = "Pair error, " + rdma->pair->get_error();
           *error = rdma_annotate_error(absl::InternalError(err), rdma);
-
           return true;
         }
         finish_estimate(rdma);
