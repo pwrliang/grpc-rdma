@@ -233,9 +233,10 @@ void RdmaEngineListenerImpl::AsyncConnectionAcceptor::NotifyOnAccept(
 
     handle->InitializePair(status);
 
+    // Initialize pair failed, drop the connection
     if (!status.ok()) {
-      LOG(ERROR) << "Cannot initialize Pair";
-      Unref();
+      close(fd);
+      handle_->NotifyOnRead(notify_on_accept_);
       return;
     }
 

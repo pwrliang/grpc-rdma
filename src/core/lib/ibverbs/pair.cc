@@ -10,7 +10,6 @@
 #include "src/core/lib/ibverbs/pair.h"
 
 #include "absl/log/absl_check.h"
-
 #include "src/core/lib/config/config_vars.h"
 #include "src/core/lib/ibverbs/ring_buffer.h"
 
@@ -142,8 +141,16 @@ bool PairPollable::Connect(const std::vector<char>& bytes) {
     LOG(INFO) << "Connecting Pair " << this;
     peer_ = Address(bytes);
 
-    CHECK_EQ(peer_.addr_.tag, self_.addr_.tag);
-    CHECK_EQ(peer_.addr_.ring_buffer_size, self_.addr_.ring_buffer_size);
+    if (peer_.addr_.tag != self_.addr_.tag) {
+      LOG(ERROR) << "Client or Server does not enable RDMA support";
+      return false;
+    } else if (peer_.addr_.ring_buffer_size != self_.addr_.ring_buffer_size) {
+      LOG(ERROR) << "Ring buffer size does not match to the peer, local ring "
+                    "buffer size: "
+                 << self_.addr_.ring_buffer_size
+                 << " peer size: " << peer_.addr_.ring_buffer_size;
+      return false;
+    }
 
     initQPs();
 

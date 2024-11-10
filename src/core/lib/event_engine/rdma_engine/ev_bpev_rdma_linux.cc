@@ -676,9 +676,9 @@ int BpevPoller::DoEpollWait(EventEngine::Duration timeout) {
         auto* fd = *it;
         auto* pair = fd->GetPair();
 
-        CHECK(pair != nullptr);
-
-        if (pair->get_status() == grpc_core::ibverbs::PairStatus::kConnected) {
+        // pair can be null if InitializePair fails
+        if (pair != nullptr &&
+            pair->get_status() == grpc_core::ibverbs::PairStatus::kConnected) {
           bool readable = pair->HasMessage();
           bool writable = pair->HasPendingWrites();
           uint32_t events = 0;
