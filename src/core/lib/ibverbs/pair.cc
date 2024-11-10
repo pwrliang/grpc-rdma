@@ -19,9 +19,9 @@ namespace ibverbs {
 
 PairPollable::PairPollable()
     : dev_(Device::Get()),
+      status_(PairStatus::kUninitialized),
       read_content_(0),
-      write_content_(0),
-      status_(PairStatus::kUninitialized) {
+      write_content_(0) {
   auto& config = ConfigVars::Get();
 
   cq_ =

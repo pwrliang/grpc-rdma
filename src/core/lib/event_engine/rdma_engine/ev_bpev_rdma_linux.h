@@ -27,7 +27,6 @@
 #include <grpc/support/port_platform.h>
 
 #include "src/core/lib/event_engine/poller.h"
-#include "src/core/lib/event_engine/posix_engine/internal_errqueue.h"
 #include "src/core/lib/event_engine/posix_engine/wakeup_fd_posix.h"
 #include "src/core/lib/event_engine/rdma_engine/event_poller.h"
 #include "src/core/util/sync.h"

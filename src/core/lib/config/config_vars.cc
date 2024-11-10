@@ -127,7 +127,6 @@ ConfigVars::ConfigVars(const Overrides& overrides)
       override_system_ssl_roots_dir_(overrides.system_ssl_roots_dir),
       override_default_ssl_roots_file_path_(
           overrides.default_ssl_roots_file_path),
-      override_rdma_device_name_(overrides.rdma_device_name),
       rdma_port_num_(LoadConfig(FLAGS_grpc_rdma_port_num, "GRPC_RDMA_PORT_NUM",
                                 overrides.rdma_port_num, 1)),
       rdma_gid_index_(LoadConfig(FLAGS_grpc_rdma_gid_index,
@@ -146,7 +145,8 @@ ConfigVars::ConfigVars(const Overrides& overrides)
                      overrides.rdma_poller_sleep_timeout_ms, 1000)),
       rdma_ring_buffer_size_kb_(LoadConfig(
           FLAGS_grpc_rdma_ring_buffer_size_kb, "GRPC_RDMA_RING_BUFFER_SIZE_KB",
-          overrides.rdma_ring_buffer_size_kb, 4096)) {}
+          overrides.rdma_ring_buffer_size_kb, 4096)),
+      override_rdma_device_name_(overrides.rdma_device_name){}
 
 std::string ConfigVars::SystemSslRootsDir() const {
   return LoadConfig(FLAGS_grpc_system_ssl_roots_dir,
