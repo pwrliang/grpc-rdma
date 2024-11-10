@@ -1273,7 +1273,7 @@ const grpc_event_engine_vtable grpc_ev_epoll1_rdma_posix = {
     pollset_set_del_pollset_set, pollset_set_add_fd, pollset_set_del_fd,
 
     is_any_background_poller_thread,
-    /* name = */ "epoll1",
+    /* name = */ "epoll1-rdma",
     /* check_engine_available = */
     [](bool) {
       const grpc_core::ConfigVars& config = grpc_core::ConfigVars::Get();

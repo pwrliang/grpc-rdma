@@ -2349,6 +2349,7 @@ add_library(grpc
   src/core/lib/iomgr/ev_apple.cc
   src/core/lib/iomgr/ev_epoll1_linux.cc
   src/core/lib/iomgr/ev_epoll1_rdma_linux.cc
+  src/core/lib/iomgr/ev_epollex_rdma_linux.cc
   src/core/lib/iomgr/ev_poll_posix.cc
   src/core/lib/iomgr/ev_posix.cc
   src/core/lib/iomgr/event_engine_shims/closure.cc
@@ -3213,6 +3214,7 @@ add_library(grpc_unsecure
   src/core/lib/iomgr/ev_apple.cc
   src/core/lib/iomgr/ev_epoll1_linux.cc
   src/core/lib/iomgr/ev_epoll1_rdma_linux.cc
+  src/core/lib/iomgr/ev_epollex_rdma_linux.cc
   src/core/lib/iomgr/ev_poll_posix.cc
   src/core/lib/iomgr/ev_posix.cc
   src/core/lib/iomgr/event_engine_shims/closure.cc
@@ -5448,6 +5450,7 @@ add_library(grpc_authorization_provider
   src/core/lib/iomgr/ev_apple.cc
   src/core/lib/iomgr/ev_epoll1_linux.cc
   src/core/lib/iomgr/ev_epoll1_rdma_linux.cc
+  src/core/lib/iomgr/ev_epollex_rdma_linux.cc
   src/core/lib/iomgr/ev_poll_posix.cc
   src/core/lib/iomgr/ev_posix.cc
   src/core/lib/iomgr/event_engine_shims/closure.cc
@@ -9241,6 +9244,7 @@ add_executable(call_utils_test
   src/core/lib/iomgr/ev_apple.cc
   src/core/lib/iomgr/ev_epoll1_linux.cc
   src/core/lib/iomgr/ev_epoll1_rdma_linux.cc
+  src/core/lib/iomgr/ev_epollex_rdma_linux.cc
   src/core/lib/iomgr/ev_poll_posix.cc
   src/core/lib/iomgr/ev_posix.cc
   src/core/lib/iomgr/event_engine_shims/closure.cc
