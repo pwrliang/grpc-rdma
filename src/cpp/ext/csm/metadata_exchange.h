@@ -93,7 +93,7 @@ class MeshLabelsIterable : public LabelsIterable {
           local_labels,
       grpc_core::Slice remote_metadata);
 
-  absl::optional<std::pair<absl::string_view, absl::string_view>> Next()
+  std::optional<std::pair<absl::string_view, absl::string_view>> Next()
       override;
 
   size_t Size() const override;
@@ -111,11 +111,6 @@ class MeshLabelsIterable : public LabelsIterable {
   GcpResourceType remote_type_ = GcpResourceType::kUnknown;
   uint32_t pos_ = 0;
 };
-
-// Returns the mesh ID by reading and parsing the bootstrap file. Returns
-// "unknown" if for some reason, mesh ID could not be figured out.
-// EXPOSED FOR TESTING PURPOSES ONLY.
-std::string GetMeshId();
 
 }  // namespace internal
 }  // namespace grpc
