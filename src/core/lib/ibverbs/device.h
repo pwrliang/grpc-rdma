@@ -16,7 +16,7 @@
 #include <string>
 #include <thread>
 
-#include "src/core/lib/config/config_vars.h"
+#include "src/core/config/config_vars.h"
 
 namespace grpc_core {
 namespace ibverbs {

@@ -175,7 +175,7 @@ void grpc_fd_set_error(grpc_fd* fd);
 void grpc_fd_set_pre_allocated(grpc_fd* fd);
 
 // Set arg to the fd
-void grpc_fd_set_arg(grpc_fd* fd, void *arg);
+void grpc_fd_set_arg(grpc_fd* fd, void* arg);
 
 // pollset_posix functions
 

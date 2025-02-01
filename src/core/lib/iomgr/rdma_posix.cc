@@ -16,21 +16,25 @@
 //
 //
 
+#include <grpc/impl/grpc_types.h>
+#include <grpc/support/port_platform.h>
+
 #include "absl/base/thread_annotations.h"
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/optional.h"
-
-#include <grpc/impl/grpc_types.h>
-#include <grpc/support/port_platform.h>
-
 #include "src/core/lib/iomgr/exec_ctx.h"
 #include "src/core/lib/iomgr/port.h"
 
 #ifdef GRPC_USE_IBVERBS
 
 #include <errno.h>
+#include <grpc/slice.h>
+#include <grpc/support/alloc.h>
+#include <grpc/support/string_util.h>
+#include <grpc/support/sync.h>
+#include <grpc/support/time.h>
 #include <limits.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
@@ -47,21 +51,9 @@
 
 #include "absl/log/check.h"
 #include "absl/log/log.h"
-
-#include <grpc/slice.h>
-#include <grpc/support/alloc.h>
-#include <grpc/support/string_util.h>
-#include <grpc/support/sync.h>
-#include <grpc/support/time.h>
-
 #include "src/core/lib/address_utils/sockaddr_utils.h"
-#include "src/core/util/event_log.h"
 #include "src/core/lib/debug/trace.h"
 #include "src/core/lib/experiments/experiments.h"
-#include "src/core/util/crash.h"
-#include "src/core/util/strerror.h"
-#include "src/core/util/sync.h"
-#include "src/core/util/time.h"
 #include "src/core/lib/ibverbs/pair.h"
 #include "src/core/lib/ibverbs/poller.h"
 #include "src/core/lib/iomgr/buffer_list.h"
@@ -76,7 +68,12 @@
 #include "src/core/lib/slice/slice_string_helpers.h"
 #include "src/core/telemetry/stats.h"
 #include "src/core/telemetry/stats_data.h"
+#include "src/core/util/crash.h"
+#include "src/core/util/event_log.h"
+#include "src/core/util/strerror.h"
 #include "src/core/util/string.h"
+#include "src/core/util/sync.h"
+#include "src/core/util/time.h"
 #include "src/core/util/useful.h"
 
 namespace {
@@ -420,8 +417,7 @@ static bool rdma_do_read(grpc_rdma* rdma, grpc_error_handle* error)
       } else {
         auto status = pair->get_status();
         // active exit
-        bool peer_exit =
-            status == grpc_core::ibverbs::PairStatus::kHalfClosed;
+        bool peer_exit = status == grpc_core::ibverbs::PairStatus::kHalfClosed;
 
         // passive exit
         if (!peer_exit) {

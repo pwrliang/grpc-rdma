@@ -124,3 +124,42 @@
   type: bool
   description: "EXPERIMENTAL. Only respected when there is a dependency on :grpc++_reflection. If true, no reflection server will be automatically added."
   default: false
+- name: enable_rdma_support
+  type: bool
+  prelude: |
+    #ifdef GRPC_USE_IBVERBS
+    #define GRPC_ENABLE_RDMA_SUPPORT_DEFAULT true
+    #else
+    #define GRPC_ENABLE_RDMA_SUPPORT_DEFAULT false
+    #endif  // GRPC_USE_IBVERBS
+  default: $GRPC_ENABLE_RDMA_SUPPORT_DEFAULT
+  description: Enable RDMA support
+- name: rdma_port_num
+  type: int
+  default: 1
+  description: The port number of RDMA device being used
+- name: rdma_gid_index
+  type: int
+  default: 0
+  description: The GID index of RDMA device being used
+- name: rdma_poller_thread_num
+  type: int
+  default: 1
+  description: How many polling threads are used to detect incoming messages
+- name: rdma_busy_polling_timeout_us
+  type: int
+  default: 500
+  description: A threshold hold to determine whether resort to epoll to wait for incoming messages in microseconds
+- name: rdma_poller_sleep_timeout_ms
+  type: int
+  default: 1000
+  description: Putting polling threads into sleep if no connections are found within the timeout
+- name: rdma_ring_buffer_size_kb
+  type: int
+  default: 4096
+  description: Ring buffer size in KB per connection
+- name: rdma_device_name
+  type: string
+  default:
+  description: RDMA device name
+  force-load-on-access: true

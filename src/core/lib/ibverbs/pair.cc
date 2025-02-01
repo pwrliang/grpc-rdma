@@ -10,7 +10,7 @@
 #include "src/core/lib/ibverbs/pair.h"
 
 #include "absl/log/absl_check.h"
-#include "src/core/lib/config/config_vars.h"
+#include "src/core/config/config_vars.h"
 #include "src/core/lib/ibverbs/ring_buffer.h"
 
 namespace grpc_core {

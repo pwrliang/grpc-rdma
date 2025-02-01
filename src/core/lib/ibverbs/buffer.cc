@@ -1,7 +1,7 @@
 #ifdef GRPC_USE_IBVERBS
-#include "absl/log/absl_check.h"
-
 #include "src/core/lib/ibverbs/buffer.h"
+
+#include "absl/log/absl_check.h"
 
 namespace grpc_core {
 namespace ibverbs {

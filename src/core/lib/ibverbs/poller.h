@@ -6,7 +6,7 @@
 #include <mutex>
 #include <queue>
 
-#include "src/core/lib/config/config_vars.h"
+#include "src/core/config/config_vars.h"
 #include "src/core/lib/ibverbs/pair.h"
 
 #define GRPC_IBVERBS_POLLER_CAPACITY (4096)

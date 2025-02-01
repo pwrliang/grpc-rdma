@@ -40,7 +40,7 @@ std::unique_ptr<EventEngine> DefaultEventEngineFactory() {
 
 }  // namespace grpc_event_engine::experimental
 #else
-#include "src/core/lib/config/config_vars.h"
+#include "src/core/config/config_vars.h"
 #include "src/core/lib/event_engine/posix_engine/posix_engine.h"
 #include "src/core/lib/event_engine/rdma_engine/rdma_engine.h"
 

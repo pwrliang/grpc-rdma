@@ -19,12 +19,12 @@
 #ifndef MICROBENCHMARK_INTERARRIVAL_H
 #define MICROBENCHMARK_INTERARRIVAL_H
 
+#include <grpcpp/support/config.h>
+
 #include <chrono>
 #include <cmath>
 #include <random>
 #include <vector>
-
-#include <grpcpp/support/config.h>
 
 // First create classes that define a random distribution
 // Note that this code does not include C++-specific random distribution
@@ -82,7 +82,7 @@ class InterarrivalTimer {
     // Now set up the thread positions
     it_ = random_table_.begin();
   }
-  virtual ~InterarrivalTimer(){};
+  virtual ~InterarrivalTimer() {};
 
   int64_t next() {
     auto ret = *(it_++);

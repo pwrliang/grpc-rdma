@@ -16,6 +16,10 @@
  *
  */
 
+#include <grpc/grpc.h>
+#include <grpc/support/log.h>
+#include <grpcpp/alarm.h>
+#include <grpcpp/grpcpp.h>
 #include <numa.h>
 #include <numacompat1.h>
 
@@ -31,11 +35,6 @@
 #include "interarrival.h"
 #include "micro_benchmark.grpc.pb.h"
 #include "mpi.h"
-
-#include <grpc/grpc.h>
-#include <grpc/support/log.h>
-#include <grpcpp/alarm.h>
-#include <grpcpp/grpcpp.h>
 
 ABSL_FLAG(std::string, target, "localhost:50051", "Server address");
 ABSL_FLAG(uint32_t, req, 1, "Request size in bytes");

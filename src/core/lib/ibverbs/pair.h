@@ -8,6 +8,7 @@
 #ifndef GRPC_SRC_CORE_LIB_IBVERBS_PAIR_H
 #define GRPC_SRC_CORE_LIB_IBVERBS_PAIR_H
 #ifdef GRPC_USE_IBVERBS
+#include <grpc/slice.h>
 #include <unistd.h>
 
 #include <queue>
@@ -18,9 +19,6 @@
 
 #include "absl/log/absl_check.h"
 #include "absl/log/log.h"
-
-#include <grpc/slice.h>
-
 #include "src/core/lib/ibverbs/address.h"
 #include "src/core/lib/ibverbs/buffer.h"
 #include "src/core/lib/ibverbs/device.h"

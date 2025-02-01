@@ -44,7 +44,7 @@
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
 #include "absl/strings/str_join.h"
-#include "src/core/lib/config/config_vars.h"
+#include "src/core/config/config_vars.h"
 #include "src/core/lib/ibverbs/pair.h"
 #include "src/core/lib/ibverbs/poller.h"
 #include "src/core/lib/iomgr/block_annotate.h"

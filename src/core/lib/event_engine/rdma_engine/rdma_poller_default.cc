@@ -12,20 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <grpc/support/port_platform.h>
+
 #include <memory>
 #include <string>
 
 #include "absl/strings/str_split.h"
 #include "absl/strings/string_view.h"
-
-#include <grpc/support/port_platform.h>
-
-#include "src/core/lib/config/config_vars.h"
+#include "src/core/config/config_vars.h"
 #include "src/core/lib/event_engine/forkable.h"
 #include "src/core/lib/event_engine/posix_engine/event_poller.h"
 #include "src/core/lib/event_engine/rdma_engine/ev_bpev_rdma_linux.h"
-#include "src/core/util/no_destruct.h"
 #include "src/core/lib/iomgr/port.h"
+#include "src/core/util/no_destruct.h"
 
 namespace grpc_event_engine {
 namespace experimental {
@@ -60,7 +59,8 @@ std::shared_ptr<PosixEventPoller> MakeDefaultRdmaPoller(Scheduler* scheduler) {
 
 #else  // defined(GRPC_POSIX_SOCKET_TCP) && defined(GRPC_USE_IBVERBS)
 
-std::shared_ptr<PosixEventPoller> MakeDefaultRdmaPoller(Scheduler* /*scheduler*/) {
+std::shared_ptr<PosixEventPoller> MakeDefaultRdmaPoller(
+    Scheduler* /*scheduler*/) {
   return nullptr;
 }
 

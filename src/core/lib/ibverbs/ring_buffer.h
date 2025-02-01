@@ -1,8 +1,8 @@
 #ifndef GRPC_SRC_CORE_LIB_IBVERBS_RING_BUFFER_H
 #define GRPC_SRC_CORE_LIB_IBVERBS_RING_BUFFER_H
 #ifdef GRPC_USE_IBVERBS
+#include <grpc/slice.h>
 #include <infiniband/verbs.h>
-
 #include <sys/uio.h>
 
 #include <atomic>
@@ -15,8 +15,6 @@
 #include <limits>
 #include <memory>
 #include <vector>
-
-#include <grpc/slice.h>
 
 #include "src/core/lib/ibverbs/buffer.h"
 

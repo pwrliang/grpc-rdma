@@ -16,6 +16,8 @@
  *
  */
 
+#include <grpcpp/grpcpp.h>
+
 #include <iostream>
 #include <memory>
 #include <string>
@@ -27,8 +29,6 @@
 #include "absl/log/initialize.h"
 #include "absl/log/log.h"
 #include "common.h"
-
-#include <grpcpp/grpcpp.h>
 #ifdef BAZEL_BUILD
 #include "examples/protos/helloworld.grpc.pb.h"
 #else

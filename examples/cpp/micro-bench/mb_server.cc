@@ -16,6 +16,8 @@
  *
  */
 
+#include <grpc/support/log.h>
+#include <grpcpp/grpcpp.h>
 #include <numa.h>
 #include <numacompat1.h>
 
@@ -31,9 +33,6 @@
 #include "absl/log/check.h"
 #include "absl/strings/str_format.h"
 #include "micro_benchmark.grpc.pb.h"
-
-#include <grpc/support/log.h>
-#include <grpcpp/grpcpp.h>
 
 ABSL_FLAG(uint16_t, port, 50051, "Server port for the service");
 ABSL_FLAG(uint32_t, threads, 1, "Number of threads");
