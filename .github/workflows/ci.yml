@@ -146,7 +146,7 @@ jobs:
           popd
 
       - name: Micro-bench Debug
-        timeout-minutes: 20
+        timeout-minutes: 40
         run: |
           pushd examples/cpp/micro-bench/launcher
           rm -rf ./log
@@ -154,7 +154,7 @@ jobs:
           popd
 
       - name: Micro-bench Release
-        timeout-minutes: 20
+        timeout-minutes: 40
         run: |
           pushd examples/cpp/micro-bench/launcher
           rm -rf ./log
