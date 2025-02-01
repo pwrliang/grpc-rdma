@@ -64,7 +64,7 @@ jobs:
           popd
           popd
 
-      - name: Build gRPC
+      - name: Build gRPC - CMake
         run: |
           CI_SERVER="${{ steps.alloc_nodes.outputs.ci_server }}"
 
@@ -79,7 +79,11 @@ jobs:
           cmake .. -DCMAKE_INSTALL_PREFIX=$REL_PREFIX -DCMAKE_BUILD_TYPE=Release
           ssh $CI_SERVER "cd $(pwd) && make -j install"
           popd
-          # Test build with bazel
+
+      - name: Build gRPC - Bazel
+        run: |
+          CI_SERVER="${{ steps.alloc_nodes.outputs.ci_server }}"
+          
           ssh $CI_SERVER "cd $(pwd) && CC=$(which gcc) bazel build //:grpc //:grpc++ --enable_bzlmod=false"
 
       - name: Build Test
