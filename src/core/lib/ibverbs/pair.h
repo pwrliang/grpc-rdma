@@ -11,6 +11,7 @@
 #include <grpc/slice.h>
 #include <unistd.h>
 
+#include <mutex>
 #include <queue>
 #include <shared_mutex>
 #include <sstream>
