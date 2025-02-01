@@ -8555,6 +8555,16 @@ grpc_cc_library(
 )
 
 grpc_cc_library(
+    name = "wait_for_single_owner",
+    hdrs = ["util/wait_for_single_owner.h"],
+    external_deps = ["absl/log"],
+    deps = [
+        "time",
+        "//:gpr",
+    ],
+)
+
+grpc_cc_library(
     name = "ibverbs",
     srcs = [
         "//src/core:lib/ibverbs/address.cc",
@@ -8582,7 +8592,6 @@ grpc_cc_library(
         "absl/time",
     ],
     defines = ["GRPC_USE_IBVERBS"],
-    language = "c++",
     linkopts = ["-libverbs"],
     deps = [
         "error",
