@@ -43,14 +43,14 @@ jobs:
           rm -rf debug && mkdir debug
           pushd debug
           cmake .. -DCMAKE_INSTALL_PREFIX=$DBG_PREFIX -DCMAKE_BUILD_TYPE=Debug
-          ssh $CI_SERVER "cd $(pwd) && make -j install"
+          ssh -o "StrictHostKeyChecking no"  $CI_SERVER "cd $(pwd) && make -j install"
           popd
 
           # Build absel in release mode
           rm -rf release && mkdir release
           pushd release
           cmake .. -DCMAKE_INSTALL_PREFIX=$REL_PREFIX -DCMAKE_BUILD_TYPE=Release
-          ssh $CI_SERVER "cd $(pwd) && make -j install"
+          ssh -o "StrictHostKeyChecking no"  $CI_SERVER "cd $(pwd) && make -j install"
           popd
           popd
 
@@ -59,13 +59,13 @@ jobs:
           rm -rf debug && mkdir debug
           pushd debug
           cmake .. -DCMAKE_INSTALL_PREFIX=$DBG_PREFIX -DCMAKE_BUILD_TYPE=Debug
-          ssh $CI_SERVER "cd $(pwd) && make -j install"
+          ssh -o "StrictHostKeyChecking no"  $CI_SERVER "cd $(pwd) && make -j install"
           popd
 
           rm -rf release && mkdir release
           pushd release
           cmake .. -DCMAKE_INSTALL_PREFIX=$REL_PREFIX -DCMAKE_BUILD_TYPE=Release
-          ssh $CI_SERVER "cd $(pwd) && make -j install"
+          ssh -o "StrictHostKeyChecking no"  $CI_SERVER "cd $(pwd) && make -j install"
           popd
           popd
 
@@ -76,20 +76,20 @@ jobs:
           rm -rf debug && mkdir debug
           pushd debug
           cmake .. -DCMAKE_INSTALL_PREFIX=$DBG_PREFIX -DCMAKE_BUILD_TYPE=Debug
-          ssh $CI_SERVER "cd $(pwd) && make -j install"
+          ssh -o "StrictHostKeyChecking no"  $CI_SERVER "cd $(pwd) && make -j install"
           popd
 
           rm -rf release && mkdir release
           pushd release
           cmake .. -DCMAKE_INSTALL_PREFIX=$REL_PREFIX -DCMAKE_BUILD_TYPE=Release
-          ssh $CI_SERVER "cd $(pwd) && make -j install"
+          ssh -o "StrictHostKeyChecking no"  $CI_SERVER "cd $(pwd) && make -j install"
           popd
 
       - name: Build gRPC - Bazel
         run: |
           CI_SERVER="${{ steps.alloc_nodes.outputs.ci_server }}"
           
-          ssh $CI_SERVER "cd $(pwd) && CC=$(which gcc) bazel build //:grpc //:grpc++ --enable_bzlmod=false"
+          ssh -o "StrictHostKeyChecking no"  $CI_SERVER "cd $(pwd) && CC=$(which gcc) bazel build //:grpc //:grpc++ --enable_bzlmod=false"
 
       - name: Build Test
         run: |
@@ -99,13 +99,13 @@ jobs:
           rm -rf debug && mkdir debug
           pushd debug
           PATH=$DBG_PREFIX/bin:$PATH cmake .. -DCMAKE_PREFIX_PATH=$DBG_PREFIX
-          ssh $CI_SERVER "cd $(pwd) && make -j"
+          ssh -o "StrictHostKeyChecking no"  $CI_SERVER "cd $(pwd) && make -j"
           popd
 
           rm -rf release && mkdir release
           pushd release
           PATH=$REL_PREFIX/bin:$PATH cmake .. -DCMAKE_PREFIX_PATH=$REL_PREFIX
-          ssh $CI_SERVER "cd $(pwd) && make -j"
+          ssh -o "StrictHostKeyChecking no"  $CI_SERVER "cd $(pwd) && make -j"
           popd
           popd
 
@@ -115,9 +115,9 @@ jobs:
           CI_SERVER="${{ steps.alloc_nodes.outputs.ci_server }}"
 
           pushd examples/cpp/test
-          ssh $CI_SERVER "cd $(pwd) && $GITHUB_WORKSPACE/.github/workflows/run_all_variants.sh ./test.sh --test-client=./debug"
-          ssh $CI_SERVER "cd $(pwd) && $GITHUB_WORKSPACE/.github/workflows/run_all_variants.sh ./test.sh --test-async-client=./debug"
-          ssh $CI_SERVER "cd $(pwd) && $GITHUB_WORKSPACE/.github/workflows/run_all_variants.sh ./test.sh --test-async-client2=./debug"
+          ssh -o "StrictHostKeyChecking no"  $CI_SERVER "cd $(pwd) && $GITHUB_WORKSPACE/.github/workflows/run_all_variants.sh ./test.sh --test-client=./debug"
+          ssh -o "StrictHostKeyChecking no"  $CI_SERVER "cd $(pwd) && $GITHUB_WORKSPACE/.github/workflows/run_all_variants.sh ./test.sh --test-async-client=./debug"
+          ssh -o "StrictHostKeyChecking no"  $CI_SERVER "cd $(pwd) && $GITHUB_WORKSPACE/.github/workflows/run_all_variants.sh ./test.sh --test-async-client2=./debug"
           popd
 
       - name: Test Release
@@ -126,9 +126,9 @@ jobs:
           CI_SERVER="${{ steps.alloc_nodes.outputs.ci_server }}"
 
           pushd examples/cpp/test
-          ssh $CI_SERVER "cd $(pwd) && $GITHUB_WORKSPACE/.github/workflows/run_all_variants.sh ./test.sh --test-client=./release"
-          ssh $CI_SERVER "cd $(pwd) && $GITHUB_WORKSPACE/.github/workflows/run_all_variants.sh ./test.sh --test-async-client=./release"
-          ssh $CI_SERVER "cd $(pwd) && $GITHUB_WORKSPACE/.github/workflows/run_all_variants.sh ./test.sh --test-async-client2=./release"
+          ssh -o "StrictHostKeyChecking no"  $CI_SERVER "cd $(pwd) && $GITHUB_WORKSPACE/.github/workflows/run_all_variants.sh ./test.sh --test-client=./release"
+          ssh -o "StrictHostKeyChecking no"  $CI_SERVER "cd $(pwd) && $GITHUB_WORKSPACE/.github/workflows/run_all_variants.sh ./test.sh --test-async-client=./release"
+          ssh -o "StrictHostKeyChecking no"  $CI_SERVER "cd $(pwd) && $GITHUB_WORKSPACE/.github/workflows/run_all_variants.sh ./test.sh --test-async-client2=./release"
           popd
 
       - name: Build Micro-bench
@@ -139,13 +139,13 @@ jobs:
           rm -rf debug && mkdir debug
           pushd debug
           PATH=$DBG_PREFIX/bin:$PATH cmake .. -DCMAKE_PREFIX_PATH=$DBG_PREFIX
-          ssh $CI_SERVER "cd $(pwd) && make -j"
+          ssh -o "StrictHostKeyChecking no"  $CI_SERVER "cd $(pwd) && make -j"
           popd
 
           rm -rf release && mkdir release
           pushd release
           PATH=$REL_PREFIX/bin:$PATH cmake .. -DCMAKE_PREFIX_PATH=$REL_PREFIX
-          ssh $CI_SERVER "cd $(pwd) && make -j"
+          ssh -o "StrictHostKeyChecking no"  $CI_SERVER "cd $(pwd) && make -j"
           popd
           popd
 

@@ -103,11 +103,11 @@ for i in "$@"; do
 done
 
 function kill_server() {
-  ssh "$SERVER" "pkill -9 pidstat || true"
+  ssh -o "StrictHostKeyChecking no" "$SERVER" "pkill -9 pidstat || true"
   # Signal to print profiling results
-  ssh "$SERVER" 'pgrep mb_server | xargs kill -USR1 2>/dev/null || true'
+  ssh -o "StrictHostKeyChecking no" "$SERVER" 'pgrep mb_server | xargs kill -USR1 2>/dev/null || true'
   # Kill Server
-  ssh "$SERVER" 'pgrep mb_server | xargs kill -9 2>/dev/null && while [[ $(ps aux | pgrep mb_server) ]]; do sleep 1; done || true'
+  ssh -o "StrictHostKeyChecking no" "$SERVER" 'pgrep mb_server | xargs kill -9 2>/dev/null && while [[ $(ps aux | pgrep mb_server) ]]; do sleep 1; done || true'
 }
 
 function start_server() {
@@ -116,7 +116,7 @@ function start_server() {
 
   # Generate head
   pidstat -r -u -w -h 1 1 | grep '#' >"${server_stat_log_path}"
-  ssh "${SERVER}" "nohup sh -c 'pidstat  -r -u -w -h 1 | grep --line-buffered mb_server' >>${server_stat_log_path} 2>/dev/null &"
+  ssh -o "StrictHostKeyChecking no" "${SERVER}" "nohup sh -c 'pidstat  -r -u -w -h 1 | grep --line-buffered mb_server' >>${server_stat_log_path} 2>/dev/null &"
   mpirun --bind-to none \
     -x GRPC_ENABLE_RDMA_SUPPORT \
     -x GRPC_RDMA_BUSY_POLLING_TIMEOUT_US \
