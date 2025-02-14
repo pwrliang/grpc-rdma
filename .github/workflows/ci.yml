@@ -20,7 +20,7 @@ jobs:
           # (srun --nodes=2 --ntasks-per-node=1 --cpus-per-task=8 --partition=devel --job-name=rpc_ci sleep 10000 &) || true
           sbatch /home/geng.161/slurm_grpc_ci.sh
           # Wait allocation done
-          while ! squeue -n rpc_ci --long -u $USER | grep -q "RUNNING"; do
+          while ! squeue -n rpc_ci --long -u $USER | grep -q "R"; do
               sleep 1
           done
           squeue -n rpc_ci -u $USER -o %N | tail -n 1 | xargs ./helper.sh
