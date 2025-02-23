@@ -12,7 +12,7 @@
 #include "absl/time/clock.h"
 
 namespace grpc_event_engine::experimental {
-void Poller::AddPollable(PairPollable* pollable) {
+void BusyPoller::AddPollable(PairPollable* pollable) {
   ABSL_CHECK_LT(tail_, GRPC_IBVERBS_POLLER_CAPACITY);
   bool inserted;
   do {
@@ -38,7 +38,7 @@ void Poller::AddPollable(PairPollable* pollable) {
   cv_.Signal();
 }
 
-void Poller::RemovePollable(PairPollable* pollable) {
+void BusyPoller::RemovePollable(PairPollable* pollable) {
   uint32_t tail = tail_;
   for (int i = 0; i < tail; i++) {
     if (pairs_[i] == reinterpret_cast<uint64_t>(pollable)) {
@@ -49,7 +49,7 @@ void Poller::RemovePollable(PairPollable* pollable) {
   }
 }
 
-void Poller::begin_polling(int poller_id) {
+void BusyPoller::begin_polling(int poller_id) {
   auto poller_sleep_timeout = grpc_core::ConfigVars::Get().RdmaPollerSleepTimeoutMs();
   struct pollfd fds[1];
 
