@@ -17,7 +17,6 @@
 //
 
 #include <grpc/support/port_platform.h>
-#include <grpcpp/impl/channel_interface.h>
 
 #include "src/core/lib/iomgr/port.h"
 #include "src/core/util/crash.h"
