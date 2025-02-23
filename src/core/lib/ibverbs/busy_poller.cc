@@ -1,6 +1,6 @@
 #ifdef GRPC_USE_IBVERBS
 
-#include "src/core/lib/ibverbs/poller.h"
+#include "src/core/lib/ibverbs/busy_poller.h"
 
 #include <poll.h>
 #include <unistd.h>
