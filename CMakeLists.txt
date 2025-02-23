@@ -3166,7 +3166,7 @@ if(IBVERBS_FOUND)
     src/core/lib/ibverbs/device.cc
     src/core/lib/ibverbs/memory_region.cc
     src/core/lib/ibverbs/pair.cc
-    src/core/lib/ibverbs/poller.cc
+    src/core/lib/ibverbs/busy_poller.cc
     src/core/lib/ibverbs/ring_buffer.cc
     )
 
