@@ -8654,7 +8654,7 @@ grpc_cc_library(
         "//src/core:lib/ibverbs/device.h",
         "//src/core:lib/ibverbs/memory_region.h",
         "//src/core:lib/ibverbs/pair.h",
-        "//src/core:lib/ibverbs/poller.h",
+        "//src/core:lib/ibverbs/busy_poller.h",
         "//src/core:lib/ibverbs/ring_buffer.h",
         "//src/core:lib/iomgr/wakeup_fd_posix.h",
     ],
