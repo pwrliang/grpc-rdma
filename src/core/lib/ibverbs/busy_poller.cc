@@ -50,7 +50,8 @@ void BusyPoller::RemovePollable(PairPollable* pollable) {
 }
 
 void BusyPoller::begin_polling(int poller_id) {
-  auto poller_sleep_timeout = grpc_core::ConfigVars::Get().RdmaPollerSleepTimeoutMs();
+  auto poller_sleep_timeout =
+      grpc_core::ConfigVars::Get().RdmaPollerSleepTimeoutMs();
   struct pollfd fds[1];
 
   while (running_) {

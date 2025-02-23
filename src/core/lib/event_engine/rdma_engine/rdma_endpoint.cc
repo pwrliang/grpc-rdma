@@ -145,8 +145,7 @@ bool RdmaEndpointImpl::RdmaDoRead(absl::Status& status) {
       } else {  // read zero bytes, something may go wrong
         auto pair_status = pair_->get_status();
         // active exit
-        bool peer_exit =
-            pair_status == PairStatus::kHalfClosed;
+        bool peer_exit = pair_status == PairStatus::kHalfClosed;
 
         // passive exit
         if (!peer_exit) {

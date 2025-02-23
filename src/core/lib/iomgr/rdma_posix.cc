@@ -54,8 +54,8 @@
 #include "src/core/lib/address_utils/sockaddr_utils.h"
 #include "src/core/lib/debug/trace.h"
 #include "src/core/lib/experiments/experiments.h"
-#include "src/core/lib/ibverbs/pair.h"
 #include "src/core/lib/ibverbs/busy_poller.h"
+#include "src/core/lib/ibverbs/pair.h"
 #include "src/core/lib/iomgr/buffer_list.h"
 #include "src/core/lib/iomgr/ev_posix.h"
 #include "src/core/lib/iomgr/event_engine_shims/endpoint.h"
@@ -230,7 +230,8 @@ static void rdma_free(grpc_rdma* rdma) {
                  "tcp_unref_orphan");
   grpc_slice_buffer_destroy(&rdma->last_read_buffer);
   if (rdma->pair != nullptr) {
-    grpc_event_engine::experimental::BusyPoller::Get().RemovePollable(rdma->pair);
+    grpc_event_engine::experimental::BusyPoller::Get().RemovePollable(
+        rdma->pair);
     rdma->pair->Disconnect();
     LOG(INFO) << "Putback a Pair " << rdma->pair;
     grpc_event_engine::experimental::PairPool::Get().Putback(rdma->pair);
@@ -417,7 +418,8 @@ static bool rdma_do_read(grpc_rdma* rdma, grpc_error_handle* error)
       } else {
         auto status = pair->get_status();
         // active exit
-        bool peer_exit = status == grpc_event_engine::experimental::PairStatus::kHalfClosed;
+        bool peer_exit =
+            status == grpc_event_engine::experimental::PairStatus::kHalfClosed;
 
         // passive exit
         if (!peer_exit) {
@@ -440,7 +442,8 @@ static bool rdma_do_read(grpc_rdma* rdma, grpc_error_handle* error)
           *error =
               rdma_annotate_error(absl::InternalError("Pair closed"), rdma);
           return true;
-        } else if (status == grpc_event_engine::experimental::PairStatus::kError) {
+        } else if (status ==
+                   grpc_event_engine::experimental::PairStatus::kError) {
           LOG(ERROR) << "Pair error, Pair " << pair;
           grpc_slice_buffer_reset_and_unref(rdma->incoming_buffer);
           std::string err = "Pair error, " + rdma->pair->get_error();
@@ -693,7 +696,8 @@ static bool rdma_flush(grpc_rdma* rdma, grpc_error_handle* error) {
         grpc_slice_buffer_remove_first(rdma->outgoing_buffer);
       }
       return false;
-    } else if (status == grpc_event_engine::experimental::PairStatus::kHalfClosed) {
+    } else if (status ==
+               grpc_event_engine::experimental::PairStatus::kHalfClosed) {
       *error =
           rdma_annotate_error(GRPC_ERROR_CREATE("Peer has been exited"), rdma);
       grpc_slice_buffer_reset_and_unref(rdma->outgoing_buffer);

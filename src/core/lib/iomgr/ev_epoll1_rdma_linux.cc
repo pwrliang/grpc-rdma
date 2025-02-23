@@ -716,8 +716,10 @@ static grpc_error_handle process_epoll_events(grpc_pollset* /*pollset*/) {
         if (pair != nullptr) {
           auto status = pair->get_status();
 
-          if (status != grpc_event_engine::experimental::PairStatus::kUninitialized &&
-              status != grpc_event_engine::experimental::PairStatus::kDisconnected) {
+          if (status !=
+                  grpc_event_engine::experimental::PairStatus::kUninitialized &&
+              status !=
+                  grpc_event_engine::experimental::PairStatus::kDisconnected) {
             append_error(&error,
                          grpc_wakeup_fd_consume_wakeup(pair->get_wakeup_fd()),
                          err_desc);
