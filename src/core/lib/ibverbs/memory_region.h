@@ -11,8 +11,7 @@
 #ifdef GRPC_USE_IBVERBS
 #include <infiniband/verbs.h>
 
-namespace grpc_core {
-namespace ibverbs {
+namespace grpc_event_engine::experimental {
 // MemoryRegion is used to send local ibv_mr to remote side of pair.
 // Every pair has one instance per slot to receive ibv_mr's.
 // For every receive buffer created on this pair, another instance
@@ -46,7 +45,6 @@ class MemoryRegion {
   void* buf_;
 };
 
-}  // namespace ibverbs
-}  // namespace grpc_core
+}  // namespace grpc_event_engine::experimental
 #endif
 #endif  // GRPC_SRC_CORE_LIB_IBVERBS_REGION_H

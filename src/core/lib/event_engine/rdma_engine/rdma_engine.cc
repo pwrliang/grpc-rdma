@@ -268,7 +268,7 @@ RdmaEventEngine::CreateEndpointFromUnconnectedFdInternal(
   }
 
   std::string name = absl::StrCat("rdma-client:", addr_uri.value());
-  auto* pair = grpc_core::ibverbs::PairPool::Get().Take(name);
+  auto* pair = PairPool::Get().Take(name);
   LOG(INFO) << "Take a Pair " << pair << ", id " << name;
 
   PosixEventPoller* poller = poller_manager_->Poller();

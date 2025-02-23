@@ -55,7 +55,7 @@
 #include "src/core/lib/debug/trace.h"
 #include "src/core/lib/experiments/experiments.h"
 #include "src/core/lib/ibverbs/pair.h"
-#include "src/core/lib/ibverbs/poller.h"
+#include "src/core/lib/ibverbs/busy_poller.h"
 #include "src/core/lib/iomgr/buffer_list.h"
 #include "src/core/lib/iomgr/ev_posix.h"
 #include "src/core/lib/iomgr/event_engine_shims/endpoint.h"
@@ -89,7 +89,7 @@ struct grpc_rdma {
   grpc_core::RefCount refcount;
   gpr_atm shutdown_count;
 
-  grpc_core::ibverbs::PairPollable* pair;
+  grpc_event_engine::experimental::PairPollable* pair;
 
   // garbage after the last read
   grpc_slice_buffer last_read_buffer;
@@ -230,10 +230,10 @@ static void rdma_free(grpc_rdma* rdma) {
                  "tcp_unref_orphan");
   grpc_slice_buffer_destroy(&rdma->last_read_buffer);
   if (rdma->pair != nullptr) {
-    grpc_core::ibverbs::Poller::Get().RemovePollable(rdma->pair);
+    grpc_event_engine::experimental::BusyPoller::Get().RemovePollable(rdma->pair);
     rdma->pair->Disconnect();
     LOG(INFO) << "Putback a Pair " << rdma->pair;
-    grpc_core::ibverbs::PairPool::Get().Putback(rdma->pair);
+    grpc_event_engine::experimental::PairPool::Get().Putback(rdma->pair);
     rdma->pair = nullptr;
   }
   delete rdma;
@@ -417,7 +417,7 @@ static bool rdma_do_read(grpc_rdma* rdma, grpc_error_handle* error)
       } else {
         auto status = pair->get_status();
         // active exit
-        bool peer_exit = status == grpc_core::ibverbs::PairStatus::kHalfClosed;
+        bool peer_exit = status == grpc_event_engine::experimental::PairStatus::kHalfClosed;
 
         // passive exit
         if (!peer_exit) {
@@ -440,7 +440,7 @@ static bool rdma_do_read(grpc_rdma* rdma, grpc_error_handle* error)
           *error =
               rdma_annotate_error(absl::InternalError("Pair closed"), rdma);
           return true;
-        } else if (status == grpc_core::ibverbs::PairStatus::kError) {
+        } else if (status == grpc_event_engine::experimental::PairStatus::kError) {
           LOG(ERROR) << "Pair error, Pair " << pair;
           grpc_slice_buffer_reset_and_unref(rdma->incoming_buffer);
           std::string err = "Pair error, " + rdma->pair->get_error();
@@ -686,14 +686,14 @@ static bool rdma_flush(grpc_rdma* rdma, grpc_error_handle* error) {
       outgoing_slice_idx < rdma->outgoing_buffer->count) {
     auto status = pair->get_status();
 
-    if (status == grpc_core::ibverbs::PairStatus::kConnected) {
+    if (status == grpc_event_engine::experimental::PairStatus::kConnected) {
       // unref all and forget about all slices that have been written to this
       // point
       for (size_t idx = 0; idx < outgoing_slice_idx; ++idx) {
         grpc_slice_buffer_remove_first(rdma->outgoing_buffer);
       }
       return false;
-    } else if (status == grpc_core::ibverbs::PairStatus::kHalfClosed) {
+    } else if (status == grpc_event_engine::experimental::PairStatus::kHalfClosed) {
       *error =
           rdma_annotate_error(GRPC_ERROR_CREATE("Peer has been exited"), rdma);
       grpc_slice_buffer_reset_and_unref(rdma->outgoing_buffer);
@@ -949,7 +949,7 @@ grpc_endpoint* grpc_rdma_create(grpc_fd* em_fd,
   // }
 
   std::string pair_id = std::to_string((long)em_fd) + rdma->peer_string;
-  auto* pair = grpc_core::ibverbs::PairPool::Get().Take(pair_id);
+  auto* pair = grpc_event_engine::experimental::PairPool::Get().Take(pair_id);
   LOG(INFO) << "Take a Pair " << pair << ", peer " << rdma->peer_string;
   pair->Init();
 
@@ -966,14 +966,14 @@ grpc_endpoint* grpc_rdma_create(grpc_fd* em_fd,
   if (!pair->Connect(peer_addr_bytes)) {
     LOG(INFO) << "Connection failed";
     pair->Disconnect();  // Cleanup
-    grpc_core::ibverbs::PairPool::Get().Putback(pair);
+    grpc_event_engine::experimental::PairPool::Get().Putback(pair);
     LOG(INFO) << "Putback a Pair " << pair;
     delete rdma;
     return nullptr;
   }
 
   rdma->pair = pair;
-  grpc_core::ibverbs::Poller::Get().AddPollable(pair);
+  grpc_event_engine::experimental::BusyPoller::Get().AddPollable(pair);
   grpc_fd_set_arg(em_fd, pair);  // pass pair to grpc_fd
 
   return &rdma->base;

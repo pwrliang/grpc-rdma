@@ -18,8 +18,7 @@
 
 #include "src/core/config/config_vars.h"
 
-namespace grpc_core {
-namespace ibverbs {
+namespace grpc_event_engine::experimental {
 class Device {
  public:
   Device();
@@ -44,8 +43,7 @@ class Device {
 
   friend class PairPollable;
 };
-}  // namespace ibverbs
 
-}  // namespace grpc_core
+}  // namespace grpc_event_engine::experimental
 #endif
 #endif  // GRPC_SRC_CORE_LIB_IBVERBS_DEVICE_H

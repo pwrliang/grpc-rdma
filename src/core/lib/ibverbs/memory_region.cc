@@ -11,8 +11,7 @@
 
 #include "absl/log/absl_check.h"
 
-namespace grpc_core {
-namespace ibverbs {
+namespace grpc_event_engine::experimental {
 MemoryRegion::MemoryRegion(struct ibv_pd* pd) {
   memset(&src_, 0, sizeof(src_));
 
@@ -32,6 +31,5 @@ MemoryRegion::~MemoryRegion() {
   ABSL_CHECK_EQ(rv, 0);
 }
 
-}  // namespace ibverbs
-}  // namespace grpc_core
+}  // namespace grpc_event_engine::experimental
 #endif

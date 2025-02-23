@@ -7,8 +7,7 @@
 #include <string>
 #include <vector>
 
-namespace grpc_core {
-namespace ibverbs {
+namespace grpc_event_engine::experimental {
 
 class Address {
  public:
@@ -34,8 +33,7 @@ class Address {
   // Pair can access addr_ directly
   friend class PairPollable;
 };
-}  // namespace ibverbs
-}  // namespace grpc_core
+}  // namespace grpc_event_engine::experimental
 #endif
 
 #endif  // GRPC_SRC_CORE_LIB_IBVERBS_ADDRESS_H

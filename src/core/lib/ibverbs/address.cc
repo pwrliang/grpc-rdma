@@ -5,8 +5,7 @@
 
 #include "absl/log/absl_check.h"
 
-namespace grpc_core {
-namespace ibverbs {
+namespace grpc_event_engine::experimental {
 
 Address::Address() { memset(&addr_, 0, sizeof(addr_)); }
 
@@ -27,6 +26,5 @@ std::string Address::str() const {
            addr_.qpn, addr_.psn);
   return std::string(buf.data());
 }
-}  // namespace ibverbs
-}  // namespace grpc_core
+}  // namespace grpc_event_engine::experimental
 #endif

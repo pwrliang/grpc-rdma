@@ -45,8 +45,8 @@
 #include "src/core/lib/event_engine/posix_engine/lockfree_event.h"
 #include "src/core/lib/event_engine/posix_engine/posix_engine_closure.h"
 #include "src/core/lib/event_engine/posix_engine/wakeup_fd_posix_default.h"
+#include "src/core/lib/ibverbs/busy_poller.h"
 #include "src/core/lib/ibverbs/pair.h"
-#include "src/core/lib/ibverbs/poller.h"
 #include "src/core/util/fork.h"
 #include "src/core/util/status_helper.h"
 #include "src/core/util/strerror.h"
@@ -130,7 +130,7 @@ class BpevEventHandle : public RdmaEventHandle {
     std::stringstream ss;
     ss << this;
     // pair must be ready for the wakeup fd
-    pair_ = grpc_core::ibverbs::PairPool::Get().Take(ss.str());
+    pair_ = PairPool::Get().Take(ss.str());
   }
 
   void ReInit(int fd) {
@@ -145,7 +145,7 @@ class BpevEventHandle : public RdmaEventHandle {
     std::stringstream ss;
     ss << this;
 
-    pair_ = grpc_core::ibverbs::PairPool::Get().Take(ss.str());
+    pair_ = PairPool::Get().Take(ss.str());
   }
 
   void InitializePair(absl::Status& status) override {
@@ -164,7 +164,7 @@ class BpevEventHandle : public RdmaEventHandle {
         LOG(ERROR) << "Making RDMA connection failed, error "
                    << pair_->get_error();
         pair_->Disconnect();  // Cleanup
-        grpc_core::ibverbs::PairPool::Get().Putback(pair_);
+        PairPool::Get().Putback(pair_);
         status = absl::FailedPreconditionError(
             "Making RDMA connection failed, error " + pair_->get_error());
         pair_ = nullptr;
@@ -173,16 +173,16 @@ class BpevEventHandle : public RdmaEventHandle {
     } else {
       LOG(ERROR) << "Exchanging RDMA QP failed, error "
                  << grpc_core::StrError(err);
-      grpc_core::ibverbs::PairPool::Get().Putback(pair_);
+      PairPool::Get().Putback(pair_);
       status = absl::FailedPreconditionError(std::strerror(err));
       pair_ = nullptr;
       return;
     }
     // the Poller uses background to poll RDMA buffers
-    grpc_core::ibverbs::Poller::Get().AddPollable(pair_);
+    BusyPoller::Get().AddPollable(pair_);
   }
 
-  grpc_core::ibverbs::PairPollable* GetPair() override { return pair_; }
+  PairPollable* GetPair() override { return pair_; }
 
   BpevPoller* Poller() override { return poller_; }
   bool SetPendingActions(bool pending_read, bool pending_write,
@@ -247,7 +247,7 @@ class BpevEventHandle : public RdmaEventHandle {
   // required.
   grpc_core::Mutex mu_;
   int fd_;
-  grpc_core::ibverbs::PairPollable* pair_;
+  PairPollable* pair_;
   // See BpevPoller::SetPendingActions for explanation on why pending_<***>_
   // need to be atomic.
   std::atomic<bool> pending_read_{false};
@@ -447,8 +447,8 @@ void BpevEventHandle::OrphanHandle(PosixEngineClosure* on_done, int* release_fd,
   }
 
   pair_->Disconnect();
-  grpc_core::ibverbs::Poller::Get().RemovePollable(pair_);
-  grpc_core::ibverbs::PairPool::Get().Putback(pair_);
+  BusyPoller::Get().RemovePollable(pair_);
+  PairPool::Get().Putback(pair_);
   pair_ = nullptr;
 }
 
@@ -605,16 +605,15 @@ bool BpevPoller::ProcessEpollEvents(int max_epoll_events_to_handle,
           bool read_ev = false;
           bool write_ev = false;
 
-          if (status != grpc_core::ibverbs::PairStatus::kUninitialized &&
-              status != grpc_core::ibverbs::PairStatus::kDisconnected) {
+          if (status != PairStatus::kUninitialized &&
+              status != PairStatus::kDisconnected) {
             auto why = grpc_wakeup_fd_consume_wakeup(pair->get_wakeup_fd());
             if (!why.ok()) {
               LOG(ERROR) << "Consume wakeup fd error, " << why.message();
             }
             /* If half-closed, trigger read to free resources */
             if (pair->HasMessage() ||
-                pair->get_status() ==
-                    grpc_core::ibverbs::PairStatus::kHalfClosed) {
+                pair->get_status() == PairStatus::kHalfClosed) {
               read_ev = true;
             }
 
@@ -675,8 +674,7 @@ int BpevPoller::DoEpollWait(EventEngine::Duration timeout) {
         auto* pair = fd->GetPair();
 
         // pair can be null if InitializePair fails
-        if (pair != nullptr &&
-            pair->get_status() == grpc_core::ibverbs::PairStatus::kConnected) {
+        if (pair != nullptr && pair->get_status() == PairStatus::kConnected) {
           bool readable = pair->HasMessage();
           bool writable = pair->HasPendingWrites();
           uint32_t events = 0;

@@ -68,7 +68,7 @@
 #include <sys/poll.h>
 
 #include "src/core/lib/event_engine/rdma_engine/event_poller.h"
-#include "src/core/lib/ibverbs/poller.h"
+#include "src/core/lib/ibverbs/busy_poller.h"
 
 #define MAX_READ_IOVEC 64
 
@@ -146,7 +146,7 @@ bool RdmaEndpointImpl::RdmaDoRead(absl::Status& status) {
         auto pair_status = pair_->get_status();
         // active exit
         bool peer_exit =
-            pair_status == grpc_core::ibverbs::PairStatus::kHalfClosed;
+            pair_status == PairStatus::kHalfClosed;
 
         // passive exit
         if (!peer_exit) {
@@ -167,7 +167,7 @@ bool RdmaEndpointImpl::RdmaDoRead(absl::Status& status) {
           incoming_buffer_->Clear();
           status = RdmaAnnotateError(absl::InternalError("Pair closed"));
           return true;
-        } else if (pair_status == grpc_core::ibverbs::PairStatus::kError) {
+        } else if (pair_status == PairStatus::kError) {
           LOG(ERROR) << "Pair error, Pair " << pair_;
           incoming_buffer_->Clear();
           status = RdmaAnnotateError(absl::InternalError(pair_->get_error()));
@@ -486,14 +486,14 @@ bool RdmaEndpointImpl::RdmaFlush(absl::Status& status) {
       outgoing_slice_idx < outgoing_buffer_->Count()) {
     auto pair_status = pair_->get_status();
 
-    if (pair_status == grpc_core::ibverbs::PairStatus::kConnected) {
+    if (pair_status == PairStatus::kConnected) {
       // unref all and forget about all slices that have been written to this
       // point
       for (size_t idx = 0; idx < outgoing_slice_idx; ++idx) {
         outgoing_buffer_->TakeFirst();
       }
       return false;
-    } else if (pair_status == grpc_core::ibverbs::PairStatus::kHalfClosed) {
+    } else if (pair_status == PairStatus::kHalfClosed) {
       status = RdmaAnnotateError(GRPC_ERROR_CREATE("Peer has been exited"));
       outgoing_buffer_->Clear();
       return true;

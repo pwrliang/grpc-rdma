@@ -3,8 +3,7 @@
 
 #include "absl/log/absl_check.h"
 
-namespace grpc_core {
-namespace ibverbs {
+namespace grpc_event_engine::experimental {
 Buffer::Buffer(ibv_pd* pd, size_t size) : buffer_(size) {
   mr_ = ibv_reg_mr(pd, buffer_.data(), size,
                    IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE);
@@ -21,6 +20,5 @@ const uint8_t* Buffer::data() const { return buffer_.data(); }
 
 ibv_mr* Buffer::get_mr() { return mr_; }
 
-}  // namespace ibverbs
-}  // namespace grpc_core
+}  // namespace grpc_event_engine::experimental
 #endif

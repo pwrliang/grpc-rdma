@@ -15,19 +15,14 @@
 #ifndef GRPC_SRC_CORE_LIB_EVENT_ENGINE_RDMA_ENGINE_EVENT_POLLER_H
 #define GRPC_SRC_CORE_LIB_EVENT_ENGINE_RDMA_ENGINE_EVENT_POLLER_H
 #include "src/core/lib/event_engine/posix_engine/event_poller.h"
-namespace grpc_core {
-namespace ibverbs {
-class PairPollable;
-}
-}  // namespace grpc_core
 
 namespace grpc_event_engine {
 namespace experimental {
-
+class PairPollable;
 class RdmaEventHandle : public EventHandle {
  public:
   virtual void InitializePair(absl::Status& status) = 0;
-  virtual grpc_core::ibverbs::PairPollable* GetPair() = 0;
+  virtual PairPollable* GetPair() = 0;
   ~RdmaEventHandle() override = default;
 };
 

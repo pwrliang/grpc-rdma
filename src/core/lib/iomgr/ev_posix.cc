@@ -34,7 +34,6 @@
 #include "src/core/lib/debug/trace.h"
 #include "src/core/lib/iomgr/ev_epoll1_linux.h"
 #include "src/core/lib/iomgr/ev_epoll1_rdma_linux.h"
-#include "src/core/lib/iomgr/ev_epollex_rdma_linux.h"
 #include "src/core/lib/iomgr/ev_poll_posix.h"
 #include "src/core/lib/iomgr/ev_posix.h"
 #include "src/core/lib/iomgr/internal_errqueue.h"
@@ -73,7 +72,6 @@ static const grpc_event_engine_vtable* g_vtables[] = {
     nullptr,
     nullptr,
     nullptr,
-    //    &grpc_ev_epollex_rdma_posix,
     &grpc_ev_epoll1_rdma_posix,
     &grpc_ev_epoll1_posix,
     &grpc_ev_poll_posix,

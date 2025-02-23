@@ -17,6 +17,7 @@
 //
 
 #include <grpc/support/port_platform.h>
+#include <grpcpp/impl/channel_interface.h>
 
 #include "src/core/lib/iomgr/port.h"
 #include "src/core/util/crash.h"
@@ -160,7 +161,7 @@ struct grpc_fd {
   grpc_fork_fd_list* fork_fd_list;
 
   bool is_pre_allocated;
-  grpc_core::ibverbs::PairPollable* pair;
+  grpc_event_engine::experimental::PairPollable* pair;
 };
 
 static void fd_global_init(void);
@@ -478,7 +479,7 @@ static void fd_set_pre_allocated(grpc_fd* fd) { fd->is_pre_allocated = true; }
 
 // called when create an endpoint
 static void fd_set_arg(grpc_fd* fd, void* arg) {
-  fd->pair = (grpc_core::ibverbs::PairPollable*)arg;
+  fd->pair = (grpc_event_engine::experimental::PairPollable*)arg;
   struct epoll_event wakeup_ep_ev;
   wakeup_ep_ev.events = static_cast<uint32_t>(EPOLLIN | EPOLLET);
   wakeup_ep_ev.data.ptr =
@@ -715,15 +716,15 @@ static grpc_error_handle process_epoll_events(grpc_pollset* /*pollset*/) {
         if (pair != nullptr) {
           auto status = pair->get_status();
 
-          if (status != grpc_core::ibverbs::PairStatus::kUninitialized &&
-              status != grpc_core::ibverbs::PairStatus::kDisconnected) {
+          if (status != grpc_event_engine::experimental::PairStatus::kUninitialized &&
+              status != grpc_event_engine::experimental::PairStatus::kDisconnected) {
             append_error(&error,
                          grpc_wakeup_fd_consume_wakeup(pair->get_wakeup_fd()),
                          err_desc);
             /* If half-closed, trigger read to free resources */
             if (pair->HasMessage() ||
                 pair->get_status() ==
-                    grpc_core::ibverbs::PairStatus::kHalfClosed) {
+                    grpc_event_engine::experimental::PairStatus::kHalfClosed) {
               fd_become_readable(fd);
             }
 

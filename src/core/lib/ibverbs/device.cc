@@ -15,8 +15,7 @@
 #include "absl/log/absl_check.h"
 #include "absl/log/log.h"
 
-namespace grpc_core {
-namespace ibverbs {
+namespace grpc_event_engine::experimental {
 
 // Scope guard for ibverbs device list.
 class IbvDevices {
@@ -44,7 +43,7 @@ class IbvDevices {
 };
 
 Device::Device() {
-  auto& config = ConfigVars::Get();
+  auto& config = grpc_core::ConfigVars::Get();
   auto dev_name = config.RdmaDeviceName();
   IbvDevices devices;
 
@@ -108,6 +107,5 @@ Device::~Device() {
   rv = ibv_close_device(context_);
   ABSL_CHECK_EQ(rv, 0);
 }
-}  // namespace ibverbs
-}  // namespace grpc_core
+}  // namespace grpc_event_engine::experimental
 #endif

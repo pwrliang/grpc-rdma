@@ -13,15 +13,14 @@
 #include "src/core/config/config_vars.h"
 #include "src/core/lib/ibverbs/ring_buffer.h"
 
-namespace grpc_core {
-namespace ibverbs {
+namespace grpc_event_engine::experimental {
 
 PairPollable::PairPollable()
     : dev_(Device::Get()),
       status_(PairStatus::kUninitialized),
       read_content_(0),
       write_content_(0) {
-  auto& config = ConfigVars::Get();
+  auto& config = grpc_core::ConfigVars::Get();
 
   cq_ =
       ibv_create_cq(dev_->context_, kCompletionQueueCapacity, this, nullptr, 0);
@@ -89,7 +88,7 @@ void PairPollable::Init() {
 
   if (status_ == PairStatus::kUninitialized || status_ == PairStatus::kError ||
       status_ == PairStatus::kDisconnected) {
-    auto& config = ConfigVars::Get();
+    auto& config = grpc_core::ConfigVars::Get();
     // Init queue pair
     memset(&attr, 0, sizeof(struct ibv_qp_attr));
     attr.qp_state = IBV_QPS_INIT;
@@ -302,7 +301,7 @@ void PairPollable::waitDataWrites() {
 void PairPollable::initQPs() {
   struct ibv_qp_attr attr;
   int rv;
-  auto& config = ConfigVars::Get();
+  auto& config = grpc_core::ConfigVars::Get();
 
   memset(&attr, 0, sizeof(attr));
   attr.qp_state = IBV_QPS_RTR;
@@ -622,6 +621,5 @@ uint64_t PairPollable::Send(grpc_slice* slices, size_t slice_count,
   return written_slice_size;
 }
 
-}  // namespace ibverbs
-}  // namespace grpc_core
+}  // namespace grpc_event_engine::experimental
 #endif

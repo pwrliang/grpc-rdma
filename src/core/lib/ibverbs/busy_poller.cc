@@ -11,10 +11,8 @@
 #include "absl/log/log.h"
 #include "absl/time/clock.h"
 
-// TODO: Consider using Executor
-namespace grpc_core {
-namespace ibverbs {
-void Poller::AddPollable(grpc_core::ibverbs::PairPollable* pollable) {
+namespace grpc_event_engine::experimental {
+void Poller::AddPollable(PairPollable* pollable) {
   ABSL_CHECK_LT(tail_, GRPC_IBVERBS_POLLER_CAPACITY);
   bool inserted;
   do {
@@ -37,13 +35,10 @@ void Poller::AddPollable(grpc_core::ibverbs::PairPollable* pollable) {
     }
   } while (!inserted);
   n_pairs_++;
-  {
-    std::unique_lock<std::mutex> lk(mu_);
-    cv_.notify_one();
-  }
+  cv_.Signal();
 }
 
-void Poller::RemovePollable(grpc_core::ibverbs::PairPollable* pollable) {
+void Poller::RemovePollable(PairPollable* pollable) {
   uint32_t tail = tail_;
   for (int i = 0; i < tail; i++) {
     if (pairs_[i] == reinterpret_cast<uint64_t>(pollable)) {
@@ -55,14 +50,12 @@ void Poller::RemovePollable(grpc_core::ibverbs::PairPollable* pollable) {
 }
 
 void Poller::begin_polling(int poller_id) {
-  auto poller_sleep_timeout = ConfigVars::Get().RdmaPollerSleepTimeoutMs();
+  auto poller_sleep_timeout = grpc_core::ConfigVars::Get().RdmaPollerSleepTimeoutMs();
   struct pollfd fds[1];
 
   while (running_) {
     if (n_pairs_ == 0) {
-      std::unique_lock<std::mutex> lk(mu_);
-      std::chrono::milliseconds dur(poller_sleep_timeout);
-      cv_.wait_for(lk, dur, [this] { return n_pairs_ > 0; });
+      cv_.WaitWithTimeout(&mu_, absl::Milliseconds(poller_sleep_timeout));
       continue;
     }
 
@@ -108,6 +101,5 @@ void Poller::begin_polling(int poller_id) {
   }
 }
 
-}  // namespace ibverbs
-}  // namespace grpc_core
+}  // namespace grpc_event_engine::experimental
 #endif

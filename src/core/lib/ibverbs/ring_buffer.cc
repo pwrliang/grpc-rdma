@@ -7,8 +7,7 @@
 #include "absl/log/absl_check.h"
 #include "absl/log/log.h"
 
-namespace grpc_core {
-namespace ibverbs {
+namespace grpc_event_engine::experimental {
 
 RingBufferPollable::RingBufferPollable()
     : buf_(nullptr),
@@ -302,6 +301,5 @@ uint64_t RingBufferPollable::get_capacity() const { return capacity_; }
 
 uint64_t RingBufferPollable::get_head() const { return moving_head_; }
 
-}  // namespace ibverbs
-}  // namespace grpc_core
+}  // namespace grpc_event_engine::experimental
 #endif

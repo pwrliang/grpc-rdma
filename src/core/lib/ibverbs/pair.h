@@ -42,8 +42,7 @@ inline void ibverbsCheck(std::string& error, int no, const char* call,
   }
 }
 
-namespace grpc_core {
-namespace ibverbs {
+namespace grpc_event_engine::experimental {
 
 enum class PairStatus {
   kUninitialized,
@@ -321,7 +320,6 @@ class PairPool {
   }
 };
 
-}  // namespace ibverbs
-}  // namespace grpc_core
+}  // namespace grpc_event_engine::experimental
 #endif
 #endif  // GRPC_SRC_CORE_LIB_IBVERBS_PAIR_H

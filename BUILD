@@ -1366,7 +1366,6 @@ grpc_cc_library(
         "//src/core:lib/iomgr/ev_apple.cc",
         "//src/core:lib/iomgr/ev_epoll1_linux.cc",
         "//src/core:lib/iomgr/ev_epoll1_rdma_linux.cc",
-        "//src/core:lib/iomgr/ev_epollex_rdma_linux.cc",
         "//src/core:lib/iomgr/ev_poll_posix.cc",
         "//src/core:lib/iomgr/ev_posix.cc",
         "//src/core:lib/iomgr/fork_posix.cc",

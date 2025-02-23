@@ -18,8 +18,7 @@
 
 #include "src/core/lib/ibverbs/buffer.h"
 
-namespace grpc_core {
-namespace ibverbs {
+namespace grpc_event_engine::experimental {
 
 class PairPollable;
 
@@ -148,8 +147,7 @@ class RingBufferPollable {
     return v - v % alignment;
   }
 };
-}  // namespace ibverbs
 
-}  // namespace grpc_core
+}  // namespace grpc_event_engine::experimental
 #endif
 #endif  // GRPC_SRC_CORE_LIB_IBVERBS_RING_BUFFER_H
