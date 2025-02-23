@@ -1,6 +1,7 @@
 #ifdef GRPC_USE_IBVERBS
 
 #include "src/core/lib/ibverbs/busy_poller.h"
+#include "src/core/util/sync.h"
 
 #include <poll.h>
 #include <unistd.h>
@@ -9,7 +10,6 @@
 
 #include "absl/log/absl_check.h"
 #include "absl/log/log.h"
-#include "absl/time/clock.h"
 
 namespace grpc_event_engine::experimental {
 void BusyPoller::AddPollable(PairPollable* pollable) {
@@ -56,6 +56,7 @@ void BusyPoller::begin_polling(int poller_id) {
 
   while (running_) {
     if (n_pairs_ == 0) {
+      grpc_core::MutexLock lock(&mu_);
       cv_.WaitWithTimeout(&mu_, absl::Milliseconds(poller_sleep_timeout));
       continue;
     }

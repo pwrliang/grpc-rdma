@@ -2,9 +2,7 @@
 #define GRPC_SRC_CORE_LIB_IBVERBS_BUSY_POLLER_H
 #ifdef GRPC_USE_IBVERBS
 
-#include <condition_variable>
-#include <mutex>
-#include <queue>
+#include <array>
 
 #include "src/core/config/config_vars.h"
 #include "src/core/lib/ibverbs/pair.h"
